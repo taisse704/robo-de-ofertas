@@ -13,34 +13,124 @@ const ofertasExemplo = [
 ];
 
 export default function App() {
+  const [usuario, setUsuario] = useState(null);
+  const [carregando, setCarregando] = useState(true);
+
+  const [modoLogin, setModoLogin] = useState("entrar");
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
+  const [mensagemLogin, setMensagemLogin] = useState("");
+
   const [pagina, setPagina] = useState("inicio");
   const [pausado, setPausado] = useState(false);
   const [supabaseStatus, setSupabaseStatus] = useState("testando");
-  const [mensagemSupabase, setMensagemSupabase] = useState("");
 
-  async function testarSupabase() {
-    setSupabaseStatus("testando");
-    setMensagemSupabase("");
+  useEffect(() => {
+    verificarSessao();
 
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUsuario(session?.user ?? null);
+      setCarregando(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  async function verificarSessao() {
     try {
-      const { error } = await supabase.auth.getSession();
+      const {
+        data: { session },
+        error
+      } = await supabase.auth.getSession();
 
       if (error) {
         throw error;
       }
 
+      setUsuario(session?.user ?? null);
       setSupabaseStatus("conectado");
-      setMensagemSupabase("Supabase conectado corretamente.");
     } catch (error) {
       console.error(error);
       setSupabaseStatus("erro");
-      setMensagemSupabase("Não foi possível conectar ao Supabase.");
+    } finally {
+      setCarregando(false);
     }
   }
 
-  useEffect(() => {
-    testarSupabase();
-  }, []);
+  async function entrar(event) {
+    event.preventDefault();
+
+    setMensagemLogin("");
+
+    if (!email.trim() || !senha) {
+      setMensagemLogin("Digite seu e-mail e sua senha.");
+      return;
+    }
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password: senha
+    });
+
+    if (error) {
+      setMensagemLogin(
+        "Não foi possível entrar. Verifique o e-mail e a senha."
+      );
+      console.error(error);
+      return;
+    }
+
+    setMensagemLogin("");
+  }
+
+  async function criarConta(event) {
+    event.preventDefault();
+
+    setMensagemLogin("");
+
+    if (!email.trim() || !senha) {
+      setMensagemLogin("Digite seu e-mail e crie uma senha.");
+      return;
+    }
+
+    if (senha.length < 6) {
+      setMensagemLogin("A senha precisa ter pelo menos 6 caracteres.");
+      return;
+    }
+
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password: senha
+    });
+
+    if (error) {
+      setMensagemLogin(
+        "Não foi possível criar a conta. Verifique os dados."
+      );
+      console.error(error);
+      return;
+    }
+
+    if (data.session) {
+      setMensagemLogin("");
+    } else {
+      setMensagemLogin(
+        "Conta criada. Verifique seu e-mail para confirmar a conta."
+      );
+    }
+  }
+
+  async function sair() {
+    await supabase.auth.signOut();
+    setUsuario(null);
+    setPagina("inicio");
+    setEmail("");
+    setSenha("");
+  }
 
   const menu = [
     ["inicio", "🏠", "Início"],
@@ -50,263 +140,56 @@ export default function App() {
     ["config", "⚙️", "Config"]
   ];
 
-  return (
-    <div className="app">
-      <header>
-        <div>
-          <h1>ROBÔ DE OFERTAS</h1>
+  if (carregando) {
+    return (
+      <div className="app">
+        <main>
+          <div className="panel">
+            <h1>ROBÔ DE OFERTAS</h1>
+            <p>Carregando...</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
-          <p className={pausado ? "status pausado" : "status"}>
-            ● {pausado ? "Robô pausado" : "Robô ativo"}
-          </p>
-        </div>
+  if (!usuario) {
+    return (
+      <div className="app">
+        <main>
+          <div className="panel login">
+            <h1>ROBÔ DE OFERTAS</h1>
 
-        <button
-          className="pause"
-          onClick={() => setPausado(!pausado)}
-        >
-          {pausado ? "▶ CONTINUAR" : "🛑 PAUSAR ROBÔ"}
-        </button>
-      </header>
+            <p>
+              {modoLogin === "entrar"
+                ? "Entre na sua conta"
+                : "Crie sua conta"}
+            </p>
 
-      <main>
-        {pagina === "inicio" && (
-          <>
-            <h2>Início</h2>
-
-            <div className="panel">
-              <h3>Conexão com a nuvem</h3>
-
-              {supabaseStatus === "testando" && (
-                <p>🔄 Testando conexão com Supabase...</p>
-              )}
-
-              {supabaseStatus === "conectado" && (
-                <p className="status">
-                  🟢 Supabase conectado
-                </p>
-              )}
-
-              {supabaseStatus === "erro" && (
-                <p className="status pausado">
-                  🔴 Erro na conexão
-                </p>
-              )}
-
-              {mensagemSupabase && (
-                <p>{mensagemSupabase}</p>
-              )}
-
-              <button
-                className="secondary"
-                onClick={testarSupabase}
-              >
-                🔄 Testar conexão
-              </button>
-            </div>
-
-            <div className="cards">
-              <div className="card">
-                <span>Ofertas encontradas</span>
-                <strong>0</strong>
-              </div>
-
-              <div className="card">
-                <span>Aguardando revisão</span>
-                <strong>0</strong>
-              </div>
-
-              <div className="card">
-                <span>Publicações</span>
-                <strong>0</strong>
-              </div>
-
-              <div className="card">
-                <span>Cliques</span>
-                <strong>0</strong>
-              </div>
-            </div>
-
-            <div className="panel">
-              <h3>Ofertas em destaque</h3>
-              <p>Nenhuma oferta encontrada ainda.</p>
-            </div>
-          </>
-        )}
-
-        {pagina === "ofertas" && (
-          <>
-            <h2>Ofertas</h2>
-
-            <div className="filters">
-              <input placeholder="🔎 Procurar produto" />
-
-              <select>
-                <option>Todas as plataformas</option>
-                <option>Shopee</option>
-                <option>Mercado Livre</option>
-                <option>Magalu</option>
-                <option>TikTok Shop</option>
-              </select>
-            </div>
-
-            {ofertasExemplo.map((oferta) => (
-              <div className="offer" key={oferta.id}>
-                <div className="offer-image">🛍️</div>
-
-                <div className="offer-info">
-                  <h3>{oferta.produto}</h3>
-                  <p>{oferta.plataforma}</p>
-                  <strong>{oferta.preco}</strong>
-                  <span>{oferta.desconto} de desconto</span>
-                  <small>
-                    Comissão estimada: {oferta.comissao}
-                  </small>
-                </div>
-
-                <button className="secondary">
-                  Criar conteúdo
-                </button>
-              </div>
-            ))}
-          </>
-        )}
-
-        {pagina === "conteudo" && (
-          <>
-            <h2>Conteúdo</h2>
-
-            <div className="panel">
-              <h3>Criar conteúdo</h3>
-
+            <form
+              onSubmit={
+                modoLogin === "entrar"
+                  ? entrar
+                  : criarConta
+              }
+            >
               <label>
-                Tipo de vídeo
+                E-mail
 
-                <select>
-                  <option>Oferta rápida</option>
-                  <option>Oferta + cupom</option>
-                  <option>Problema → solução</option>
-                  <option>Benefícios</option>
-                  <option>Lista</option>
-                </select>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) =>
+                    setEmail(event.target.value)
+                  }
+                  placeholder="seu@email.com"
+                  autoComplete="email"
+                />
               </label>
 
               <label>
-                Duração
+                Senha
 
-                <select>
-                  <option>15 segundos</option>
-                  <option>20 segundos</option>
-                  <option>30 segundos</option>
-                </select>
-              </label>
-
-              <label>
-                Narração
-
-                <select>
-                  <option>Sem voz</option>
-                  <option>Voz feminina</option>
-                  <option>Voz masculina</option>
-                </select>
-              </label>
-
-              <button className="primary">
-                🎬 Criar conteúdo
-              </button>
-            </div>
-          </>
-        )}
-
-        {pagina === "resultados" && (
-          <>
-            <h2>Resultados</h2>
-
-            <div className="cards">
-              <div className="card">
-                <span>Visualizações</span>
-                <strong>0</strong>
-              </div>
-
-              <div className="card">
-                <span>Cliques</span>
-                <strong>0</strong>
-              </div>
-
-              <div className="card">
-                <span>Vendas</span>
-                <strong>0</strong>
-              </div>
-
-              <div className="card">
-                <span>Comissão</span>
-                <strong>R$ 0,00</strong>
-              </div>
-            </div>
-
-            <div className="panel">
-              <h3>Desempenho por canal</h3>
-              <p>Instagram: 0 cliques</p>
-              <p>YouTube Shorts: 0 cliques</p>
-              <p>WhatsApp: 0 cliques</p>
-              <p>TikTok: 0 cliques</p>
-            </div>
-          </>
-        )}
-
-        {pagina === "config" && (
-          <>
-            <h2>Configurações</h2>
-
-            <div className="panel">
-              <h3>Automação</h3>
-
-              <label>
-                <span>Aprovação antes de publicar</span>
-                <input type="checkbox" defaultChecked />
-              </label>
-
-              <label>
-                <span>Modo automático</span>
-                <input type="checkbox" />
-              </label>
-
-              <label>
-                <span>Instagram</span>
-                <input type="checkbox" />
-              </label>
-
-              <label>
-                <span>YouTube Shorts</span>
-                <input type="checkbox" />
-              </label>
-
-              <label>
-                <span>WhatsApp</span>
-                <input type="checkbox" />
-              </label>
-
-              <label>
-                <span>TikTok</span>
-                <input type="checkbox" />
-              </label>
-            </div>
-          </>
-        )}
-      </main>
-
-      <nav>
-        {menu.map(([id, icone, nome]) => (
-          <button
-            key={id}
-            className={pagina === id ? "ativo" : ""}
-            onClick={() => setPagina(id)}
-          >
-            <span>{icone}</span>
-            <small>{nome}</small>
-          </button>
-        ))}
-      </nav>
-    </div>
-  );
-}
+                <input
+                  type="password"
+                  value={
