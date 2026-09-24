@@ -66,6 +66,7 @@ export default function App() {
     const { data, error } = await supabase
       .from("platforms")
       .select("id, nome, tipo, ativo")
+      .eq("ativo", true)
       .order("nome");
     if (error) {
       console.error(error);
