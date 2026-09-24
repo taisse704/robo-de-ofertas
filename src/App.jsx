@@ -28,30 +28,27 @@ export default function App() {
   useEffect(() => {
     verificarSessao();
 
-    const {
-      data: { subscription }
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUsuario(session?.user ?? null);
-      setCarregando(false);
-    });
+    const authListener = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setUsuario(session?.user || null);
+        setCarregando(false);
+      }
+    );
 
     return () => {
-      subscription.unsubscribe();
+      authListener.data.subscription.unsubscribe();
     };
   }, []);
 
   async function verificarSessao() {
     try {
-      const {
-        data: { session },
-        error
-      } = await supabase.auth.getSession();
+      const resultado = await supabase.auth.getSession();
 
-      if (error) {
-        throw error;
+      if (resultado.error) {
+        throw resultado.error;
       }
 
-      setUsuario(session?.user ?? null);
+      setUsuario(resultado.data.session?.user || null);
       setSupabaseStatus("conectado");
     } catch (error) {
       console.error(error);
@@ -63,7 +60,6 @@ export default function App() {
 
   async function entrar(event) {
     event.preventDefault();
-
     setMensagemLogin("");
 
     if (!email.trim() || !senha) {
@@ -71,16 +67,14 @@ export default function App() {
       return;
     }
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const resultado = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password: senha
     });
 
-    if (error) {
-      setMensagemLogin(
-        "Não foi possível entrar. Verifique o e-mail e a senha."
-      );
-      console.error(error);
+    if (resultado.error) {
+      console.error(resultado.error);
+      setMensagemLogin("E-mail ou senha incorretos.");
       return;
     }
 
@@ -89,7 +83,6 @@ export default function App() {
 
   async function criarConta(event) {
     event.preventDefault();
-
     setMensagemLogin("");
 
     if (!email.trim() || !senha) {
@@ -102,24 +95,22 @@ export default function App() {
       return;
     }
 
-    const { data, error } = await supabase.auth.signUp({
+    const resultado = await supabase.auth.signUp({
       email: email.trim(),
       password: senha
     });
 
-    if (error) {
-      setMensagemLogin(
-        "Não foi possível criar a conta. Verifique os dados."
-      );
-      console.error(error);
+    if (resultado.error) {
+      console.error(resultado.error);
+      setMensagemLogin("Não foi possível criar a conta.");
       return;
     }
 
-    if (data.session) {
+    if (resultado.data.session) {
       setMensagemLogin("");
     } else {
       setMensagemLogin(
-        "Conta criada. Verifique seu e-mail para confirmar a conta."
+        "Conta criada. Verifique seu e-mail para confirmar."
       );
     }
   }
@@ -133,11 +124,11 @@ export default function App() {
   }
 
   const menu = [
-    ["inicio", "🏠", "Início"],
-    ["ofertas", "🔎", "Ofertas"],
-    ["conteudo", "🎬", "Conteúdo"],
-    ["resultados", "📊", "Resultados"],
-    ["config", "⚙️", "Config"]
+    ["inicio", "Inicio"],
+    ["ofertas", "Ofertas"],
+    ["conteudo", "Conteudo"],
+    ["resultados", "Resultados"],
+    ["config", "Config"]
   ];
 
   if (carregando) {
@@ -145,7 +136,7 @@ export default function App() {
       <div className="app">
         <main>
           <div className="panel">
-            <h1>ROBÔ DE OFERTAS</h1>
+            <h1>ROBO DE OFERTAS</h1>
             <p>Carregando...</p>
           </div>
         </main>
@@ -158,7 +149,7 @@ export default function App() {
       <div className="app">
         <main>
           <div className="panel login">
-            <h1>ROBÔ DE OFERTAS</h1>
+            <h1>ROBO DE OFERTAS</h1>
 
             <p>
               {modoLogin === "entrar"
@@ -183,7 +174,6 @@ export default function App() {
                     setEmail(event.target.value)
                   }
                   placeholder="seu@email.com"
-                  autoComplete="email"
                 />
               </label>
 
@@ -192,4 +182,52 @@ export default function App() {
 
                 <input
                   type="password"
-                  value={
+                  value={senha}
+                  onChange={(event) =>
+                    setSenha(event.target.value)
+                  }
+                  placeholder="Minimo 6 caracteres"
+                />
+              </label>
+
+              {mensagemLogin && (
+                <p>{mensagemLogin}</p>
+              )}
+
+              <button
+                className="primary"
+                type="submit"
+              >
+                {modoLogin === "entrar"
+                  ? "ENTRAR"
+                  : "CRIAR CONTA"}
+              </button>
+            </form>
+
+            <button
+              className="secondary"
+              onClick={() => {
+                setMensagemLogin("");
+
+                setModoLogin(
+                  modoLogin === "entrar"
+                    ? "criar"
+                    : "entrar"
+                );
+              }}
+            >
+              {modoLogin === "entrar"
+                ? "Criar uma conta"
+                : "Ja tenho uma conta"}
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  return (
+    <div className="app">
+      <header>
+        <div>
+          <
