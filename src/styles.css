@@ -6,12 +6,18 @@ body {
   margin: 0;
   font-family: Arial, sans-serif;
   background: #0b0b0d;
-  color: #ffffff;
+  color: #fff;
+}
+
+button,
+input,
+select {
+  font: inherit;
 }
 
 .app {
   min-height: 100vh;
-  padding-bottom: 75px;
+  padding-bottom: 80px;
 }
 
 header {
@@ -20,7 +26,7 @@ header {
   z-index: 5;
   background: #111114;
   border-bottom: 1px solid #29292e;
-  padding: 16px;
+  padding: 15px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -35,11 +41,11 @@ header h1 {
 .status {
   margin: 5px 0 0;
   font-size: 12px;
-  color: #38d878;
+  color: #35d879;
 }
 
 .status.pausado {
-  color: #e6a51a;
+  color: #f0b429;
 }
 
 .pause {
@@ -52,18 +58,14 @@ header h1 {
 }
 
 main {
-  max-width: 900px;
+  max-width: 950px;
   margin: auto;
   padding: 22px 16px;
 }
 
 h2 {
-  font-size: 27px;
   margin-top: 0;
-}
-
-h3 {
-  margin-top: 0;
+  font-size: 28px;
 }
 
 .cards {
@@ -74,7 +76,8 @@ h3 {
 }
 
 .card,
-.panel {
+.panel,
+.offer {
   background: #151519;
   border: 1px solid #29292e;
   border-radius: 14px;
@@ -98,20 +101,116 @@ h3 {
 }
 
 .panel p {
+  color: #aaa;
+}
+
+.filters {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+input,
+select {
+  width: 100%;
+  background: #101014;
+  color: white;
+  border: 1px solid #33343a;
+  border-radius: 10px;
+  padding: 12px;
+  outline: none;
+}
+
+.offer {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 12px;
+}
+
+.offer-image {
+  width: 70px;
+  height: 70px;
+  border-radius: 12px;
+  background: #222229;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  flex-shrink: 0;
+}
+
+.offer-info {
+  flex: 1;
+}
+
+.offer-info h3 {
+  margin: 0 0 5px;
+}
+
+.offer-info p {
+  margin: 0 0 7px;
   color: #999;
+}
+
+.offer-info strong {
+  display: block;
+  font-size: 20px;
+}
+
+.offer-info span {
+  display: block;
+  color: #35d879;
+  margin-top: 3px;
+}
+
+.offer-info small {
+  display: block;
+  color: #aaa;
+  margin-top: 5px;
+}
+
+.primary,
+.secondary {
+  border: 0;
+  border-radius: 10px;
+  padding: 11px 14px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.primary {
+  width: 100%;
+  margin-top: 20px;
+  background: #fff;
+  color: #111;
+}
+
+.secondary {
+  background: #29292f;
+  color: white;
 }
 
 label {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 15px;
   padding: 15px 0;
   border-bottom: 1px solid #29292e;
-  gap: 15px;
 }
 
 label:last-child {
   border-bottom: 0;
+}
+
+label select {
+  max-width: 210px;
+}
+
+label input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
 }
 
 nav {
@@ -128,11 +227,12 @@ nav {
 
 nav button {
   flex: 1;
-  min-width: 75px;
+  min-width: 70px;
   border: 0;
   background: transparent;
   color: #777;
   padding: 10px 4px;
+  cursor: pointer;
 }
 
 nav button.ativo {
@@ -153,5 +253,29 @@ nav button small {
 @media (min-width: 700px) {
   .cards {
     grid-template-columns: repeat(4, 1fr);
+  }
+
+  .filters {
+    grid-template-columns: 2fr 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .offer {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .offer .secondary {
+    width: 100%;
+  }
+
+  label {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  label select {
+    max-width: none;
   }
 }
