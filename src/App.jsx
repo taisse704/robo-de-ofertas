@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
 const emptyOffer = {
   titulo: "",
   plataforma: "",
@@ -14,6 +17,13 @@ const emptyOffer = {
   classificacao: "verificar"
 };
 
+const providers = [
+  { key: "shopee", name: "Shopee" },
+  { key: "mercadolivre", name: "Mercado Livre" },
+  { key: "magalu", name: "Magalu" },
+  { key: "amazon", name: "Amazon" }
+];
+
 export default function App() {
   const [usuario, setUsuario] = useState(null);
   const [carregando, setCarregando] = useState(true);
@@ -26,8 +36,11 @@ export default function App() {
   const [supabaseStatus, setSupabaseStatus] = useState("testando");
   const [ofertas, setOfertas] = useState([]);
   const [plataformas, setPlataformas] = useState([]);
+  const [contasAfiliadas, setContasAfiliadas] = useState([]);
   const [carregandoOfertas, setCarregandoOfertas] = useState(false);
+  const [carregandoAfiliadas, setCarregandoAfiliadas] = useState(false);
   const [mensagemOferta, setMensagemOferta] = useState("");
+  const [mensagemAfiliadas, setMensagemAfiliadas] = useState("");
   const [mostrarNovaOferta, setMostrarNovaOferta] = useState(false);
   const [novaOferta, setNovaOferta] = useState(emptyOffer);
 
@@ -59,7 +72,7 @@ export default function App() {
   }
 
   async function carregarDados() {
-    await Promise.all([carregarPlataformas(), carregarOfertas()]);
+    await Promise.all([carregarPlataformas(), carregarOfertas(), carregarContasAfiliadas()]);
   }
 
   async function carregarPlataformas() {
@@ -89,6 +102,110 @@ export default function App() {
       setOfertas(data || []);
     }
     setCarregandoOfertas(false);
+  }
+
+  async function carregarContasAfiliadas() {
+    setCarregandoAfiliadas(true);
+    const { data, error } = await supabase
+      .from("affiliate_accounts")
+      .select("*, platforms(id, nome)")
+      .eq("user_id", usuario.id)
+      .order("nome_conta");
+
+    if (error) {
+      console.error(error);
+      setMensagemAfiliadas("Nao foi possivel carregar as contas de afiliadas.");
+    } else {
+      setContasAfiliadas(data || []);
+    }
+    setCarregandoAfiliadas(false);
+  }
+
+  async function prepararConexao(provider) {
+    setMensagemAfiliadas("");
+
+    if (provider.key === "mercadolivre") {
+      try {
+        const {
+          data: { session },
+          error: sessionError
+        } = await supabase.auth.getSession();
+
+        if (sessionError || !session?.access_token) {
+          setMensagemAfiliadas("Sua sessao expirou. Faca login novamente no sistema.");
+          return;
+        }
+
+        const response = await fetch(
+          `${SUPABASE_URL}/functions/v1/mercadolivre-oauth?action=start`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+              apikey: SUPABASE_ANON_KEY
+            }
+          }
+        );
+
+        const resultado = await response.json();
+
+        if (!response.ok || !resultado.ok) {
+          console.error("Erro OAuth Mercado Livre:", resultado);
+          setMensagemAfiliadas(resultado?.error || "Nao foi possivel iniciar a conexao com o Mercado Livre.");
+          return;
+        }
+
+        if (!resultado.authorization_url) {
+          setMensagemAfiliadas("O Mercado Livre nao retornou a URL de autorizacao.");
+          return;
+        }
+
+        window.location.href = resultado.authorization_url;
+        return;
+      } catch (error) {
+        console.error(error);
+        setMensagemAfiliadas("Erro ao iniciar a conexao com o Mercado Livre.");
+        return;
+      }
+    }
+
+    const platform = plataformas.find((p) =>
+      p.nome.toLowerCase().includes(provider.name.toLowerCase())
+    );
+
+    if (!platform) {
+      setMensagemAfiliadas(`A plataforma ${provider.name} ainda nao esta cadastrada no sistema.`);
+      return;
+    }
+
+    const existente = contasAfiliadas.find((a) => a.platform_id === platform.id);
+
+    if (existente) {
+      setMensagemAfiliadas(`${provider.name}: conta ja cadastrada. A autorizacao oficial ainda precisa ser configurada.`);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("affiliate_accounts")
+      .insert({
+        user_id: usuario.id,
+        platform_id: platform.id,
+        nome_conta: provider.name,
+        ativo: false,
+        status: "aguardando_autorizacao",
+        configuracao: { provider: provider.key }
+      })
+      .select("*, platforms(id, nome)")
+      .single();
+
+    if (error) {
+      console.error(error);
+      setMensagemAfiliadas(`Nao foi possivel preparar a conta ${provider.name}: ${error.message}`);
+      return;
+    }
+
+    setContasAfiliadas((atual) => [...atual, data]);
+    setMensagemAfiliadas(`${provider.name} adicionada. A conexao oficial sera configurada quando a plataforma fornecer a autorizacao/API.`);
   }
 
   function alterarNovaOferta(campo, valor) {
@@ -220,11 +337,7 @@ export default function App() {
       setMensagemLogin("Nao foi possivel criar a conta.");
       return;
     }
-    setMensagemLogin(
-      data.session
-        ? ""
-        : "Conta criada. Verifique seu e-mail para confirmar."
-    );
+    setMensagemLogin(data.session ? "" : "Conta criada. Verifique seu e-mail para confirmar.");
   }
 
   async function sair() {
@@ -234,14 +347,12 @@ export default function App() {
     setEmail("");
     setSenha("");
     setOfertas([]);
+    setContasAfiliadas([]);
   }
 
   function moeda(valor) {
     if (valor == null || valor === "") return "R$ 0,00";
-    return Number(valor).toLocaleString("pt-BR", {
-      style: "currency",
-      currency: "BRL"
-    });
+    return Number(valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   }
 
   const menu = [
@@ -332,20 +443,13 @@ export default function App() {
                 {mostrarNovaOferta ? "FECHAR" : "+ NOVA OFERTA"}
               </button>
             </div>
-
             {mensagemOferta && <div className="panel"><p>{mensagemOferta}</p></div>}
-
             {mostrarNovaOferta && (
               <div className="panel">
                 <h3>Cadastrar nova oferta</h3>
                 <form onSubmit={salvarOferta}>
                   <label>Produto / titulo<input value={novaOferta.titulo} onChange={(e) => alterarNovaOferta("titulo", e.target.value)} placeholder="Ex.: Fritadeira Air Fryer" /></label>
-                  <label>Plataforma
-                    <select value={novaOferta.plataforma} onChange={(e) => alterarNovaOferta("plataforma", e.target.value)}>
-                      <option value="">Selecione</option>
-                      {plataformas.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
-                    </select>
-                  </label>
+                  <label>Plataforma<select value={novaOferta.plataforma} onChange={(e) => alterarNovaOferta("plataforma", e.target.value)}><option value="">Selecione</option>{plataformas.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
                   <label>Preco atual<input inputMode="decimal" value={novaOferta.precoAtual} onChange={(e) => alterarNovaOferta("precoAtual", e.target.value)} placeholder="Ex.: 199,90" /></label>
                   <label>Preco anterior<input inputMode="decimal" value={novaOferta.precoAnterior} onChange={(e) => alterarNovaOferta("precoAnterior", e.target.value)} placeholder="Ex.: 299,90" /></label>
                   <label>Desconto percentual<input inputMode="decimal" value={novaOferta.desconto} onChange={(e) => alterarNovaOferta("desconto", e.target.value)} placeholder="Ex.: 33,33" /></label>
@@ -353,18 +457,11 @@ export default function App() {
                   <label>Comissao estimada<input inputMode="decimal" value={novaOferta.comissaoEstimada} onChange={(e) => alterarNovaOferta("comissaoEstimada", e.target.value)} placeholder="Ex.: 19,99" /></label>
                   <label>Link do produto<input type="url" value={novaOferta.urlProduto} onChange={(e) => alterarNovaOferta("urlProduto", e.target.value)} placeholder="https://..." /></label>
                   <label>Link da imagem<input type="url" value={novaOferta.imagemUrl} onChange={(e) => alterarNovaOferta("imagemUrl", e.target.value)} placeholder="https://..." /></label>
-                  <label>Classificacao
-                    <select value={novaOferta.classificacao} onChange={(e) => alterarNovaOferta("classificacao", e.target.value)}>
-                      <option value="interessante">Interessante</option>
-                      <option value="verificar">Verificar</option>
-                      <option value="descartada">Descartada</option>
-                    </select>
-                  </label>
+                  <label>Classificacao<select value={novaOferta.classificacao} onChange={(e) => alterarNovaOferta("classificacao", e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select></label>
                   <button className="primary" type="submit">SALVAR OFERTA</button>
                 </form>
               </div>
             )}
-
             <div className="panel">
               <h3>Ofertas cadastradas</h3>
               {carregandoOfertas && <p>Carregando ofertas...</p>}
@@ -372,22 +469,7 @@ export default function App() {
               {ofertas.map((o) => (
                 <div className="offer" key={o.id}>
                   <div className="offer-image">Oferta</div>
-                  <div className="offer-info">
-                    <h3>{o.titulo}</h3>
-                    <p>{o.platforms?.nome || "Plataforma"}</p>
-                    <strong>{moeda(o.preco_atual)}</strong>
-                    {o.desconto_percentual != null && <span>{o.desconto_percentual}% de desconto</span>}
-                    <small>Comissao estimada: {moeda(o.comissao_estimada)}</small>
-                    <small>Status: {o.classificacao}</small>
-                    <div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}>
-                      <select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}>
-                        <option value="interessante">Interessante</option>
-                        <option value="verificar">Verificar</option>
-                        <option value="descartada">Descartada</option>
-                      </select>
-                      <button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button>
-                    </div>
-                  </div>
+                  <div className="offer-info"><h3>{o.titulo}</h3><p>{o.platforms?.nome || "Plataforma"}</p><strong>{moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{o.desconto_percentual}% de desconto</span>}<small>Comissao estimada: {moeda(o.comissao_estimada)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
                 </div>
               ))}
             </div>
@@ -397,32 +479,41 @@ export default function App() {
         {pagina === "conteudo" && (
           <>
             <h2>Conteudo</h2>
-            <div className="panel">
-              <h3>Criar conteudo</h3>
-              <label>Tipo de video<select><option>Oferta rapida</option><option>Oferta + cupom</option><option>Problema para solucao</option><option>Beneficios</option><option>Lista</option></select></label>
-              <label>Duracao<select><option>15 segundos</option><option>20 segundos</option><option>30 segundos</option></select></label>
-              <label>Narracao<select><option>Sem voz</option><option>Voz feminina</option><option>Voz masculina</option></select></label>
-              <button className="primary">Criar conteudo</button>
-            </div>
+            <div className="panel"><h3>Criar conteudo</h3><label>Tipo de video<select><option>Oferta rapida</option><option>Oferta + cupom</option><option>Problema para solucao</option><option>Beneficios</option><option>Lista</option></select></label><label>Duracao<select><option>15 segundos</option><option>20 segundos</option><option>30 segundos</option></select></label><label>Narracao<select><option>Sem voz</option><option>Voz feminina</option><option>Voz masculina</option></select></label><button className="primary">Criar conteudo</button></div>
           </>
         )}
 
         {pagina === "resultados" && (
           <>
-            <h2>Resultados</h2>
-            <div className="cards">
-              <div className="card"><span>Visualizacoes</span><strong>0</strong></div>
-              <div className="card"><span>Cliques</span><strong>0</strong></div>
-              <div className="card"><span>Vendas</span><strong>0</strong></div>
-              <div className="card"><span>Comissao</span><strong>R$ 0,00</strong></div>
-            </div>
-            <div className="panel"><h3>Desempenho por canal</h3><p>Instagram: 0 cliques</p><p>YouTube Shorts: 0 cliques</p><p>WhatsApp: 0 cliques</p><p>TikTok: 0 cliques</p></div>
+            <h2>Resultados</h2><div className="cards"><div className="card"><span>Visualizacoes</span><strong>0</strong></div><div className="card"><span>Cliques</span><strong>0</strong></div><div className="card"><span>Vendas</span><strong>0</strong></div><div className="card"><span>Comissao</span><strong>R$ 0,00</strong></div></div><div className="panel"><h3>Desempenho por canal</h3><p>Instagram: 0 cliques</p><p>YouTube Shorts: 0 cliques</p><p>WhatsApp: 0 cliques</p><p>TikTok: 0 cliques</p></div>
           </>
         )}
 
         {pagina === "config" && (
           <>
             <h2>Configuracoes</h2>
+            <div className="panel">
+              <h3>Contas de afiliadas</h3>
+              <p>Conecte suas contas pelos meios oficiais de cada plataforma.</p>
+              {mensagemAfiliadas && <p className="status">{mensagemAfiliadas}</p>}
+              {carregandoAfiliadas && <p>Carregando contas...</p>}
+              <div style={{ display: "grid", gap: "12px" }}>
+                {providers.map((provider) => {
+                  const conta = contasAfiliadas.find((a) => a.platforms?.nome?.toLowerCase().includes(provider.name.toLowerCase()));
+                  return (
+                    <div className="offer" key={provider.key}>
+                      <div className="offer-info">
+                        <h3>{provider.name}</h3>
+                        <p>Status: {conta?.status || "Nao conectada"}</p>
+                        <button className="primary" onClick={() => prepararConexao(provider)}>
+                          {provider.key === "mercadolivre" ? "CONECTAR MERCADO LIVRE" : conta ? "CONFIGURAR" : "CONECTAR"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
             <div className="panel">
               <h3>Automacao</h3>
               <label><span>Aprovacao antes de publicar</span><input type="checkbox" defaultChecked /></label>
@@ -431,6 +522,7 @@ export default function App() {
               <label><span>YouTube Shorts</span><input type="checkbox" /></label>
               <label><span>WhatsApp</span><input type="checkbox" /></label>
               <label><span>TikTok</span><input type="checkbox" /></label>
+              <label><span>Kwai</span><input type="checkbox" /></label>
             </div>
             <div className="panel"><h3>Conta</h3><p>{usuario.email}</p><button className="secondary" onClick={sair}>Sair da conta</button></div>
           </>
@@ -438,12 +530,7 @@ export default function App() {
       </main>
 
       <nav>
-        {menu.map(([id, nome]) => (
-          <button key={id} className={pagina === id ? "ativo" : ""} onClick={() => setPagina(id)}>
-            <span>{id === "inicio" && "🏠"}{id === "ofertas" && "🔎"}{id === "conteudo" && "🎬"}{id === "resultados" && "📊"}{id === "config" && "⚙️"}</span>
-            <small>{nome}</small>
-          </button>
-        ))}
+        {menu.map(([id, nome]) => <button key={id} className={pagina === id ? "ativo" : ""} onClick={() => setPagina(id)}><span>{id === "inicio" && "🏠"}{id === "ofertas" && "🔎"}{id === "conteudo" && "🎬"}{id === "resultados" && "📊"}{id === "config" && "⚙️"}</span><small>{nome}</small></button>)}
       </nav>
     </div>
   );
