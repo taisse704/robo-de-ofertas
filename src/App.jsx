@@ -41,8 +41,12 @@ export default function App() {
   const [carregandoAfiliadas, setCarregandoAfiliadas] = useState(false);
   const [mensagemOferta, setMensagemOferta] = useState("");
   const [mensagemAfiliadas, setMensagemAfiliadas] = useState("");
-  const [mostrarNovaOferta, setMostrarNovaOferta] = useState(false);
-  const [novaOferta, setNovaOferta] = useState(emptyOffer);
+  const [config, setConfig] = useState({ativo:true,busca_automatica:true,publicar_automaticamente:true,aprovacao_antes_publicar:false,instagram:false,youtube:false,whatsapp:false,tiktok:false,kwai:false,intervalo_minutos:30});
+  const [salvandoConfig, setSalvandoConfig] = useState(false);
+  const [mensagemConfig, setMensagemConfig] = useState("");
+  const [conteudos, setConteudos] = useState([]);
+  const [mensagemConteudo, setMensagemConteudo] = useState("");
+  const [aprovandoConteudo, setAprovandoConteudo] = useState(null);
 
   useEffect(() => {
     verificarSessao();
@@ -71,8 +75,95 @@ export default function App() {
     }
   }
 
+  async function carregarConfiguracao() {
+    const [{ data }, { data: canais }] = await Promise.all([
+      supabase.from("robot_settings").select("*").eq("user_id", usuario.id).maybeSingle(),
+      supabase.from("publication_channels").select("tipo,ativo").eq("user_id", usuario.id)
+    ]);
+    const mapa = { instagram: false, youtube: false, whatsapp: false, tiktok: false, kwai: false };
+    for (const ch of canais || []) {
+      if (ch.tipo === "instagram") mapa.instagram = !!ch.ativo;
+      if (ch.tipo === "youtube_shorts" || ch.tipo === "youtube") mapa.youtube = !!ch.ativo;
+      if (ch.tipo === "whatsapp") mapa.whatsapp = !!ch.ativo;
+      if (ch.tipo === "tiktok") mapa.tiktok = !!ch.ativo;
+      if (ch.tipo === "kwai") mapa.kwai = !!ch.ativo;
+    }
+    if (data) {
+      setConfig(prev => ({ ...prev, ...(data.configuracao || {}), ...mapa, ativo: data.ativo, busca_automatica: data.busca_automatica, publicar_automaticamente: data.publicar_automaticamente, intervalo_minutos: data.intervalo_minutos }));
+    } else {
+      setConfig(prev => ({ ...prev, ...mapa }));
+    }
+  }
+
+  async function sincronizarCanais(c) {
+    const canais = [
+      ["instagram", "Instagram", !!c.instagram],
+      ["youtube_shorts", "YouTube Shorts", !!c.youtube],
+      ["whatsapp", "WhatsApp", !!c.whatsapp],
+      ["tiktok", "TikTok", !!c.tiktok],
+      ["kwai", "Kwai", !!c.kwai]
+    ];
+    for (const [tipo, nome, ativo] of canais) {
+      const { data: existentes, error: buscaErro } = await supabase
+        .from("publication_channels")
+        .select("id")
+        .eq("user_id", usuario.id)
+        .eq("tipo", tipo);
+      if (buscaErro) throw buscaErro;
+      if (existentes?.length) {
+        const { error } = await supabase.from("publication_channels").update({ nome, ativo, updated_at: new Date().toISOString() }).eq("user_id", usuario.id).eq("tipo", tipo);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("publication_channels").insert({ user_id: usuario.id, tipo, nome, ativo, configuracao: {} });
+        if (error) throw error;
+      }
+    }
+  }
+
+  async function salvarConfiguracao(next) {
+    const c={...config,...next}; setConfig(c); setSalvandoConfig(true); setMensagemConfig("");
+    const payload={ativo:!!c.ativo,busca_automatica:!!c.busca_automatica,publicar_automaticamente:!!c.publicar_automaticamente,intervalo_minutos:Number(c.intervalo_minutos||30),configuracao:{aprovacao_antes_publicar:!!c.aprovacao_antes_publicar,instagram:!!c.instagram,youtube:!!c.youtube,whatsapp:!!c.whatsapp,tiktok:!!c.tiktok,kwai:!!c.kwai}};
+    try {
+      const {error}=await supabase.from("robot_settings").upsert({user_id:usuario.id,...payload},{onConflict:"user_id"});
+      if (error) throw error;
+      await sincronizarCanais(c);
+      setMensagemConfig("Configurações salvas.");
+    } catch (error) {
+      console.error(error);
+      setMensagemConfig("Não foi possível salvar as configurações.");
+    } finally {
+      setSalvandoConfig(false);
+    }
+  }
+
+  async function carregarConteudos() {
+    const { data, error } = await supabase.from("contents").select("*").eq("user_id", usuario.id).order("created_at", { ascending: false }).limit(30);
+    if (error) { console.error(error); setMensagemConteudo("Nao foi possivel carregar os conteudos."); return; }
+    setConteudos(data || []);
+  }
+
+  async function aprovarConteudo(id) {
+    setAprovandoConteudo(id); setMensagemConteudo("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Sessao expirada.");
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/approve-content`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ content_id: id })
+      });
+      const resultado = await response.json().catch(() => ({}));
+      if (!response.ok || !resultado.ok) throw new Error(resultado.error || `Erro ${response.status}`);
+      setMensagemConteudo(`Conteúdo aprovado e ${resultado.pendentes || 0} publicação(ões) enfileirada(s).`);
+      await carregarConteudos();
+    } catch (error) {
+      console.error(error);
+      setMensagemConteudo(error?.message || "Nao foi possivel aprovar o conteudo.");
+    } finally { setAprovandoConteudo(null); }
+  }
+
   async function carregarDados() {
-    await Promise.all([carregarPlataformas(), carregarOfertas(), carregarContasAfiliadas()]);
+    await Promise.all([carregarPlataformas(), carregarOfertas(), carregarContasAfiliadas(), carregarConfiguracao(), carregarConteudos()]);
   }
 
   async function carregarPlataformas() {
@@ -218,57 +309,6 @@ export default function App() {
     return Number.isFinite(n) ? n : null;
   }
 
-  async function salvarOferta(event) {
-    event.preventDefault();
-    setMensagemOferta("");
-
-    if (!novaOferta.titulo.trim()) {
-      setMensagemOferta("Digite o nome da oferta.");
-      return;
-    }
-    if (!novaOferta.plataforma) {
-      setMensagemOferta("Selecione a plataforma.");
-      return;
-    }
-
-    const payload = {
-      user_id: usuario.id,
-      platform_id: novaOferta.plataforma,
-      titulo: novaOferta.titulo.trim(),
-      url_produto: novaOferta.urlProduto.trim() || null,
-      preco_atual: numero(novaOferta.precoAtual),
-      preco_anterior: numero(novaOferta.precoAnterior),
-      desconto_percentual: numero(novaOferta.desconto),
-      comissao_percentual: numero(novaOferta.comissaoPercentual),
-      comissao_estimada: numero(novaOferta.comissaoEstimada),
-      moeda: "BRL",
-      disponibilidade: true,
-      classificacao: novaOferta.classificacao,
-      permitido_afiliado: true,
-      permitido_divulgacao: false,
-      imagem_url: novaOferta.imagemUrl.trim() || null,
-      encontrada_em: new Date().toISOString(),
-      atualizada_em: new Date().toISOString()
-    };
-
-    const { data, error } = await supabase
-      .from("offers")
-      .insert(payload)
-      .select("*, platforms(id, nome)")
-      .single();
-
-    if (error) {
-      console.error(error);
-      setMensagemOferta("Nao foi possivel salvar a oferta: " + error.message);
-      return;
-    }
-
-    setOfertas((atual) => [data, ...atual]);
-    setNovaOferta({ ...emptyOffer });
-    setMostrarNovaOferta(false);
-    setMensagemOferta("Oferta salva com sucesso.");
-  }
-
   async function buscarOfertasMercadoLivre() {
     setMensagemOferta("Buscando ofertas no Mercado Livre...");
     setCarregandoOfertas(true);
@@ -395,7 +435,7 @@ export default function App() {
     ["config", "Config"]
   ];
 
-  const emRevisao = ofertas.filter((o) => o.classificacao === "verificar").length;
+  const emRevisao = conteudos.filter((c) => c.status === "aguardando_revisao").length;
   const interessantes = ofertas.filter((o) => o.classificacao === "interessante").length;
 
   if (carregando) {
@@ -474,29 +514,8 @@ export default function App() {
               <button className="primary" onClick={buscarOfertasMercadoLivre} disabled={carregandoOfertas}>
                 {carregandoOfertas ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DO MERCADO LIVRE"}
               </button>
-              <button className="secondary" onClick={() => { setMostrarNovaOferta(!mostrarNovaOferta); setMensagemOferta(""); }}>
-                {mostrarNovaOferta ? "FECHAR" : "+ NOVA OFERTA"}
-              </button>
             </div>
             {mensagemOferta && <div className="panel"><p>{mensagemOferta}</p></div>}
-            {mostrarNovaOferta && (
-              <div className="panel">
-                <h3>Cadastrar nova oferta</h3>
-                <form onSubmit={salvarOferta}>
-                  <label>Produto / titulo<input value={novaOferta.titulo} onChange={(e) => alterarNovaOferta("titulo", e.target.value)} placeholder="Ex.: Fritadeira Air Fryer" /></label>
-                  <label>Plataforma<select value={novaOferta.plataforma} onChange={(e) => alterarNovaOferta("plataforma", e.target.value)}><option value="">Selecione</option>{plataformas.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
-                  <label>Preco atual<input inputMode="decimal" value={novaOferta.precoAtual} onChange={(e) => alterarNovaOferta("precoAtual", e.target.value)} placeholder="Ex.: 199,90" /></label>
-                  <label>Preco anterior<input inputMode="decimal" value={novaOferta.precoAnterior} onChange={(e) => alterarNovaOferta("precoAnterior", e.target.value)} placeholder="Ex.: 299,90" /></label>
-                  <label>Desconto percentual<input inputMode="decimal" value={novaOferta.desconto} onChange={(e) => alterarNovaOferta("desconto", e.target.value)} placeholder="Ex.: 33,33" /></label>
-                  <label>Comissao percentual<input inputMode="decimal" value={novaOferta.comissaoPercentual} onChange={(e) => alterarNovaOferta("comissaoPercentual", e.target.value)} placeholder="Ex.: 10" /></label>
-                  <label>Comissao estimada<input inputMode="decimal" value={novaOferta.comissaoEstimada} onChange={(e) => alterarNovaOferta("comissaoEstimada", e.target.value)} placeholder="Ex.: 19,99" /></label>
-                  <label>Link do produto<input type="url" value={novaOferta.urlProduto} onChange={(e) => alterarNovaOferta("urlProduto", e.target.value)} placeholder="https://..." /></label>
-                  <label>Link da imagem<input type="url" value={novaOferta.imagemUrl} onChange={(e) => alterarNovaOferta("imagemUrl", e.target.value)} placeholder="https://..." /></label>
-                  <label>Classificacao<select value={novaOferta.classificacao} onChange={(e) => alterarNovaOferta("classificacao", e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select></label>
-                  <button className="primary" type="submit">SALVAR OFERTA</button>
-                </form>
-              </div>
-            )}
             <div className="panel">
               <h3>Ofertas cadastradas</h3>
               {carregandoOfertas && <p>Carregando ofertas...</p>}
@@ -514,7 +533,21 @@ export default function App() {
         {pagina === "conteudo" && (
           <>
             <h2>Conteudo</h2>
-            <div className="panel"><h3>Criar conteudo</h3><label>Tipo de video<select><option>Oferta rapida</option><option>Oferta + cupom</option><option>Problema para solucao</option><option>Beneficios</option><option>Lista</option></select></label><label>Duracao<select><option>15 segundos</option><option>20 segundos</option><option>30 segundos</option></select></label><label>Narracao<select><option>Sem voz</option><option>Voz feminina</option><option>Voz masculina</option></select></label><button className="primary">Criar conteudo</button></div>
+            {mensagemConteudo && <div className="panel"><p>{mensagemConteudo}</p></div>}
+            <div className="panel">
+              <h3>Conteúdos gerados pelo robô</h3>
+              {conteudos.length === 0 && <p>Nenhum conteúdo gerado ainda.</p>}
+              {conteudos.map((c) => (
+                <div className="offer" key={c.id}>
+                  <div className="offer-info">
+                    <h3>{c.titulo || "Conteúdo de oferta"}</h3>
+                    <p>Status: {c.status || "rascunho"}</p>
+                    <small>{c.legenda || c.texto || ""}</small>
+                    {c.status === "aguardando_revisao" && <button className="primary" style={{ marginTop: "10px" }} disabled={aprovandoConteudo === c.id} onClick={() => aprovarConteudo(c.id)}>{aprovandoConteudo === c.id ? "APROVANDO..." : "APROVAR E PUBLICAR"}</button>}
+                  </div>
+                </div>
+              ))}
+            </div>
           </>
         )}
 
@@ -551,13 +584,15 @@ export default function App() {
             </div>
             <div className="panel">
               <h3>Automacao</h3>
-              <label><span>Aprovacao antes de publicar</span><input type="checkbox" defaultChecked /></label>
-              <label><span>Modo automatico</span><input type="checkbox" /></label>
-              <label><span>Instagram</span><input type="checkbox" /></label>
-              <label><span>YouTube Shorts</span><input type="checkbox" /></label>
-              <label><span>WhatsApp</span><input type="checkbox" /></label>
-              <label><span>TikTok</span><input type="checkbox" /></label>
-              <label><span>Kwai</span><input type="checkbox" /></label>
+              {mensagemConfig && <p className="status">{mensagemConfig}</p>}
+              <label><span>Aprovacao antes de publicar</span><input type="checkbox" checked={!!config.aprovacao_antes_publicar} onChange={e=>salvarConfiguracao({aprovacao_antes_publicar:e.target.checked,publicar_automaticamente:!e.target.checked})} /></label>
+              <label><span>Modo automatico</span><input type="checkbox" checked={!!config.busca_automatica} onChange={e=>salvarConfiguracao({busca_automatica:e.target.checked,ativo:e.target.checked})} /></label>
+              <label><span>Instagram</span><input type="checkbox" checked={!!config.instagram} onChange={e=>salvarConfiguracao({instagram:e.target.checked})} /></label>
+              <label><span>YouTube Shorts</span><input type="checkbox" checked={!!config.youtube} onChange={e=>salvarConfiguracao({youtube:e.target.checked})} /></label>
+              <label><span>WhatsApp</span><input type="checkbox" checked={!!config.whatsapp} onChange={e=>salvarConfiguracao({whatsapp:e.target.checked})} /></label>
+              <label><span>TikTok</span><input type="checkbox" checked={!!config.tiktok} onChange={e=>salvarConfiguracao({tiktok:e.target.checked})} /></label>
+              <label><span>Kwai</span><input type="checkbox" checked={!!config.kwai} onChange={e=>salvarConfiguracao({kwai:e.target.checked})} /></label>
+              {salvandoConfig && <p>Salvando...</p>}
             </div>
             <div className="panel"><h3>Conta</h3><p>{usuario.email}</p><button className="secondary" onClick={sair}>Sair da conta</button></div>
           </>
