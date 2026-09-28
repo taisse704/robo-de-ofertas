@@ -1,6 +1,10 @@
-import { corsHeaders } from '../_shared/cors.ts'
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -18,7 +22,6 @@ serve(async (req) => {
     for (const term of keywords) {
       try {
         const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(term)}&limit=5`;
-        
         const response = await fetch(url, {
           headers: {
             'Accept': 'application/json',
@@ -50,21 +53,22 @@ serve(async (req) => {
               is_selected: true
             };
 
-            const { data: savedOffer } = await supabase
+            const { data: savedOffer, error } = await supabase
               .from('offers')
               .upsert(offerData, { onConflict: 'platform_code,external_id' })
               .select()
               .single();
 
+            if (error) console.error("Erro ao salvar no Supabase:", error.message);
             if (savedOffer) allProcessedOffers.push(savedOffer);
           }
         }
       } catch (err) {
-        console.error(`Erro ao buscar ${term}:`, err.message);
+        console.error(`Erro na busca de ${term}:`, err.message);
       }
     }
 
-    // Se a API pública do ML não retornar dados por causa de bloqueio de IP, insere produtos de teste garantidos
+    // Produtos de reserva caso a busca retorne 0 itens
     if (allProcessedOffers.length === 0) {
       const fallbackProducts = [
         {
@@ -75,18 +79,6 @@ serve(async (req) => {
           current_price: 149.90,
           discount_percentage: 50,
           image_url: 'https://http2.mlstatic.com/D_NQ_NP_675373-MLA47814925828_102021-O.webp',
-          original_url: 'https://www.mercadolivre.com.br',
-          category: 'MLB1051',
-          is_selected: true
-        },
-        {
-          platform_code: 'mercadolivre',
-          external_id: 'MLB_TEST_2',
-          title: 'Fone de Ouvido Bluetooth Sem Fio Esportivo',
-          original_price: 180.00,
-          current_price: 89.90,
-          discount_percentage: 50,
-          image_url: 'https://http2.mlstatic.com/D_NQ_NP_794833-MLA47814925829_102021-O.webp',
           original_url: 'https://www.mercadolivre.com.br',
           category: 'MLB1051',
           is_selected: true
