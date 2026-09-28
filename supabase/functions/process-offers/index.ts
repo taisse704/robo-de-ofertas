@@ -16,18 +16,31 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const keywords = ["smartwatch", "celular", "notebook", "fone bluetooth"];
+    // 1. Busca o token de acesso salvo para o Mercado Livre
+    const { data: account } = await supabase
+      .from('affiliate_accounts')
+      .select('access_token')
+      .eq('plataforma', 'mercadolivre')
+      .single();
+
+    const accessToken = account?.access_token;
+    const keywords = ["smartwatch", "celular", "notebook", "air fryer", "fone bluetooth"];
     const allProcessedOffers = [];
+
+    // Prepara os cabeçalhos incluindo a autorização caso o token exista
+    const requestHeaders: Record<string, string> = {
+      'Accept': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+    };
+
+    if (accessToken) {
+      requestHeaders['Authorization'] = `Bearer ${accessToken}`;
+    }
 
     for (const term of keywords) {
       try {
         const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(term)}&limit=5`;
-        const response = await fetch(url, {
-          headers: {
-            'Accept': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-          }
-        });
+        const response = await fetch(url, { headers: requestHeaders });
 
         if (response.ok) {
           const data = await response.json();
@@ -62,14 +75,17 @@ serve(async (req) => {
             if (error) console.error("Erro ao salvar no Supabase:", error.message);
             if (savedOffer) allProcessedOffers.push(savedOffer);
           }
+        } else {
+          console.warn(`Mercado Livre respondeu com status ${response.status} para o termo: ${term}`);
         }
       } catch (err) {
-        console.error(`Erro na busca de ${term}:`, err.message);
+        console.error(`Erro na busca do termo ${term}:`, err.message);
       }
     }
 
-    // Produtos de reserva caso a busca retorne 0 itens
+    // 2. Se a API do ML retornar 403 ou zero itens, injeta itens de fallback para manter o app funcional
     if (allProcessedOffers.length === 0) {
+      console.log("Ativando ofertas de contingência (fallback)...");
       const fallbackProducts = [
         {
           platform_code: 'mercadolivre',
@@ -79,6 +95,18 @@ serve(async (req) => {
           current_price: 149.90,
           discount_percentage: 50,
           image_url: 'https://http2.mlstatic.com/D_NQ_NP_675373-MLA47814925828_102021-O.webp',
+          original_url: 'https://www.mercadolivre.com.br',
+          category: 'MLB1051',
+          is_selected: true
+        },
+        {
+          platform_code: 'mercadolivre',
+          external_id: 'MLB_TEST_2',
+          title: 'Fone de Ouvido Bluetooth Sem Fio Esportivo',
+          original_price: 180.00,
+          current_price: 89.90,
+          discount_percentage: 50,
+          image_url: 'https://http2.mlstatic.com/D_NQ_NP_794833-MLA47814925829_102021-O.webp',
           original_url: 'https://www.mercadolivre.com.br',
           category: 'MLB1051',
           is_selected: true
@@ -96,15 +124,18 @@ serve(async (req) => {
       }
     }
 
+    // Retorna resposta 200 com os dados processados
     return new Response(JSON.stringify({ 
       success: true, 
       count: allProcessedOffers.length, 
       offers: allProcessedOffers 
     }), { 
+      status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" } 
     });
 
   } catch (error) {
+    console.error("ERRO GERAL PROCESS-OFFERS:", error);
     return new Response(JSON.stringify({ success: false, error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" }
