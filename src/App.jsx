@@ -35,7 +35,7 @@ export default function App() {
   const [pagina, setPagina] = useState("inicio");
   const [pausado, setPausado] = useState(false);
   const [supabaseStatus, setSupabaseStatus] = useState("testando");
-  const [ofertas, setOfertas] = useState([]);
+  const [listaOfertas, setListaOfertas] = useState([]);
   const [plataformas, setPlataformas] = useState([]);
   const [contasAfiliadas, setContasAfiliadas] = useState([]);
   const [carregandoOfertas, setCarregandoOfertas] = useState(false);
@@ -191,7 +191,7 @@ export default function App() {
       console.error(error);
       setMensagemOferta("Nao foi possivel carregar as ofertas.");
     } else {
-      setOfertas(data || []);
+      setListaOfertas(data || []);
     }
     setCarregandoOfertas(false);
   }
@@ -350,7 +350,7 @@ export default function App() {
       setMensagemOferta("Nao foi possivel excluir a oferta.");
       return;
     }
-    setOfertas((atual) => atual.filter((item) => item.id !== id));
+    setListaOfertas((atual) => atual.filter((item) => item.id !== id));
     setMensagemOferta("Oferta excluida.");
   }
 
@@ -366,7 +366,7 @@ export default function App() {
       console.error(error);
       return;
     }
-    setOfertas((atual) => atual.map((item) => (item.id === id ? data : item)));
+    setListaOfertas((atual) => atual.map((item) => (item.id === id ? data : item)));
   }
 
   async function entrar(event) {
@@ -415,7 +415,7 @@ export default function App() {
     setPagina("inicio");
     setEmail("");
     setSenha("");
-    setOfertas([]);
+    setListaOfertas([]);
     setContasAfiliadas([]);
   }
 
@@ -433,7 +433,7 @@ export default function App() {
   ];
 
   const emRevisao = conteudos.filter((c) => c.status === "aguardando_revisao").length;
-  const interessantes = ofertas.filter((o) => o.classificacao === "interessante").length;
+  const interessantes = listaOfertas.filter((o) => o.classificacao === "interessante").length;
 
   if (carregando) {
     return <div className="app"><main><div className="panel"><h1>ROBO DE OFERTAS</h1><p>Carregando...</p></div></main></div>;
@@ -486,7 +486,7 @@ export default function App() {
               {supabaseStatus === "erro" && <p className="status pausado">Erro na conexao</p>}
             </div>
             <div className="cards">
-              <div className="card"><span>Ofertas cadastradas</span><strong>{ofertas.length}</strong></div>
+              <div className="card"><span>Ofertas cadastradas</span><strong>{listaOfertas.length}</strong></div>
               <div className="card"><span>Aguardando revisao</span><strong>{emRevisao}</strong></div>
               <div className="card"><span>Ofertas interessantes</span><strong>{interessantes}</strong></div>
               <div className="card"><span>Cliques</span><strong>0</strong></div>
@@ -494,7 +494,7 @@ export default function App() {
             <div className="panel">
               <h3>Ofertas em destaque</h3>
               {interessantes === 0 && <p>Nenhuma oferta interessante cadastrada ainda.</p>}
-              {ofertas.filter((o) => o.classificacao === "interessante").slice(0, 5).map((o) => (
+              {listaOfertas.filter((o) => o.classificacao === "interessante").slice(0, 5).map((o) => (
                 <div className="offer" key={o.id}>
                   <div className="offer-image">Oferta</div>
                   <div className="offer-info"><h3>{o.titulo}</h3><p>{o.platforms?.nome || "Plataforma"}</p><strong>{moeda(o.preco_atual)}</strong></div>
@@ -516,8 +516,8 @@ export default function App() {
             <div className="panel">
               <h3>Ofertas cadastradas</h3>
               {carregandoOfertas && <p>Carregando ofertas...</p>}
-              {!carregandoOfertas && ofertas.length === 0 && <p>Nenhuma oferta cadastrada ainda.</p>}
-              {ofertas.map((o) => (
+              {!carregandoOfertas && listaOfertas.length === 0 && <p>Nenhuma oferta cadastrada ainda.</p>}
+              {listaOfertas.map((o) => (
                 <div className="offer" key={o.id}>
                   <div className="offer-image">Oferta</div>
                   <div className="offer-info"><h3>{o.titulo}</h3><p>{o.platforms?.nome || "Plataforma"}</p><strong>{moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{o.desconto_percentual}% de desconto</span>}<small>Comissao estimada: {moeda(o.comissao_estimada)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
