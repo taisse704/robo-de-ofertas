@@ -299,10 +299,6 @@ export default function App() {
     setMensagemAfiliadas(`${provider.name} adicionada. A conexao oficial sera configurada quando a plataforma fornecer a autorizacao/API.`);
   }
 
-  function alterarNovaOferta(campo, valor) {
-    setNovaOferta((atual) => ({ ...atual, [campo]: valor }));
-  }
-
   function numero(valor) {
     if (valor === "" || valor == null) return null;
     const n = Number(String(valor).replace(/\./g, "").replace(",", "."));
