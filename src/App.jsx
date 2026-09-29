@@ -230,6 +230,40 @@ export default function App() {
   async function prepararConexaoSocial(rede) {
     setMensagemConfig("");
     try {
+      if (rede.key === "instagram") {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError || !session?.access_token) {
+          setMensagemConfig("Sua sessao expirou. Faca login novamente.");
+          return;
+        }
+
+        const response = await fetch(
+          `${SUPABASE_URL}/functions/v1/instagram-oauth?action=start`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+              apikey: SUPABASE_ANON_KEY
+            }
+          }
+        );
+
+        const resultado = await response.json().catch(() => ({}));
+        if (!response.ok || !resultado.ok) {
+          console.error("Erro OAuth Instagram:", resultado);
+          setMensagemConfig(resultado?.error || `Nao foi possivel iniciar a conexao com o Instagram (HTTP ${response.status}).`);
+          return;
+        }
+
+        if (!resultado.authorization_url) {
+          setMensagemConfig("O Instagram nao retornou a URL de autorizacao.");
+          return;
+        }
+
+        window.location.href = resultado.authorization_url;
+        return;
+      }
+
       const existente = await supabase
         .from("publication_channels")
         .select("id,ativo,nome,configuracao")
@@ -260,7 +294,6 @@ export default function App() {
       setMensagemConfig(`Não foi possível preparar o ${rede.name}.`);
     }
   }
-
   async function prepararConexao(provider) {
     setMensagemAfiliadas("");
 
