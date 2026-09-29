@@ -48,6 +48,7 @@ export default function App() {
   const [conteudos, setConteudos] = useState([]);
   const [mensagemConteudo, setMensagemConteudo] = useState("");
   const [aprovandoConteudo, setAprovandoConteudo] = useState(null);
+  const [instagramConectado, setInstagramConectado] = useState(false);
 
   useEffect(() => {
     verificarSessao();
@@ -79,9 +80,12 @@ export default function App() {
   async function carregarConfiguracao() {
     const [{ data }, { data: canais }] = await Promise.all([
       supabase.from("robot_settings").select("*").eq("user_id", usuario.id).maybeSingle(),
-      supabase.from("publication_channels").select("tipo,ativo").eq("user_id", usuario.id)
+      supabase.from("publication_channels").select("tipo,ativo").eq("user_id", usuario.id),
+      supabase.from("channel_accounts").select("canal,status").eq("user_id", usuario.id)
     ]);
     const mapa = { instagram: false, youtube: false, whatsapp: false, tiktok: false, kwai: false, facebook: false, pinterest: false };
+    const instagramAccount = (canais || []).find((ch) => ch.canal === "instagram" && ch.status === "conectada");
+    setInstagramConectado(!!instagramAccount);
     for (const ch of canais || []) {
       if (ch.tipo === "instagram") mapa.instagram = !!ch.ativo;
       if (ch.tipo === "youtube_shorts" || ch.tipo === "youtube") mapa.youtube = !!ch.ativo;
@@ -671,7 +675,7 @@ export default function App() {
                       <h3>{rede.name}</h3>
                       <p>{config[rede.key] ? "Ativo para publicação" : "Não conectado"}</p>
                       <button className="primary" onClick={() => prepararConexaoSocial(rede)}>
-                        {config[rede.key] ? "CONFIGURAR" : "CONECTAR"}
+                        {rede.key === "instagram" ? (instagramConectado ? "CONFIGURAR" : "CONECTAR") : (config[rede.key] ? "CONFIGURAR" : "CONECTAR")}
                       </button>
                     </div>
                   </div>
