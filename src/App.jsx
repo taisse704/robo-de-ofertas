@@ -78,13 +78,13 @@ export default function App() {
   }
 
   async function carregarConfiguracao() {
-    const [{ data }, { data: canais }] = await Promise.all([
+    const [{ data }, { data: canais }, { data: contasCanais }] = await Promise.all([
       supabase.from("robot_settings").select("*").eq("user_id", usuario.id).maybeSingle(),
       supabase.from("publication_channels").select("tipo,ativo").eq("user_id", usuario.id),
       supabase.from("channel_accounts").select("canal,status").eq("user_id", usuario.id)
     ]);
     const mapa = { instagram: false, youtube: false, whatsapp: false, tiktok: false, kwai: false, facebook: false, pinterest: false };
-    const instagramAccount = (canais || []).find((ch) => ch.canal === "instagram" && ch.status === "conectada");
+    const instagramAccount = (contasCanais || []).find((ch) => ch.canal === "instagram" && ch.status === "conectada");
     setInstagramConectado(!!instagramAccount);
     for (const ch of canais || []) {
       if (ch.tipo === "instagram") mapa.instagram = !!ch.ativo;
