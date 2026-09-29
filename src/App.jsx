@@ -213,6 +213,48 @@ export default function App() {
     setCarregandoAfiliadas(false);
   }
 
+  const redesSociais = [
+    { key: "instagram", name: "Instagram", tipo: "instagram" },
+    { key: "youtube", name: "YouTube Shorts", tipo: "youtube_shorts" },
+    { key: "tiktok", name: "TikTok", tipo: "tiktok" },
+    { key: "whatsapp", name: "WhatsApp", tipo: "whatsapp" },
+    { key: "kwai", name: "Kwai", tipo: "kwai" }
+  ];
+
+  async function prepararConexaoSocial(rede) {
+    setMensagemConfig("");
+    try {
+      const existente = await supabase
+        .from("publication_channels")
+        .select("id,ativo,nome,configuracao")
+        .eq("user_id", usuario.id)
+        .eq("tipo", rede.tipo)
+        .maybeSingle();
+
+      if (existente.error) throw existente.error;
+
+      if (existente.data) {
+        setMensagemConfig(`${rede.name}: canal já cadastrado. A autorização oficial será configurada na próxima etapa.`);
+        return;
+      }
+
+      const { error } = await supabase.from("publication_channels").insert({
+        user_id: usuario.id,
+        tipo: rede.tipo,
+        nome: rede.name,
+        ativo: false,
+        configuracao: { provider: rede.key, conectado: false, requires_official_oauth: true }
+      });
+
+      if (error) throw error;
+      setMensagemConfig(`${rede.name} preparado para conexão.`);
+      await carregarConfiguracao();
+    } catch (error) {
+      console.error(error);
+      setMensagemConfig(`Não foi possível preparar o ${rede.name}.`);
+    }
+  }
+
   async function prepararConexao(provider) {
     setMensagemAfiliadas("");
 
@@ -577,6 +619,24 @@ export default function App() {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+            <div className="panel">
+              <h3>Redes sociais</h3>
+              <p>Conecte aqui os canais onde o robô poderá publicar automaticamente.</p>
+              {mensagemConfig && <p className="status">{mensagemConfig}</p>}
+              <div style={{ display: "grid", gap: "12px" }}>
+                {redesSociais.map((rede) => (
+                  <div className="offer" key={rede.key}>
+                    <div className="offer-info">
+                      <h3>{rede.name}</h3>
+                      <p>{config[rede.key] ? "Ativo para publicação" : "Não conectado"}</p>
+                      <button className="primary" onClick={() => prepararConexaoSocial(rede)}>
+                        {config[rede.key] ? "CONFIGURAR" : "CONECTAR"}
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
             <div className="panel">
