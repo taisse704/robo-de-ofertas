@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-09-28-frontend-refresh";
+const FRONTEND_BUILD_VERSION = "2026-09-29-social-pinterest";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
@@ -42,7 +42,7 @@ export default function App() {
   const [carregandoAfiliadas, setCarregandoAfiliadas] = useState(false);
   const [mensagemOferta, setMensagemOferta] = useState("");
   const [mensagemAfiliadas, setMensagemAfiliadas] = useState("");
-  const [config, setConfig] = useState({ativo:true,busca_automatica:true,publicar_automaticamente:true,aprovacao_antes_publicar:false,instagram:false,youtube:false,whatsapp:false,tiktok:false,kwai:false,intervalo_minutos:30});
+  const [config, setConfig] = useState({ativo:true,busca_automatica:true,publicar_automaticamente:true,aprovacao_antes_publicar:false,instagram:false,youtube:false,whatsapp:false,tiktok:false,kwai:false,facebook:false,pinterest:false,intervalo_minutos:30});
   const [salvandoConfig, setSalvandoConfig] = useState(false);
   const [mensagemConfig, setMensagemConfig] = useState("");
   const [conteudos, setConteudos] = useState([]);
@@ -81,13 +81,15 @@ export default function App() {
       supabase.from("robot_settings").select("*").eq("user_id", usuario.id).maybeSingle(),
       supabase.from("publication_channels").select("tipo,ativo").eq("user_id", usuario.id)
     ]);
-    const mapa = { instagram: false, youtube: false, whatsapp: false, tiktok: false, kwai: false };
+    const mapa = { instagram: false, youtube: false, whatsapp: false, tiktok: false, kwai: false, facebook: false, pinterest: false };
     for (const ch of canais || []) {
       if (ch.tipo === "instagram") mapa.instagram = !!ch.ativo;
       if (ch.tipo === "youtube_shorts" || ch.tipo === "youtube") mapa.youtube = !!ch.ativo;
       if (ch.tipo === "whatsapp") mapa.whatsapp = !!ch.ativo;
       if (ch.tipo === "tiktok") mapa.tiktok = !!ch.ativo;
       if (ch.tipo === "kwai") mapa.kwai = !!ch.ativo;
+      if (ch.tipo === "facebook") mapa.facebook = !!ch.ativo;
+      if (ch.tipo === "pinterest") mapa.pinterest = !!ch.ativo;
     }
     if (data) {
       setConfig(prev => ({ ...prev, ...(data.configuracao || {}), ...mapa, ativo: data.ativo, busca_automatica: data.busca_automatica, publicar_automaticamente: data.publicar_automaticamente, intervalo_minutos: data.intervalo_minutos }));
@@ -102,7 +104,9 @@ export default function App() {
       ["youtube_shorts", "YouTube Shorts", !!c.youtube],
       ["whatsapp", "WhatsApp", !!c.whatsapp],
       ["tiktok", "TikTok", !!c.tiktok],
-      ["kwai", "Kwai", !!c.kwai]
+      ["kwai", "Kwai", !!c.kwai],
+      ["facebook", "Facebook", !!c.facebook],
+      ["pinterest", "Pinterest", !!c.pinterest]
     ];
     for (const [tipo, nome, ativo] of canais) {
       const { data: existentes, error: buscaErro } = await supabase
@@ -123,7 +127,7 @@ export default function App() {
 
   async function salvarConfiguracao(next) {
     const c={...config,...next}; setConfig(c); setSalvandoConfig(true); setMensagemConfig("");
-    const payload={ativo:!!c.ativo,busca_automatica:!!c.busca_automatica,publicar_automaticamente:!!c.publicar_automaticamente,intervalo_minutos:Number(c.intervalo_minutos||30),configuracao:{aprovacao_antes_publicar:!!c.aprovacao_antes_publicar,instagram:!!c.instagram,youtube:!!c.youtube,whatsapp:!!c.whatsapp,tiktok:!!c.tiktok,kwai:!!c.kwai}};
+    const payload={ativo:!!c.ativo,busca_automatica:!!c.busca_automatica,publicar_automaticamente:!!c.publicar_automaticamente,intervalo_minutos:Number(c.intervalo_minutos||30),configuracao:{aprovacao_antes_publicar:!!c.aprovacao_antes_publicar,instagram:!!c.instagram,youtube:!!c.youtube,whatsapp:!!c.whatsapp,tiktok:!!c.tiktok,kwai:!!c.kwai,facebook:!!c.facebook,pinterest:!!c.pinterest}};
     try {
       const {error}=await supabase.from("robot_settings").upsert({user_id:usuario.id,...payload},{onConflict:"user_id"});
       if (error) throw error;
@@ -218,7 +222,9 @@ export default function App() {
     { key: "youtube", name: "YouTube Shorts", tipo: "youtube_shorts" },
     { key: "tiktok", name: "TikTok", tipo: "tiktok" },
     { key: "whatsapp", name: "WhatsApp", tipo: "whatsapp" },
-    { key: "kwai", name: "Kwai", tipo: "kwai" }
+    { key: "kwai", name: "Kwai", tipo: "kwai" },
+    { key: "facebook", name: "Facebook", tipo: "facebook" },
+    { key: "pinterest", name: "Pinterest", tipo: "pinterest" }
   ];
 
   async function prepararConexaoSocial(rede) {
@@ -592,7 +598,7 @@ export default function App() {
 
         {pagina === "resultados" && (
           <>
-            <h2>Resultados</h2><div className="cards"><div className="card"><span>Visualizacoes</span><strong>0</strong></div><div className="card"><span>Cliques</span><strong>0</strong></div><div className="card"><span>Vendas</span><strong>0</strong></div><div className="card"><span>Comissao</span><strong>R$ 0,00</strong></div></div><div className="panel"><h3>Desempenho por canal</h3><p>Instagram: 0 cliques</p><p>YouTube Shorts: 0 cliques</p><p>WhatsApp: 0 cliques</p><p>TikTok: 0 cliques</p></div>
+            <h2>Resultados</h2><div className="cards"><div className="card"><span>Visualizacoes</span><strong>0</strong></div><div className="card"><span>Cliques</span><strong>0</strong></div><div className="card"><span>Vendas</span><strong>0</strong></div><div className="card"><span>Comissao</span><strong>R$ 0,00</strong></div></div><div className="panel"><h3>Desempenho por canal</h3><p>Instagram: 0 cliques</p><p>YouTube Shorts: 0 cliques</p><p>TikTok: 0 cliques</p><p>Facebook: 0 cliques</p><p>WhatsApp: 0 cliques</p><p>Kwai: 0 cliques</p><p>Pinterest: 0 cliques</p></div>
           </>
         )}
 
@@ -649,6 +655,8 @@ export default function App() {
               <label><span>WhatsApp</span><input type="checkbox" checked={!!config.whatsapp} onChange={e=>salvarConfiguracao({whatsapp:e.target.checked})} /></label>
               <label><span>TikTok</span><input type="checkbox" checked={!!config.tiktok} onChange={e=>salvarConfiguracao({tiktok:e.target.checked})} /></label>
               <label><span>Kwai</span><input type="checkbox" checked={!!config.kwai} onChange={e=>salvarConfiguracao({kwai:e.target.checked})} /></label>
+              <label><span>Facebook</span><input type="checkbox" checked={!!config.facebook} onChange={e=>salvarConfiguracao({facebook:e.target.checked})} /></label>
+              <label><span>Pinterest</span><input type="checkbox" checked={!!config.pinterest} onChange={e=>salvarConfiguracao({pinterest:e.target.checked})} /></label>
               {salvandoConfig && <p>Salvando...</p>}
             </div>
             <div className="panel"><h3>Conta</h3><p>{usuario.email}</p><button className="secondary" onClick={sair}>Sair da conta</button></div>
