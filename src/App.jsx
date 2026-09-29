@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-09-29-social-pinterest";
+const FRONTEND_BUILD_VERSION = "2026-09-29-social-pinterest-v2";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
@@ -230,6 +230,37 @@ export default function App() {
     { key: "facebook", name: "Facebook", tipo: "facebook" },
     { key: "pinterest", name: "Pinterest", tipo: "pinterest" }
   ];
+
+  async function desconectarSocial(tipo, nome) {
+    setMensagemConfig("");
+    try {
+      await supabase.from("publication_channels").delete().eq("user_id", usuario.id).eq("tipo", tipo);
+      await supabase.from("channel_accounts").delete().eq("user_id", usuario.id).eq("canal", tipo);
+      if (tipo === "instagram") setInstagramConectado(false);
+      setConfig(prev => ({ ...prev, [tipo === "youtube_shorts" ? "youtube" : tipo]: false }));
+      setMensagemConfig(`${nome} desconectado.`);
+      await carregarConfiguracao();
+    } catch (error) {
+      console.error(error);
+      setMensagemConfig(`Nao foi possivel desconectar ${nome}.`);
+    }
+  }
+
+  async function desconectarTodasRedes() {
+    if (!window.confirm("Desconectar todas as redes sociais deste usuario?")) return;
+    setMensagemConfig("");
+    try {
+      await supabase.from("publication_channels").delete().eq("user_id", usuario.id);
+      await supabase.from("channel_accounts").delete().eq("user_id", usuario.id);
+      setInstagramConectado(false);
+      setConfig(prev => ({ ...prev, instagram:false, youtube:false, whatsapp:false, tiktok:false, kwai:false, facebook:false, pinterest:false }));
+      setMensagemConfig("Todas as redes sociais foram desconectadas.");
+      await carregarConfiguracao();
+    } catch (error) {
+      console.error(error);
+      setMensagemConfig("Nao foi possivel desconectar todas as redes.");
+    }
+  }
 
   async function prepararConexaoSocial(rede) {
     setMensagemConfig("");
@@ -674,13 +705,23 @@ export default function App() {
                     <div className="offer-info">
                       <h3>{rede.name}</h3>
                       <p>{config[rede.key] ? "Ativo para publicação" : "Não conectado"}</p>
-                      <button className="primary" onClick={() => prepararConexaoSocial(rede)}>
-                        {rede.key === "instagram" ? (instagramConectado ? "CONFIGURAR" : "CONECTAR") : (config[rede.key] ? "CONFIGURAR" : "CONECTAR")}
-                      </button>
+                      {((rede.key === "instagram" && instagramConectado) || (rede.key !== "instagram" && config[rede.key])) ? (
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          <button className="primary" onClick={() => prepararConexaoSocial(rede)}>CONFIGURAR</button>
+                          <button className="secondary" onClick={() => desconectarSocial(rede.tipo, rede.name)}>DESCONECTAR</button>
+                        </div>
+                      ) : (
+                        <button className="primary" onClick={() => prepararConexaoSocial(rede)}>CONECTAR</button>
+                      )}
                     </div>
                   </div>
                 ))}
               </div>
+            </div>
+            <div className="panel">
+              <h3>Desconectar redes</h3>
+              <p>Remove as conexoes sociais salvas no Robô de Ofertas.</p>
+              <button className="secondary" onClick={desconectarTodasRedes}>DESCONECTAR TODAS AS REDES</button>
             </div>
             <div className="panel">
               <h3>Automacao</h3>
