@@ -18,37 +18,30 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Baixar código
         uses: actions/checkout@v4
-
       - name: Configurar Node
         uses: actions/setup-node@v4
         with:
           node-version: 24
-
       - name: Instalar dependências
         run: npm install
-
       - name: Criar aplicação
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
         run: npm run build
-
       - name: Configurar Pages
         uses: actions/configure-pages@v5
-
       - name: Preparar arquivos
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
-
       - name: Publicar site
         uses: actions/deploy-pages@v4
 
-  deploy-process-offers:
+  deploy-functions:
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -56,14 +49,15 @@ jobs:
     steps:
       - name: Baixar código
         uses: actions/checkout@v4
-
       - name: Configurar Supabase CLI
         uses: supabase/setup-cli@v1
         with:
           version: latest
-
-      - name: Corrigir classificacao invalida
-        run: sed -i 's/o.discount >= 20 ? "excelente" :/o.discount >= 20 ? "interessante" :/' supabase/functions/process-offers/index.ts
-
       - name: Publicar process-offers
         run: supabase functions deploy process-offers --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+      - name: Publicar generate-content
+        run: supabase functions deploy generate-content --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+      - name: Publicar publish-content
+        run: supabase functions deploy publish-content --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+      - name: Publicar robot-worker
+        run: supabase functions deploy robot-worker --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
