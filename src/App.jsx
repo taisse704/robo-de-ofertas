@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-09-29-social-pinterest-v2";
+const FRONTEND_BUILD_VERSION = "2026-09-30-conexoes-automacao";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
@@ -48,7 +48,7 @@ export default function App() {
   const [conteudos, setConteudos] = useState([]);
   const [mensagemConteudo, setMensagemConteudo] = useState("");
   const [aprovandoConteudo, setAprovandoConteudo] = useState(null);
-  const [instagramConectado, setInstagramConectado] = useState(false);
+  const [instagramConectado, setInstagramConectado] = useState(false);\n  const [desconectandoAfiliada, setDesconectandoAfiliada] = useState(null);
 
   useEffect(() => {
     verificarSessao();
@@ -87,7 +87,7 @@ export default function App() {
     const instagramAccount = (contasCanais || []).find((ch) => ch.canal === "instagram" && ch.status === "conectada");
     setInstagramConectado(!!instagramAccount);
     for (const ch of canais || []) {
-      if (ch.tipo === "instagram") mapa.instagram = !!ch.ativo;
+      if (ch.tipo === "instagram") mapa.instagram = !!ch.ativo && !!instagramAccount;
       if (ch.tipo === "youtube_shorts" || ch.tipo === "youtube") mapa.youtube = !!ch.ativo;
       if (ch.tipo === "whatsapp") mapa.whatsapp = !!ch.ativo;
       if (ch.tipo === "tiktok") mapa.tiktok = !!ch.ativo;
@@ -96,7 +96,7 @@ export default function App() {
       if (ch.tipo === "pinterest") mapa.pinterest = !!ch.ativo;
     }
     if (data) {
-      setConfig(prev => ({ ...prev, ...(data.configuracao || {}), ...mapa, ativo: data.ativo, busca_automatica: data.busca_automatica, publicar_automaticamente: data.publicar_automaticamente, intervalo_minutos: data.intervalo_minutos }));
+      setConfig(prev => ({ ...prev, ...(data.configuracao || {}), ...mapa, ativo: data.ativo, busca_automatica: data.busca_automatica, publicar_automaticamente: data.publicar_automaticamente, intervalo_minutos: data.intervalo_minutos, gerar_texto:data.gerar_texto, gerar_imagem:data.gerar_imagem, gerar_video:data.gerar_video }));
     } else {
       setConfig(prev => ({ ...prev, ...mapa }));
     }
@@ -131,7 +131,7 @@ export default function App() {
 
   async function salvarConfiguracao(next) {
     const c={...config,...next}; setConfig(c); setSalvandoConfig(true); setMensagemConfig("");
-    const payload={ativo:!!c.ativo,busca_automatica:!!c.busca_automatica,publicar_automaticamente:!!c.publicar_automaticamente,intervalo_minutos:Number(c.intervalo_minutos||30),configuracao:{aprovacao_antes_publicar:!!c.aprovacao_antes_publicar,instagram:!!c.instagram,youtube:!!c.youtube,whatsapp:!!c.whatsapp,tiktok:!!c.tiktok,kwai:!!c.kwai,facebook:!!c.facebook,pinterest:!!c.pinterest}};
+    const payload={ativo:!!c.ativo,busca_automatica:!!c.busca_automatica,publicar_automaticamente:!!c.publicar_automaticamente,intervalo_minutos:Number(c.intervalo_minutos||30),gerar_texto:c.gerar_texto!==false,gerar_imagem:c.gerar_imagem!==false,gerar_video:!!c.gerar_video,configuracao:{aprovacao_antes_publicar:!!c.aprovacao_antes_publicar,modo:c.busca_automatica?"automatico":"manual",instagram:!!c.instagram,youtube:!!c.youtube,whatsapp:!!c.whatsapp,tiktok:!!c.tiktok,kwai:!!c.kwai,facebook:!!c.facebook,pinterest:!!c.pinterest}};
     try {
       const {error}=await supabase.from("robot_settings").upsert({user_id:usuario.id,...payload},{onConflict:"user_id"});
       if (error) throw error;
@@ -246,7 +246,7 @@ export default function App() {
     }
   }
 
-  async function desconectarTodasRedes() {
+  async function desconectarAfiliada(provider) {\n    setMensagemAfiliadas(""); setDesconectandoAfiliada(provider.key);\n    try { const platform=plataformas.find(p=>p.nome.toLowerCase().includes(provider.name.toLowerCase())); if(!platform) throw new Error(`Plataforma ${provider.name} nao cadastrada.`); const {error}=await supabase.from("affiliate_accounts").delete().eq("user_id",usuario.id).eq("platform_id",platform.id); if(error) throw error; setContasAfiliadas(atual=>atual.filter(a=>a.platform_id!==platform.id)); setMensagemAfiliadas(`${provider.name} desconectado.`); } catch(error) { console.error(error); setMensagemAfiliadas(error?.message||`Nao foi possivel desconectar ${provider.name}.`); } finally { setDesconectandoAfiliada(null); }\n  }\n\n  async function desconectarTodasRedes() {
     if (!window.confirm("Desconectar todas as redes sociais deste usuario?")) return;
     setMensagemConfig("");
     try {
@@ -686,9 +686,14 @@ export default function App() {
                       <div className="offer-info">
                         <h3>{provider.name}</h3>
                         <p>Status: {conta?.status || "Nao conectada"}</p>
-                        <button className="primary" onClick={() => prepararConexao(provider)}>
-                          {provider.key === "mercadolivre" ? "CONECTAR MERCADO LIVRE" : conta ? "CONFIGURAR" : "CONECTAR"}
-                        </button>
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          <button className="primary" onClick={() => prepararConexao(provider)}>
+                            {conta?.status === "conectada" ? "CONFIGURAR" : "CONECTAR"}
+                          </button>
+                          <button className="secondary" disabled={!conta || desconectandoAfiliada === provider.key} onClick={() => desconectarAfiliada(provider)}>
+                            {desconectandoAfiliada === provider.key ? "DESCONECTANDO..." : "DESCONECTAR"}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -723,11 +728,19 @@ export default function App() {
               <p>Remove as conexoes sociais salvas no Robô de Ofertas.</p>
               <button className="secondary" onClick={desconectarTodasRedes}>DESCONECTAR TODAS AS REDES</button>
             </div>
-            <div className="panel">
+                        <div className="panel">
               <h3>Automacao</h3>
+              <p>O robo busca ofertas, gera conteudo e prepara a divulgacao automaticamente.</p>
               {mensagemConfig && <p className="status">{mensagemConfig}</p>}
-              <label><span>Aprovacao antes de publicar</span><input type="checkbox" checked={!!config.aprovacao_antes_publicar} onChange={e=>salvarConfiguracao({aprovacao_antes_publicar:e.target.checked,publicar_automaticamente:!e.target.checked})} /></label>
               <label><span>Modo automatico</span><input type="checkbox" checked={!!config.busca_automatica} onChange={e=>salvarConfiguracao({busca_automatica:e.target.checked,ativo:e.target.checked})} /></label>
+              <label><span>Buscar ofertas automaticamente</span><input type="checkbox" checked={!!config.busca_automatica} onChange={e=>salvarConfiguracao({busca_automatica:e.target.checked})} /></label>
+              <label><span>Publicar automaticamente</span><input type="checkbox" checked={!!config.publicar_automaticamente} onChange={e=>salvarConfiguracao({publicar_automaticamente:e.target.checked})} /></label>
+              <label><span>Aprovacao antes de publicar</span><input type="checkbox" checked={!!config.aprovacao_antes_publicar} onChange={e=>salvarConfiguracao({aprovacao_antes_publicar:e.target.checked,publicar_automaticamente:!e.target.checked})} /></label>
+              <label><span>Intervalo (minutos)</span><input type="number" min="5" step="5" value={Number(config.intervalo_minutos||30)} onChange={e=>salvarConfiguracao({intervalo_minutos:Number(e.target.value||30)})} /></label>
+              <label><span>Gerar texto</span><input type="checkbox" checked={config.gerar_texto !== false} onChange={e=>salvarConfiguracao({gerar_texto:e.target.checked})} /></label>
+              <label><span>Gerar imagem</span><input type="checkbox" checked={config.gerar_imagem !== false} onChange={e=>salvarConfiguracao({gerar_imagem:e.target.checked})} /></label>
+              <label><span>Gerar video</span><input type="checkbox" checked={!!config.gerar_video} onChange={e=>salvarConfiguracao({gerar_video:e.target.checked})} /></label>
+              <h4>Canais de divulgacao</h4>
               <label><span>Instagram</span><input type="checkbox" checked={!!config.instagram} onChange={e=>salvarConfiguracao({instagram:e.target.checked})} /></label>
               <label><span>YouTube Shorts</span><input type="checkbox" checked={!!config.youtube} onChange={e=>salvarConfiguracao({youtube:e.target.checked})} /></label>
               <label><span>WhatsApp</span><input type="checkbox" checked={!!config.whatsapp} onChange={e=>salvarConfiguracao({whatsapp:e.target.checked})} /></label>
