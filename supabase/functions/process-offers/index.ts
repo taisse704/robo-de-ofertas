@@ -105,6 +105,9 @@ Deno.serve(async (req) => {
       };
 
       let termCandidates = 0;
+      let noWinner = 0;
+      let winnerNoPrice = 0;
+      let rejectedByMakeOffer = 0;
 
       if (catalog.ok && Array.isArray(catalog.data?.results)) {
         for (const product of catalog.data.results.slice(0, SEARCH_LIMIT)) {
@@ -153,7 +156,13 @@ Deno.serve(async (req) => {
             if (offer) {
               candidates.push(offer);
               termCandidates++;
+            } else {
+              rejectedByMakeOffer++;
             }
+          } else if (winner?.item_id) {
+            winnerNoPrice++;
+          } else {
+            noWinner++;
           }
         }
       }
@@ -173,6 +182,10 @@ Deno.serve(async (req) => {
           }
         }
       }
+      diagnostic.no_winner = noWinner;
+      diagnostic.winner_without_price = winnerNoPrice;
+      diagnostic.rejected_by_make_offer = rejectedByMakeOffer;
+      diagnostic.term_candidates = termCandidates;
       diagnostics.push(diagnostic);
     }
 
