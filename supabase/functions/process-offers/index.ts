@@ -3,9 +3,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const ML = "https://api.mercadolibre.com";
 const TERMS = ["celular", "notebook", "air fryer", "smart tv"];
 const MAX = 30;
-const SEARCH_LIMIT = 5;
-const DETAIL_LIMIT = 12;
-const CHILD_LIMIT = 24;
+const SEARCH_LIMIT = 10;
+const DETAIL_LIMIT = 40;
+const CHILD_LIMIT = 80;
 const REQUEST_TIMEOUT_MS = 8000;
 
 Deno.serve(async (req) => {
