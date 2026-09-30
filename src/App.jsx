@@ -710,14 +710,12 @@ export default function App() {
                     <div className="offer-info">
                       <h3>{rede.name}</h3>
                       <p>{config[rede.key] ? "Ativo para publicação" : "Não conectado"}</p>
-                      {((rede.key === "instagram" && instagramConectado) || (rede.key !== "instagram" && config[rede.key])) ? (
-                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                          <button className="primary" onClick={() => prepararConexaoSocial(rede)}>CONFIGURAR</button>
-                          <button className="secondary" onClick={() => desconectarSocial(rede.tipo, rede.name)}>DESCONECTAR</button>
-                        </div>
-                      ) : (
-                        <button className="primary" onClick={() => prepararConexaoSocial(rede)}>CONECTAR</button>
-                      )}
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        <button className="primary" onClick={() => prepararConexaoSocial(rede)}>
+                          {((rede.key === "instagram" && instagramConectado) || (rede.key !== "instagram" && config[rede.key])) ? "CONFIGURAR" : "CONECTAR"}
+                        </button>
+                        <button className="secondary" disabled={!((rede.key === "instagram" && instagramConectado) || (rede.key !== "instagram" && config[rede.key]))} onClick={() => desconectarSocial(rede.tipo, rede.name)}>DESCONECTAR</button>
+                      </div>
                     </div>
                   </div>
                 ))}
