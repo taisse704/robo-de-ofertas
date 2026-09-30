@@ -32,6 +32,7 @@ Deno.serve(async (req) => {
     const db = createClient(supabaseUrl, serviceRoleKey);
     const token = auth.slice(7);
     const body = await req.json().catch(() => ({}));
+
     let userId = "";
     if (token === serviceRoleKey) {
       userId = String(body?.user_id || "");
@@ -41,40 +42,72 @@ Deno.serve(async (req) => {
       userId = userData.user.id;
     }
     if (!userId) return json({ ok: false, error: "user_id obrigatório." }, 400);
+
     const limit = Math.min(Math.max(Number(body?.limit) || 20, 1), MAX);
     const somenteDescontos = body?.somente_descontos === true;
 
-    const { data: platform, error: pe } = await db.from("platforms").select("id,nome").eq("nome", "Mercado Livre").eq("ativo", true).limit(1).maybeSingle();
+    const { data: platform, error: pe } = await db
+      .from("platforms")
+      .select("id,nome")
+      .eq("nome", "Mercado Livre")
+      .eq("ativo", true)
+      .limit(1)
+      .maybeSingle();
+
     if (pe || !platform) return json({ ok: false, error: "Plataforma Mercado Livre não cadastrada." }, 400);
 
-    const { data: accounts, error: ae } = await db.from("affiliate_accounts").select("id,status,configuracao,updated_at").eq("user_id", userId).eq("platform_id", platform.id).eq("status", "conectada").order("updated_at", { ascending: false }).limit(1);
+    const { data: accounts, error: ae } = await db
+      .from("affiliate_accounts")
+      .select("id,status,configuracao,updated_at")
+      .eq("user_id", userId)
+      .eq("platform_id", platform.id)
+      .eq("status", "conectada")
+      .order("updated_at", { ascending: false })
+      .limit(1);
+
     if (ae || !accounts?.length) return json({ ok: false, error: "Mercado Livre não está conectado." }, 400);
 
-    const cfg = accounts[0].configuracao && typeof accounts[0].configuracao === "object" ? accounts[0].configuracao : {};
+    const cfg = accounts[0].configuracao && typeof accounts[0].configuracao === "object"
+      ? accounts[0].configuracao
+      : {};
+
     const accessToken = typeof cfg.access_token === "string" ? cfg.access_token : "";
     if (!accessToken) return json({ ok: false, error: "Token do Mercado Livre não encontrado." }, 400);
 
-    const authHeaders = { Authorization: "Bearer " + accessToken, Accept: "application/json" };
+    const authHeaders = {
+      Authorization: "Bearer " + accessToken,
+      Accept: "application/json"
+    };
 
-    async function getJson(url: string, useAuth = true) {
+    async function getJson(url: string) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       try {
-        const r = await fetch(url, { headers: useAuth ? authHeaders : { Accept: "application/json" }, signal: controller.signal });
-        const text = await r.text();
+        const response = await fetch(url, {
+          headers: authHeaders,
+          signal: controller.signal
+        });
+        const raw = await response.text();
         let data: any = null;
-        try { data = JSON.parse(text); } catch {}
-        return { ok: r.ok, status: r.status, data };
-      } finally { clearTimeout(timer); }
+        try {
+          data = JSON.parse(raw);
+        } catch {}
+        return { ok: response.ok, status: response.status, data };
+      } finally {
+        clearTimeout(timer);
+      }
     }
 
     function makeOffer(item: any, term: string) {
       const current = Number(item?.price);
       if (!item?.id || !Number.isFinite(current) || current <= 0) return null;
+
       const originalRaw = Number(item?.original_price);
       const original = Number.isFinite(originalRaw) && originalRaw > current ? originalRaw : null;
       const discount = original ? Math.round(((original - current) / original) * 100) : 0;
+
       if (somenteDescontos && discount <= 0) return null;
+
       return {
         external_id: String(item.id),
         product_external_id: String(item.catalog_product_id || item.id),
@@ -82,7 +115,7 @@ Deno.serve(async (req) => {
         current,
         original,
         discount,
-        image: item.thumbnail || item.pictures?.[0]?.url || null,
+        image: item.thumbnail || item.pictures?.[0]?.url || item.pictures?.[0]?.secure_url || null,
         permalink: item.permalink || null,
         promotion_id: null,
         promotion_type: null,
@@ -95,103 +128,66 @@ Deno.serve(async (req) => {
     const candidates: any[] = [];
     const diagnostics: any[] = [];
 
+    // Busca diretamente nas publicações do Mercado Livre.
+    // Evita depender do buy_box_winner do catálogo, que pode existir
+    // somente em determinados produtos e não representa uma publicação.
     for (const term of TERMS) {
-      const catalog = await getJson(ML + "/products/search?status=active&site_id=MLB&limit=" + SEARCH_LIMIT + "&q=" + encodeURIComponent(term), true);
+      const search = await getJson(
+        ML + "/sites/MLB/search?limit=" + SEARCH_LIMIT +
+        "&q=" + encodeURIComponent(term) +
+        "&sort=relevance"
+      );
 
       const diagnostic: any = {
         term,
-        catalog_status: catalog.status,
-        catalog_results: Array.isArray(catalog.data?.results) ? catalog.data.results.length : 0
+        search_status: search.status,
+        search_results: Array.isArray(search.data?.results) ? search.data.results.length : 0
       };
 
       let termCandidates = 0;
-      let noWinner = 0;
-      let winnerNoPrice = 0;
-      let rejectedByMakeOffer = 0;
+      let rejected = 0;
 
-      if (catalog.ok && Array.isArray(catalog.data?.results)) {
-        for (const product of catalog.data.results.slice(0, SEARCH_LIMIT)) {
-          let detail = product;
-
-          // A busca de catálogo pode retornar o produto sem o buy_box_winner.
-          // A documentação do Mercado Livre orienta consultar /products/{product_id}
-          // para identificar a publicação vencedora.
-          if (!detail?.buy_box_winner && product?.id) {
-            const productDetail = await getJson(ML + "/products/" + encodeURIComponent(String(product.id)), true);
-            if (productDetail.ok && productDetail.data) {
-              detail = productDetail.data;
-              diagnostic.catalog_detail_status = productDetail.status;
-              diagnostic.catalog_details_consulted = (diagnostic.catalog_details_consulted || 0) + 1;
-            }
-          }
-
-          let winner = detail?.buy_box_winner;
-
-          // Alguns resultados da busca são produtos-pai sem vencedor direto.
-          // Nesses casos, os produtos-filhos podem ter a publicação vencedora.
-          if (!winner?.item_id && Array.isArray(detail?.children_ids)) {
-            for (const childId of detail.children_ids.slice(0, 5)) {
-              const child = await getJson(ML + "/products/" + encodeURIComponent(String(childId)), true);
-              diagnostic.catalog_children_consulted = (diagnostic.catalog_children_consulted || 0) + 1;
-              diagnostic.catalog_child_last_status = child.status;
-              if (child.ok && child.data?.buy_box_winner?.item_id) {
-                detail = child.data;
-                winner = detail.buy_box_winner;
-                break;
-              }
-            }
-          }
-
-          if (winner?.item_id && Number.isFinite(Number(winner.price))) {
-            const offer = makeOffer({
-              id: winner.item_id,
-              catalog_product_id: detail.id || product.id,
-              title: detail.name || product.name,
-              price: winner.price,
-              original_price: winner.original_price,
-              thumbnail: detail.pictures?.[0]?.url || detail.pictures?.[0]?.secure_url || product.pictures?.[0]?.url || product.pictures?.[0]?.secure_url,
-              permalink: detail.permalink || product.permalink,
-              shipping: winner.shipping
-            }, term);
-            if (offer) {
-              candidates.push(offer);
-              termCandidates++;
-            } else {
-              rejectedByMakeOffer++;
-            }
-          } else if (winner?.item_id) {
-            winnerNoPrice++;
+      if (search.ok && Array.isArray(search.data?.results)) {
+        for (const item of search.data.results) {
+          const offer = makeOffer(item, term);
+          if (offer) {
+            candidates.push(offer);
+            termCandidates++;
           } else {
-            noWinner++;
+            rejected++;
           }
         }
       }
 
-      if (!catalog.ok || !Array.isArray(catalog.data?.results) || !catalog.data.results.length || termCandidates === 0) {
-        const publicSearch = await getJson(ML + "/sites/MLB/search?limit=" + SEARCH_LIMIT + "&q=" + encodeURIComponent(term) + "&sort=relevance", true);
-        diagnostic.public_status = publicSearch.status;
-        diagnostic.public_results = Array.isArray(publicSearch.data?.results) ? publicSearch.data.results.length : 0;
-
-        if (publicSearch.ok && Array.isArray(publicSearch.data?.results)) {
-          for (const item of publicSearch.data.results) {
-            const offer = makeOffer(item, term);
-            if (offer) {
-              candidates.push(offer);
-              termCandidates++;
-            }
-          }
-        }
-      }
-      diagnostic.no_winner = noWinner;
-      diagnostic.winner_without_price = winnerNoPrice;
-      diagnostic.rejected_by_make_offer = rejectedByMakeOffer;
+      diagnostic.rejected = rejected;
       diagnostic.term_candidates = termCandidates;
+
+      // Mantém uma consulta leve ao catálogo somente para diagnóstico.
+      // Não faz chamadas individuais /products/{id}, evitando a trava 429.
+      if (termCandidates === 0) {
+        const catalog = await getJson(
+          ML + "/products/search?status=active&site_id=MLB&limit=5&q=" +
+          encodeURIComponent(term)
+        );
+
+        diagnostic.catalog_status = catalog.status;
+        diagnostic.catalog_results = Array.isArray(catalog.data?.results)
+          ? catalog.data.results.length
+          : 0;
+      }
+
       diagnostics.push(diagnostic);
     }
 
     const unique: any[] = [];
     const seen = new Set<string>();
-    for (const item of candidates.sort((a,b) => b.score - a.score || b.discount - a.discount || a.current - b.current)) {
+
+    for (const item of candidates.sort(
+      (a, b) =>
+        b.score - a.score ||
+        b.discount - a.discount ||
+        a.current - b.current
+    )) {
       if (seen.has(item.external_id)) continue;
       seen.add(item.external_id);
       unique.push(item);
@@ -204,6 +200,7 @@ Deno.serve(async (req) => {
 
     for (const o of unique) {
       const now = new Date().toISOString();
+
       const values: any = {
         user_id: userId,
         platform_id: platform.id,
@@ -222,7 +219,12 @@ Deno.serve(async (req) => {
         permitido_afiliado: true,
         permitido_divulgacao: true,
         imagem_url: o.image,
-        dados_origem: { fonte: "mercadolivre-search", termo: o.term, catalog_product_id: o.product_external_id, item_id: o.external_id },
+        dados_origem: {
+          fonte: "mercadolivre-search",
+          termo: o.term,
+          catalog_product_id: o.product_external_id,
+          item_id: o.external_id
+        },
         promocao_id_externo: o.promotion_id,
         oferta_tipo: "oferta",
         melhor_preco: o.score > 0,
@@ -231,28 +233,72 @@ Deno.serve(async (req) => {
         coletada_em: now
       };
 
-      const { data: existing, error: findError } = await db.from("offers").select("id").eq("user_id", userId).eq("platform_id", platform.id).eq("product_external_id", o.external_id).limit(1).maybeSingle();
+      const { data: existing, error: findError } = await db
+        .from("offers")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("platform_id", platform.id)
+        .eq("product_external_id", o.external_id)
+        .limit(1)
+        .maybeSingle();
+
       if (findError) throw findError;
 
       let offerId = existing?.id || null;
+
       if (offerId) {
-        const { error } = await db.from("offers").update(values).eq("id", offerId).eq("user_id", userId);
+        const { error } = await db
+          .from("offers")
+          .update(values)
+          .eq("id", offerId)
+          .eq("user_id", userId);
+
         if (error) throw error;
         atualizadas++;
       } else {
-        const { data: inserted, error } = await db.from("offers").insert({ ...values, encontrada_em: now }).select("id").single();
+        const { data: inserted, error } = await db
+          .from("offers")
+          .insert({ ...values, encontrada_em: now })
+          .select("id")
+          .single();
+
         if (error) throw error;
         offerId = inserted.id;
         novas++;
       }
 
-      ofertas.push({ id: offerId, external_id: o.external_id, product_external_id: o.product_external_id, title: o.title, current: o.current, original: o.original, discount: o.discount, image: o.image, permalink: o.permalink, promotion_id: o.promotion_id, promotion_type: o.promotion_type, score: o.score });
+      ofertas.push({
+        id: offerId,
+        external_id: o.external_id,
+        product_external_id: o.product_external_id,
+        title: o.title,
+        current: o.current,
+        original: o.original,
+        discount: o.discount,
+        image: o.image,
+        permalink: o.permalink,
+        promotion_id: o.promotion_id,
+        promotion_type: o.promotion_type,
+        score: o.score
+      });
+
       if (ofertas.length >= limit) break;
     }
 
-    return json({ ok: true, produtos_encontrados: ofertas.length, novas, atualizadas, limite: limit, ofertas, diagnostico: diagnostics });
+    return json({
+      ok: true,
+      produtos_encontrados: ofertas.length,
+      novas,
+      atualizadas,
+      limite: limit,
+      ofertas,
+      diagnostico: diagnostics
+    });
   } catch (e) {
     console.error("PROCESS-OFFERS ERRO:", e);
-    return json({ ok: false, error: e instanceof Error ? e.message : "Erro interno." }, 500);
+    return json({
+      ok: false,
+      error: e instanceof Error ? e.message : "Erro interno."
+    }, 500);
   }
 });
