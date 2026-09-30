@@ -25,7 +25,7 @@ Deno.serve(async(req)=>{
    const c=new AbortController(), t=setTimeout(()=>c.abort(),TIMEOUT);
    try{
     const r=await fetch(ML+"/sites/MLB/search?limit="+SEARCH_LIMIT+"&q="+encodeURIComponent(term)+"&sort=relevance",{
-      headers:{Accept:"application/json","Authorization:"Bearer "+accessToken,"User-Agent":"RoboDeOfertas/1.0"},
+      headers:{Accept:"application/json","Authorization":"Bearer "+accessToken,"User-Agent":"RoboDeOfertas/1.0"},
       signal:c.signal
     });
     const raw=await r.text();let data=null;try{data=JSON.parse(raw)}catch{}
