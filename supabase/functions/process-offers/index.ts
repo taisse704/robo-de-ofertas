@@ -29,8 +29,13 @@ Deno.serve(async(req)=>{
       signal:c.signal
     });
     const raw=await r.text();let data=null;try{data=JSON.parse(raw)}catch{}
-    return {status:r.status,ok:r.ok,data};
+    return {status:r.status,ok:r.ok,data,erro_api:typeof data==="object"&&data?{error:data.error||null,message:data.message||null,code:data.code||null}:raw.slice(0,300)};
    } finally{clearTimeout(t);}
+  }
+  async function validateToken(){
+   const r=await fetch(ML+"/users/me",{headers:{Accept:"application/json","Authorization":"Bearer "+accessToken,"User-Agent":"RoboDeOfertas/1.0"}});
+   const raw=await r.text();let data=null;try{data=JSON.parse(raw)}catch{}
+   return {status:r.status,ok:r.ok,user_id:data?.id||null,nickname:data?.nickname||null,erro_api:r.ok?null:{error:data?.error||null,message:data?.message||null,code:data?.code||null}};
   }
   function make(item,term){
    const current=Number(item?.price);if(!item?.id||!Number.isFinite(current)||current<=0)return null;
@@ -38,8 +43,9 @@ Deno.serve(async(req)=>{
    if(somente&&discount<=0)return null;
    return {id:String(item.id),title:item.title||"Produto Mercado Livre",current,original,discount,image:item.thumbnail||item.pictures?.[0]?.url||null,url:item.permalink||null,score:discount*10+(item.shipping?.free_shipping?5:0),term};
   }
+  const tokenCheck=await validateToken();
   const candidates=[],diagnostico=[];
-  for(const term of TERMS){const r=await search(term),d={term,status:r.status,resultados_api:Array.isArray(r.data?.results)?r.data.results.length:0,candidatos_validos:0};if(r.ok&&Array.isArray(r.data?.results))for(const item of r.data.results){const o=make(item,term);if(o){candidates.push(o);d.candidatos_validos++;}}diagnostico.push(d);}
+  for(const term of TERMS){const r=await search(term),d={term,status:r.status,resultados_api:Array.isArray(r.data?.results)?r.data.results.length:0,candidatos_validos:0,erro_api:r.ok?null:r.erro_api};if(r.ok&&Array.isArray(r.data?.results))for(const item of r.data.results){const o=make(item,term);if(o){candidates.push(o);d.candidatos_validos++;}}diagnostico.push(d);}
   const unique=[],seen=new Set();
   for(const o of candidates.sort((a,b)=>b.score-a.score||b.discount-a.discount||a.current-b.current)){if(seen.has(o.id))continue;seen.add(o.id);unique.push(o);if(unique.length>=limit)break;}
   let novas=0,atualizadas=0;const ofertas=[];
@@ -49,6 +55,6 @@ Deno.serve(async(req)=>{
    let id=ex?.id;if(id){const {error}=await db.from("offers").update(values).eq("id",id).eq("user_id",userId);if(error)throw error;atualizadas++;}else{const {data:ins,error}=await db.from("offers").insert({...values,encontrada_em:now}).select("id").single();if(error)throw error;id=ins.id;novas++;}
    ofertas.push({id,external_id:o.id,title:o.title,current:o.current,original:o.original,discount:o.discount,image:o.image,permalink:o.url,score:o.score});
   }
-  return out({ok:true,produtos_encontrados:ofertas.length,novas,atualizadas,limite:limit,ofertas,diagnostico});
+  return out({ok:true,produtos_encontrados:ofertas.length,novas,atualizadas,limite:limit,ofertas,token_check:tokenCheck,diagnostico});
  }catch(e){console.error("PROCESS-OFFERS ERRO:",e);return out({ok:false,error:e?.message||"Erro interno."},500);}
 });
