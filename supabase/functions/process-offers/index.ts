@@ -104,6 +104,8 @@ Deno.serve(async (req) => {
         catalog_results: Array.isArray(catalog.data?.results) ? catalog.data.results.length : 0
       };
 
+      let termCandidates = 0;
+
       if (catalog.ok && Array.isArray(catalog.data?.results)) {
         for (const product of catalog.data.results.slice(0, SEARCH_LIMIT)) {
           const winner = product?.buy_box_winner;
@@ -118,12 +120,15 @@ Deno.serve(async (req) => {
               permalink: product.permalink,
               shipping: winner.shipping
             }, term);
-            if (offer) candidates.push(offer);
+            if (offer) {
+              candidates.push(offer);
+              termCandidates++;
+            }
           }
         }
       }
 
-      if (!catalog.ok || !Array.isArray(catalog.data?.results) || !catalog.data.results.length) {
+      if (!catalog.ok || !Array.isArray(catalog.data?.results) || !catalog.data.results.length || termCandidates === 0) {
         const publicSearch = await getJson(ML + "/sites/MLB/search?limit=" + SEARCH_LIMIT + "&q=" + encodeURIComponent(term) + "&sort=relevance", false);
         diagnostic.public_status = publicSearch.status;
         diagnostic.public_results = Array.isArray(publicSearch.data?.results) ? publicSearch.data.results.length : 0;
@@ -131,7 +136,10 @@ Deno.serve(async (req) => {
         if (publicSearch.ok && Array.isArray(publicSearch.data?.results)) {
           for (const item of publicSearch.data.results) {
             const offer = makeOffer(item, term);
-            if (offer) candidates.push(offer);
+            if (offer) {
+              candidates.push(offer);
+              termCandidates++;
+            }
           }
         }
       }
