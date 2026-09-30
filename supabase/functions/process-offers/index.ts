@@ -108,16 +108,30 @@ Deno.serve(async (req) => {
 
       if (catalog.ok && Array.isArray(catalog.data?.results)) {
         for (const product of catalog.data.results.slice(0, SEARCH_LIMIT)) {
-          const winner = product?.buy_box_winner;
+          let detail = product;
+
+          // A busca de catálogo pode retornar o produto sem o buy_box_winner.
+          // A documentação do Mercado Livre orienta consultar /products/{product_id}
+          // para identificar a publicação vencedora.
+          if (!detail?.buy_box_winner && product?.id) {
+            const productDetail = await getJson(ML + "/products/" + encodeURIComponent(String(product.id)), true);
+            if (productDetail.ok && productDetail.data) {
+              detail = productDetail.data;
+              diagnostic.catalog_detail_status = productDetail.status;
+              diagnostic.catalog_details_consulted = (diagnostic.catalog_details_consulted || 0) + 1;
+            }
+          }
+
+          const winner = detail?.buy_box_winner;
           if (winner?.item_id && Number.isFinite(Number(winner.price))) {
             const offer = makeOffer({
               id: winner.item_id,
-              catalog_product_id: product.id,
-              title: product.name,
+              catalog_product_id: detail.id || product.id,
+              title: detail.name || product.name,
               price: winner.price,
               original_price: winner.original_price,
-              thumbnail: product.pictures?.[0]?.url || product.pictures?.[0]?.secure_url,
-              permalink: product.permalink,
+              thumbnail: detail.pictures?.[0]?.url || detail.pictures?.[0]?.secure_url || product.pictures?.[0]?.url || product.pictures?.[0]?.secure_url,
+              permalink: detail.permalink || product.permalink,
               shipping: winner.shipping
             }, term);
             if (offer) {
