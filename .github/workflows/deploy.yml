@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: 24
       - name: Instalar dependências
-        run: npm ci
+        run: npm install
       - name: Criar aplicação
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
