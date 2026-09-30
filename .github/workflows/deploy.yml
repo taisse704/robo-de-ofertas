@@ -62,5 +62,8 @@ jobs:
         with:
           version: latest
 
+      - name: Corrigir classificacao invalida
+        run: sed -i 's/o.discount >= 20 ? "excelente" :/o.discount >= 20 ? "interessante" :/' supabase/functions/process-offers/index.ts
+
       - name: Publicar process-offers
         run: supabase functions deploy process-offers --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
