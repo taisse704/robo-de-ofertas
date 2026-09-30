@@ -451,7 +451,7 @@ export default function App() {
       }
 
       await carregarOfertas();
-      setMensagemOferta(`Busca concluida: ${resultado.produtos_encontrados || 0} produtos encontrados e ${resultado.novas || 0} nova(s) oferta(s) adicionada(s).`);
+      const diagnostico = Array.isArray(resultado.diagnostico) ? resultado.diagnostico.map((d) => `${d.term}: HTTP ${d.status}, ${d.resultados_api || 0} resultados`).join(" | ") : "";\n      setMensagemOferta(`Busca concluida: ${resultado.produtos_encontrados || 0} produtos encontrados e ${resultado.novas || 0} nova(s) oferta(s) adicionada(s).${diagnostico ? ` Diagnostico: ${diagnostico}` : ""}`);
     } catch (error) {
       console.error("Erro na busca de ofertas:", error);
       setMensagemOferta(error?.message || "Nao foi possivel buscar ofertas.");
