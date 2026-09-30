@@ -1,52 +1,25 @@
-import { corsHeaders } from '../_shared/cors.ts'
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-serve(async () => {
-  try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    );
-
-    const { data: offers } = await supabase
-      .from('offers')
-      .select('*')
-      .eq('is_selected', true)
-      .limit(10);
-
-    if (!offers || offers.length === 0) {
-      return new Response(JSON.stringify({ message: "Nenhuma oferta selecionada pendente." }), { status: 200 });
-    }
-
-    const generatedContents = [];
-
-    for (const offer of offers) {
-      const affiliateUrl = `${offer.original_url}?p_tag=VENDASROBI`;
-
-      const headline = `🔥 OFERTA: ${offer.title}`;
-      const caption = `${headline}\n\n De: R$ ${offer.original_price}\n Por apenas: R$ ${offer.current_price} (${offer.discount_percentage}% OFF!)\n\n Link do produto: ${affiliateUrl}`;
-
-      const { data: content } = await supabase
-        .from('contents')
-        .insert({
-          offer_id: offer.id,
-          headline,
-          caption,
-          image_generated_url: offer.image_url,
-          status: 'pending'
-        })
-        .select()
-        .single();
-
-      if (content) generatedContents.push(content);
-    }
-
-    return new Response(JSON.stringify({ success: true, count: generatedContents.length }), {
-      headers: { "Content-Type": "application/json" }
-    });
-
-  } catch (error) {
-    return new Response(JSON.stringify({ success: false, error: error.message }), { status: 500 });
+const cors={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization, x-client-info, apikey, content-type","Access-Control-Allow-Methods":"POST,OPTIONS"};
+Deno.serve(async(req)=>{
+ if(req.method==="OPTIONS")return new Response("ok",{headers:cors});
+ const out=(d,s=200)=>new Response(JSON.stringify(d),{status:s,headers:{...cors,"Content-Type":"application/json"}});
+ try{
+  const url=Deno.env.get("SUPABASE_URL")||"",key=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")||"",auth=req.headers.get("Authorization")||"",body=await req.json().catch(()=>({}));
+  if(!url||!key)return out({ok:false,error:"Configuração do Supabase incompleta."},500);if(!auth.startsWith("Bearer "))return out({ok:false,error:"Autorização obrigatória."},401);
+  const db=createClient(url,key),bearer=auth.slice(7);let userId="";
+  if(bearer===key)userId=String(body?.user_id||"");else{const {data,error}=await db.auth.getUser(bearer);if(error||!data?.user)return out({ok:false,error:"Sessão inválida."},401);userId=data.user.id;}
+  if(!userId)return out({ok:false,error:"user_id obrigatório."},400);
+  const {data:settings}=await db.from("robot_settings").select("configuracao,gerar_texto,gerar_imagem,gerar_video").eq("user_id",userId).maybeSingle();
+  const cfg=settings?.configuracao||{}, approval=cfg.aprovacao_antes_publicar===true, status=approval?"aguardando_revisao":"pronto";
+  const {data:offers,error}=await db.from("offers").select("*").eq("user_id",userId).eq("permitido_divulgacao",true).order("score_oferta",{ascending:false}).order("created_at",{ascending:false}).limit(10);if(error)throw error;
+  if(!offers?.length)return out({ok:true,count:0,message:"Nenhuma oferta pronta para gerar conteúdo."});
+  let count=0;const conteudos=[];
+  for(const offer of offers){
+   const {data:exists}=await db.from("contents").select("id").eq("user_id",userId).eq("offer_id",offer.id).in("status",["rascunho","aguardando_revisao","pronto","publicando","publicado"]).limit(1).maybeSingle();if(exists)continue;
+   const price=Number(offer.preco_atual||0),old=Number(offer.preco_anterior||0),discount=Number(offer.desconto_percentual||0),title=offer.titulo||"Oferta especial",link=offer.affiliate_url||offer.url_produto||"";
+   let legenda="🔥 "+title+"\n\n💰 Por R$ "+price.toFixed(2).replace(".",",");if(old>price)legenda+=" (antes R$ "+old.toFixed(2).replace(".",",")+")";if(discount>0)legenda+="\n🏷️ "+discount+"% OFF";legenda+="\n\n🛒 Aproveite: "+link;
+   const {data:content,error:ce}=await db.from("contents").insert({user_id:userId,offer_id:offer.id,tipo:settings?.gerar_video?"video_oferta":"oferta_rapida",formato:"9:16",titulo:title,legenda,cta:"Aproveite a oferta",thumbnail_url:offer.imagem_url,status,dados_geracao:{fonte:"generate-content",affiliate_url:link,gerar_texto:settings?.gerar_texto!==false,gerar_imagem:settings?.gerar_imagem!==false,gerar_video:settings?.gerar_video===true}}).select().single();if(ce)throw ce;conteudos.push(content);count++;
   }
+  return out({ok:true,count,conteudos});
+ }catch(e){console.error("GENERATE-CONTENT ERRO:",e);return out({ok:false,error:e?.message||"Erro interno."},500);}
 });
