@@ -1,11 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ML = "https://api.mercadolibre.com";
-const TERMS = ["celular","notebook","air fryer","smart tv"];
+const TERMS = ["celular", "notebook", "air fryer", "smart tv"];
 const MAX = 30;
-const MAX_PRODUCTS_PER_TERM = 5;
-const MAX_CATALOG_DETAILS = 12;
-const CHILD_LIMIT = 8;
+const SEARCH_LIMIT = 5;
+const DETAIL_LIMIT = 6;
+const REQUEST_TIMEOUT_MS = 8000;
 
 Deno.serve(async (req) => {
   const cors = {
@@ -30,11 +30,14 @@ Deno.serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+    if (!supabaseUrl || !serviceRoleKey) {
+      return json({ ok: false, error: "Configuração do Supabase incompleta." }, 500);
+    }
+
     const db = createClient(supabaseUrl, serviceRoleKey);
-
     const token = auth.slice(7);
-    const { data: userData, error: userError } = await db.auth.getUser(token);
 
+    const { data: userData, error: userError } = await db.auth.getUser(token);
     if (userError || !userData?.user) {
       return json({ ok: false, error: "Sessão inválida." }, 401);
     }
@@ -69,9 +72,8 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: "Mercado Livre não está conectado." }, 400);
     }
 
-    const account = accounts[0];
-    const cfg = account.configuracao && typeof account.configuracao === "object"
-      ? account.configuracao
+    const cfg = accounts[0].configuracao && typeof accounts[0].configuracao === "object"
+      ? accounts[0].configuracao
       : {};
     const accessToken = typeof cfg.access_token === "string" ? cfg.access_token : "";
 
@@ -84,336 +86,144 @@ Deno.serve(async (req) => {
       Accept: "application/json"
     };
 
-    const diagnostics: any[] = [];
-    const candidates: any[] = [];
-    let catalogDetails = 0;
-    const seenCatalog = new Set<string>();
-    const seenItems = new Set<string>();
-
     async function getJson(url: string) {
-      const r = await fetch(url, { headers });
-      const text = await r.text();
-      let data: any = null;
-      try { data = JSON.parse(text); } catch {}
-      return { r, data };
-    }
-
-    async function inspectProduct(productId: string, term: string, depth = 0): Promise<void> {
-      if (!productId || depth > 2 || candidates.length >= limit * 3) return;
-      if (seenCatalog.has(productId)) return;
-      seenCatalog.add(productId);
-
-      const { r, data } = await getJson(
-        ML + "/products/" + encodeURIComponent(productId)
-      );
-
-      diagnostics.push({
-        source: "products/detail",
-        product_id: productId,
-        term,
-        depth,
-        status: r.status
-      });
-
-      if (!r.ok || !data) return;
-
-      const winner = data.buy_box_winner || null;
-
-      // Publicação vencedora, quando o catálogo fornecer diretamente.
-      if (winner?.item_id) {
-        await addItemCandidate(String(winner.item_id), data, winner, term);
-      }
-
-      // Lista as publicações reais que competem por este produto de catálogo.
-      // O product_id é catálogo; o item_id é o anúncio comprável.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       try {
-        const listingsResult = await getJson(
-          ML + "/products/" + encodeURIComponent(productId) + "/items"
-        );
-        diagnostics.push({
-          source: "products/items",
-          product_id: productId,
-          term,
-          status: listingsResult.r.status,
-          results: Array.isArray(listingsResult.data?.results)
-            ? listingsResult.data.results.length
-            : Array.isArray(listingsResult.data)
-              ? listingsResult.data.length
-              : 0
-        });
-
-        if (listingsResult.r.ok) {
-          const listings = Array.isArray(listingsResult.data?.results)
-            ? listingsResult.data.results
-            : Array.isArray(listingsResult.data)
-              ? listingsResult.data
-              : [];
-
-          for (const listing of listings) {
-            if (candidates.length >= limit * 3) break;
-            const listingItemId = listing?.item_id || listing?.id;
-            if (listingItemId) {
-              await addItemCandidate(String(listingItemId), data, listing, term);
-            }
-          }
-        }
-      } catch (e) {
-        diagnostics.push({
-          source: "products/items",
-          product_id: productId,
-          term,
-          error: e instanceof Error ? e.message : "erro"
-        });
-      }
-
-      // Produto pai: procurar produtos filhos específicos.
-      const children = Array.isArray(data.children_ids)
-        ? data.children_ids.filter(Boolean).slice(0, CHILD_LIMIT)
-        : [];
-
-      for (const childId of children) {
-        if (candidates.length >= limit * 3) break;
-        await inspectProduct(String(childId), term, depth + 1);
-      }
-
-      // Alguns catálogos expõem produtos específicos dentro de pickers.
-      const pickerProducts: string[] = [];
-      if (Array.isArray(data.pickers)) {
-        for (const picker of data.pickers) {
-          if (!Array.isArray(picker?.products)) continue;
-          for (const child of picker.products) {
-            if (child?.product_id) pickerProducts.push(String(child.product_id));
-          }
-        }
-      }
-
-      for (const childId of [...new Set(pickerProducts)].slice(0, CHILD_LIMIT)) {
-        if (candidates.length >= limit * 3) break;
-        await inspectProduct(childId, term, depth + 1);
+        const r = await fetch(url, { headers, signal: controller.signal });
+        const text = await r.text();
+        let data: any = null;
+        try { data = JSON.parse(text); } catch {}
+        return { ok: r.ok, status: r.status, data };
+      } finally {
+        clearTimeout(timer);
       }
     }
 
-    async function addItemCandidate(
-      itemId: string,
-      product: any,
-      winner: any,
-      term: string
-    ) {
-      if (!itemId || seenItems.has(itemId)) return;
-      seenItems.add(itemId);
+    function addCandidate(list: any[], product: any, winner: any, term: string) {
+      if (!winner?.item_id || !Number.isFinite(Number(winner.price))) return;
 
-      let item: any = null;
-      try {
-        const result = await getJson(ML + "/items/" + encodeURIComponent(itemId));
-        diagnostics.push({
-          source: "items/detail",
-          item_id: itemId,
-          term,
-          status: result.r.status
-        });
-        if (result.r.ok) item = result.data;
-      } catch {}
+      const current = Number(winner.price);
+      const originalRaw = Number(winner.original_price);
+      const original = Number.isFinite(originalRaw) && originalRaw > current
+        ? originalRaw
+        : null;
 
-      let current = Number(
-        winner?.price ??
-        item?.price ??
-        NaN
-      );
+      const discount = original
+        ? Math.round(((original - current) / original) * 100)
+        : 0;
 
-      let original = Number(
-        winner?.original_price ??
-        item?.original_price ??
-        NaN
-      );
+      if (somenteDescontos && discount <= 0 && !(winner.deal_ids?.length)) return;
 
-      const range = product?.buy_box_winner_price_range;
-      const rangeMin = Number(range?.min?.price ?? NaN);
-      const rangeMax = Number(range?.max?.price ?? NaN);
-
-      if (!Number.isFinite(current) && Number.isFinite(rangeMin)) current = rangeMin;
-      if ((!Number.isFinite(original) || original <= current) &&
-          Number.isFinite(rangeMax) && rangeMax > current) {
-        original = rangeMax;
-      }
-
-      let permalink =
-        item?.permalink ||
-        winner?.permalink ||
-        product?.permalink ||
-        null;
-
-      let image =
-        item?.thumbnail ||
-        item?.pictures?.[0]?.secure_url ||
-        item?.pictures?.[0]?.url ||
-        product?.pictures?.[0]?.url ||
-        null;
-
-      let title =
-        item?.title ||
-        winner?.title ||
-        product?.name ||
-        "Produto Mercado Livre";
-
-      let freeShipping = !!item?.shipping?.free_shipping;
-
-      // O item é a unidade comprável. Só candidatos com item_id entram.
-      if (!permalink || !Number.isFinite(current)) {
-        try {
-          const priceResult = await getJson(
-            ML +
-            "/items/" +
-            encodeURIComponent(itemId) +
-            "/sale_price?context=channel_marketplace"
-          );
-
-          diagnostics.push({
-            source: "items/sale_price",
-            item_id: itemId,
-            term,
-            status: priceResult.r.status
-          });
-
-          if (priceResult.r.ok) {
-            const sale = priceResult.data;
-            if (Number.isFinite(Number(sale?.amount))) current = Number(sale.amount);
-            if (Number.isFinite(Number(sale?.regular_amount)) &&
-                Number(sale.regular_amount) > current) {
-              original = Number(sale.regular_amount);
-            }
-          }
-        } catch {}
-      }
-
-      if (!Number.isFinite(current) || current <= 0) return;
-
-      const discount =
-        Number.isFinite(original) &&
-        original > current
-          ? Math.round(((original - current) / original) * 100)
-          : 0;
-
-      if (somenteDescontos && discount <= 0) return;
-
-      candidates.push({
-        external_id: itemId,
+      list.push({
+        external_id: String(winner.item_id),
         product_external_id: String(product.id),
-        title,
+        title: product.name || "Produto Mercado Livre",
         current,
-        original: Number.isFinite(original) ? original : null,
+        original,
         discount,
-        image,
-        permalink,
-        promotion_id: null,
+        image: product.pictures?.[0]?.url || product.pictures?.[0]?.secure_url || null,
+        permalink: product.permalink || null,
+        promotion_id: Array.isArray(winner.deal_ids) && winner.deal_ids.length
+          ? String(winner.deal_ids[0])
+          : null,
         promotion_type: null,
-        free_shipping: freeShipping,
-        score: discount * 10 + (freeShipping ? 5 : 0),
+        free_shipping: !!winner.shipping?.free_shipping,
+        score: discount * 10 +
+          (Array.isArray(winner.deal_ids) && winner.deal_ids.length ? 25 : 0) +
+          (winner.shipping?.free_shipping ? 5 : 0),
         term
       });
     }
 
-    // Busca oficial do catálogo. /sites/MLB/search não é usado.
-    for (const term of TERMS) {
-      if (candidates.length >= limit * 3) break;
-
-      const url =
-        ML +
-        "/products/search?status=active&site_id=MLB&limit=10&q=" +
-        encodeURIComponent(term);
-
-      const result = await getJson(url);
-
-      diagnostics.push({
-        source: "products/search",
+    // 1) Pesquisa no catálogo em paralelo: apenas 4 chamadas.
+    const searches = await Promise.all(
+      TERMS.map(async (term) => ({
         term,
-        status: result.r.status,
-        results: Array.isArray(result.data?.results)
-          ? result.data.results.length
-          : 0
-      });
+        result: await getJson(
+          ML + "/products/search?status=active&site_id=MLB&limit=10&q=" +
+          encodeURIComponent(term)
+        )
+      }))
+    );
 
-      if (!result.r.ok) continue;
+    const candidates: any[] = [];
+    const details: string[] = [];
 
-      const results = Array.isArray(result.data?.results)
-        ? result.data.results.slice(0, MAX_PRODUCTS_PER_TERM)
+    // 2) Usa o buy_box_winner que já vem no catálogo.
+    // Não usamos /products/{id}/items nem /items/{id} aqui.
+    for (const search of searches) {
+      if (!search.result.ok) continue;
+
+      const products = Array.isArray(search.result.data?.results)
+        ? search.result.data.results.slice(0, SEARCH_LIMIT)
         : [];
 
-      for (const p of results.slice(0, MAX_PRODUCTS_PER_TERM)) {
-        if (!p?.id) continue;
-        await inspectProduct(String(p.id), term);
-        if (candidates.length >= limit * 3) break;
+      for (const product of products) {
+        if (!product?.id) continue;
+
+        if (product.buy_box_winner?.item_id) {
+          addCandidate(candidates, product, product.buy_box_winner, search.term);
+        } else {
+          details.push(String(product.id));
+        }
+
+        if (candidates.length >= limit * 2) break;
+      }
+      if (candidates.length >= limit * 2) break;
+    }
+
+    // 3) Alguns resultados são pais/agrupadores. Consultamos poucos detalhes
+    // para chegar aos filhos específicos, evitando a explosão de chamadas anterior.
+    for (const productId of details.slice(0, DETAIL_LIMIT)) {
+      if (candidates.length >= limit * 2) break;
+
+      const result = await getJson(
+        ML + "/products/" + encodeURIComponent(productId)
+      );
+
+      if (!result.ok || !result.data) continue;
+
+      const product = result.data;
+      if (product.buy_box_winner?.item_id) {
+        addCandidate(candidates, product, product.buy_box_winner, "catalog");
+        continue;
+      }
+
+      const children = Array.isArray(product.children_ids)
+        ? product.children_ids.slice(0, 2)
+        : [];
+
+      for (const childId of children) {
+        if (candidates.length >= limit * 2) break;
+
+        const child = await getJson(
+          ML + "/products/" + encodeURIComponent(String(childId))
+        );
+
+        if (child.ok && child.data?.buy_box_winner?.item_id) {
+          addCandidate(
+            candidates,
+            child.data,
+            child.data.buy_box_winner,
+            "catalog"
+          );
+        }
       }
     }
 
-    // Atualiza preços usando o item real, nunca o catalog_product_id.
-    const enriched: any[] = [];
-
-    for (const item of candidates) {
-      if (enriched.length >= limit) break;
-
-      let current = item.current;
-      let original = item.original;
-      let promotionId: string | null = null;
-      let promotionType: string | null = null;
-      let freeShipping = item.free_shipping;
-
-      try {
-        const result = await getJson(
-          ML +
-          "/items/" +
-          encodeURIComponent(item.external_id) +
-          "/sale_price?context=channel_marketplace"
-        );
-
-        if (result.r.ok) {
-          const sale = result.data;
-          if (Number.isFinite(Number(sale?.amount))) {
-            current = Number(sale.amount);
-          }
-          if (
-            Number.isFinite(Number(sale?.regular_amount)) &&
-            Number(sale.regular_amount) > current
-          ) {
-            original = Number(sale.regular_amount);
-          }
-          promotionId = sale?.metadata?.promotion_id || null;
-          promotionType = sale?.metadata?.promotion_type || null;
-        }
-      } catch {}
-
-      const discount =
-        Number.isFinite(Number(original)) &&
-        Number(original) > Number(current) &&
-        Number(current) > 0
-          ? Math.round(((Number(original) - Number(current)) / Number(original)) * 100)
-          : 0;
-
-      if (somenteDescontos && discount <= 0 && !promotionId) continue;
-
-      enriched.push({
-        ...item,
-        current,
-        original,
-        discount,
-        promotion_id: promotionId,
-        promotion_type: promotionType,
-        free_shipping: freeShipping,
-        score: discount * 10 + (promotionId ? 25 : 0) + (freeShipping ? 5 : 0)
-      });
-    }
-
-    // Remove duplicados por anúncio e ordena pelas melhores oportunidades.
+    // 4) Deduplica e seleciona as melhores ofertas.
     const unique: any[] = [];
-    const selectedIds = new Set<string>();
+    const seen = new Set<string>();
 
-    for (const item of enriched.sort(
+    for (const item of candidates.sort(
       (a, b) =>
         b.score - a.score ||
         b.discount - a.discount ||
-        Number(a.current || 0) - Number(b.current || 0)
+        a.current - b.current
     )) {
-      if (selectedIds.has(item.external_id)) continue;
-      selectedIds.add(item.external_id);
+      if (seen.has(item.external_id)) continue;
+      seen.add(item.external_id);
       unique.push(item);
       if (unique.length >= limit) break;
     }
@@ -422,6 +232,7 @@ Deno.serve(async (req) => {
     let atualizadas = 0;
     const ofertas: any[] = [];
 
+    // 5) Grava somente o necessário no banco. Não grava diagnósticos gigantes.
     for (const o of unique) {
       const now = new Date().toISOString();
 
@@ -440,11 +251,8 @@ Deno.serve(async (req) => {
         moeda: "BRL",
         disponibilidade: true,
         classificacao:
-          o.discount >= 20
-            ? "excelente"
-            : o.discount >= 10
-              ? "interessante"
-              : "verificar",
+          o.discount >= 20 ? "excelente" :
+          o.discount >= 10 ? "interessante" : "verificar",
         permitido_afiliado: true,
         permitido_divulgacao: true,
         imagem_url: o.image,
@@ -510,8 +318,11 @@ Deno.serve(async (req) => {
         promotion_type: o.promotion_type,
         score: o.score
       });
+
+      if (ofertas.length >= limit) break;
     }
 
+    // Log mínimo, sem armazenar respostas enormes do Mercado Livre.
     await db.from("logs").insert({
       user_id: userId,
       tipo: "process-offers",
@@ -522,8 +333,7 @@ Deno.serve(async (req) => {
         novas,
         atualizadas,
         limite: limit,
-        termos: TERMS,
-        diagnostics
+        termos: TERMS
       }
     });
 
