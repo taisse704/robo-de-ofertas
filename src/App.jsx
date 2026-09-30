@@ -48,7 +48,8 @@ export default function App() {
   const [conteudos, setConteudos] = useState([]);
   const [mensagemConteudo, setMensagemConteudo] = useState("");
   const [aprovandoConteudo, setAprovandoConteudo] = useState(null);
-  const [instagramConectado, setInstagramConectado] = useState(false);\n  const [desconectandoAfiliada, setDesconectandoAfiliada] = useState(null);
+  const [instagramConectado, setInstagramConectado] = useState(false);
+  const [desconectandoAfiliada, setDesconectandoAfiliada] = useState(null);
 
   useEffect(() => {
     verificarSessao();
@@ -246,7 +247,12 @@ export default function App() {
     }
   }
 
-  async function desconectarAfiliada(provider) {\n    setMensagemAfiliadas(""); setDesconectandoAfiliada(provider.key);\n    try { const platform=plataformas.find(p=>p.nome.toLowerCase().includes(provider.name.toLowerCase())); if(!platform) throw new Error(`Plataforma ${provider.name} nao cadastrada.`); const {error}=await supabase.from("affiliate_accounts").delete().eq("user_id",usuario.id).eq("platform_id",platform.id); if(error) throw error; setContasAfiliadas(atual=>atual.filter(a=>a.platform_id!==platform.id)); setMensagemAfiliadas(`${provider.name} desconectado.`); } catch(error) { console.error(error); setMensagemAfiliadas(error?.message||`Nao foi possivel desconectar ${provider.name}.`); } finally { setDesconectandoAfiliada(null); }\n  }\n\n  async function desconectarTodasRedes() {
+  async function desconectarAfiliada(provider) {
+    setMensagemAfiliadas(""); setDesconectandoAfiliada(provider.key);
+    try { const platform=plataformas.find(p=>p.nome.toLowerCase().includes(provider.name.toLowerCase())); if(!platform) throw new Error(`Plataforma ${provider.name} nao cadastrada.`); const {error}=await supabase.from("affiliate_accounts").delete().eq("user_id",usuario.id).eq("platform_id",platform.id); if(error) throw error; setContasAfiliadas(atual=>atual.filter(a=>a.platform_id!==platform.id)); setMensagemAfiliadas(`${provider.name} desconectado.`); } catch(error) { console.error(error); setMensagemAfiliadas(error?.message||`Nao foi possivel desconectar ${provider.name}.`); } finally { setDesconectandoAfiliada(null); }
+  }
+
+  async function desconectarTodasRedes() {
     if (!window.confirm("Desconectar todas as redes sociais deste usuario?")) return;
     setMensagemConfig("");
     try {
