@@ -122,7 +122,23 @@ Deno.serve(async (req) => {
             }
           }
 
-          const winner = detail?.buy_box_winner;
+          let winner = detail?.buy_box_winner;
+
+          // Alguns resultados da busca são produtos-pai sem vencedor direto.
+          // Nesses casos, os produtos-filhos podem ter a publicação vencedora.
+          if (!winner?.item_id && Array.isArray(detail?.children_ids)) {
+            for (const childId of detail.children_ids.slice(0, 5)) {
+              const child = await getJson(ML + "/products/" + encodeURIComponent(String(childId)), true);
+              diagnostic.catalog_children_consulted = (diagnostic.catalog_children_consulted || 0) + 1;
+              diagnostic.catalog_child_last_status = child.status;
+              if (child.ok && child.data?.buy_box_winner?.item_id) {
+                detail = child.data;
+                winner = detail.buy_box_winner;
+                break;
+              }
+            }
+          }
+
           if (winner?.item_id && Number.isFinite(Number(winner.price))) {
             const offer = makeOffer({
               id: winner.item_id,
