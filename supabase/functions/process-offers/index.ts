@@ -168,7 +168,7 @@ Deno.serve(async (req) => {
       }
 
       if (!catalog.ok || !Array.isArray(catalog.data?.results) || !catalog.data.results.length || termCandidates === 0) {
-        const publicSearch = await getJson(ML + "/sites/MLB/search?limit=" + SEARCH_LIMIT + "&q=" + encodeURIComponent(term) + "&sort=relevance", false);
+        const publicSearch = await getJson(ML + "/sites/MLB/search?limit=" + SEARCH_LIMIT + "&q=" + encodeURIComponent(term) + "&sort=relevance", true);
         diagnostic.public_status = publicSearch.status;
         diagnostic.public_results = Array.isArray(publicSearch.data?.results) ? publicSearch.data.results.length : 0;
 
