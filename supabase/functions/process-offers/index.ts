@@ -79,12 +79,12 @@ Deno.serve(async (req) => {
       Accept: "application/json"
     };
 
-    async function getJson(url: string) {
+    async function getJson(url: string, useAuth = true) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       try {
         const response = await fetch(url, {
-          headers: authHeaders,
+          headers: useAuth ? authHeaders : { Accept: "application/json" },
           signal: controller.signal
         });
         const raw = await response.text();
@@ -92,7 +92,12 @@ Deno.serve(async (req) => {
         try {
           data = JSON.parse(raw);
         } catch {}
-        return { ok: response.ok, status: response.status, data };
+        return {
+          ok: response.ok,
+          status: response.status,
+          data,
+          error: typeof data?.message === "string" ? data.message : typeof data?.error === "string" ? data.error : raw.slice(0, 300)
+        };
       } finally {
         clearTimeout(timer);
       }
@@ -132,16 +137,29 @@ Deno.serve(async (req) => {
     // Evita depender do buy_box_winner do catálogo, que pode existir
     // somente em determinados produtos e não representa uma publicação.
     for (const term of TERMS) {
-      const search = await getJson(
+      // A busca geral de publicações é pública. Primeiro tentamos sem token,
+      // evitando que uma política específica do token bloqueie a pesquisa.
+      // Se a API exigir autenticação, repetimos a mesma consulta com o token.
+      let search = await getJson(
         ML + "/sites/MLB/search?limit=" + SEARCH_LIMIT +
         "&q=" + encodeURIComponent(term) +
-        "&sort=relevance"
+        "&sort=relevance",
+        false
       );
+
+      if (!search.ok) {
+        search = await getJson(
+          ML + "/sites/MLB/search?limit=" + SEARCH_LIMIT +
+          "&q=" + encodeURIComponent(term) +
+          "&sort=relevance"
+        );
+      }
 
       const diagnostic: any = {
         term,
         search_status: search.status,
-        search_results: Array.isArray(search.data?.results) ? search.data.results.length : 0
+        search_results: Array.isArray(search.data?.results) ? search.data.results.length : 0,
+        search_error: search.ok ? null : search.error
       };
 
       let termCandidates = 0;
@@ -174,6 +192,7 @@ Deno.serve(async (req) => {
         diagnostic.catalog_results = Array.isArray(catalog.data?.results)
           ? catalog.data.results.length
           : 0;
+        diagnostic.catalog_error = catalog.ok ? null : catalog.error;
       }
 
       diagnostics.push(diagnostic);
