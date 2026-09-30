@@ -451,7 +451,7 @@ export default function App() {
       }
 
       await carregarOfertas();
-      const diagnostico = Array.isArray(resultado.diagnostico) ? resultado.diagnostico.map((d) => `${d.term}: HTTP ${d.status}, ${d.resultados_api || 0} resultados`).join(" | ") : "";
+      const diagnostico = Array.isArray(resultado.diagnostico) ? resultado.diagnostico.map((d) => `${d.term}: catálogo HTTP ${d.catalog_status ?? "—"}, ${d.catalog_results || 0} resultados${d.public_status != null ? ` | público HTTP ${d.public_status}, ${d.public_results || 0} resultados` : ""}`).join(" | ") : "";
       setMensagemOferta(`Busca concluida: ${resultado.produtos_encontrados || 0} produtos encontrados e ${resultado.novas || 0} nova(s) oferta(s) adicionada(s).${diagnostico ? ` Diagnostico: ${diagnostico}` : ""}`);
     } catch (error) {
       console.error("Erro na busca de ofertas:", error);
