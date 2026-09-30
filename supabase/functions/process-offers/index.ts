@@ -20,10 +20,17 @@ Deno.serve(async(req)=>{
   if(ae||!accounts?.length)return out({ok:false,error:"Mercado Livre não está conectado."},400);
   const cfg=accounts[0].configuracao||{};
   if(typeof cfg.access_token!=="string"||!cfg.access_token)return out({ok:false,error:"Token do Mercado Livre não encontrado."},400);
+  const accessToken=cfg.access_token;
   async function search(term){
    const c=new AbortController(), t=setTimeout(()=>c.abort(),TIMEOUT);
-   try{const r=await fetch(ML+"/sites/MLB/search?limit="+SEARCH_LIMIT+"&q="+encodeURIComponent(term)+"&sort=relevance",{headers:{Accept:"application/json","User-Agent":"RoboDeOfertas/1.0"},signal:c.signal});const raw=await r.text();let data=null;try{data=JSON.parse(raw)}catch{}return {status:r.status,ok:r.ok,data};}
-   finally{clearTimeout(t);}
+   try{
+    const r=await fetch(ML+"/sites/MLB/search?limit="+SEARCH_LIMIT+"&q="+encodeURIComponent(term)+"&sort=relevance",{
+      headers:{Accept:"application/json","Authorization:"Bearer "+accessToken,"User-Agent":"RoboDeOfertas/1.0"},
+      signal:c.signal
+    });
+    const raw=await r.text();let data=null;try{data=JSON.parse(raw)}catch{}
+    return {status:r.status,ok:r.ok,data};
+   } finally{clearTimeout(t);}
   }
   function make(item,term){
    const current=Number(item?.price);if(!item?.id||!Number.isFinite(current)||current<=0)return null;
