@@ -45,5 +45,22 @@ jobs:
         with:
           path: ./dist
 
-      - name: Publicar
+      - name: Publicar site
         uses: actions/deploy-pages@v4
+
+  deploy-process-offers:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ytymdncyaynmypiodhfc
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Publicar process-offers
+        run: supabase functions deploy process-offers --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
