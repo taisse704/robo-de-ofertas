@@ -4,7 +4,8 @@ const ML = "https://api.mercadolibre.com";
 const TERMS = ["celular", "notebook", "air fryer", "smart tv"];
 const MAX = 30;
 const SEARCH_LIMIT = 5;
-const DETAIL_LIMIT = 6;
+const DETAIL_LIMIT = 12;
+const CHILD_LIMIT = 24;
 const REQUEST_TIMEOUT_MS = 8000;
 
 Deno.serve(async (req) => {
@@ -148,10 +149,11 @@ Deno.serve(async (req) => {
     );
 
     const candidates: any[] = [];
-    const details: string[] = [];
+    const details: { id: string; term: string }[] = [];
 
-    // 2) Usa o buy_box_winner que já vem no catálogo.
-    // Não usamos /products/{id}/items nem /items/{id} aqui.
+    // 2) Usa o buy_box_winner quando a busca já o fornece.
+    // Quando o resultado é um produto-pai, guardamos o ID para consultar
+    // o detalhe em paralelo. Isso evita chamadas sequenciais e timeout.
     for (const search of searches) {
       if (!search.result.ok) continue;
 
@@ -165,50 +167,55 @@ Deno.serve(async (req) => {
         if (product.buy_box_winner?.item_id) {
           addCandidate(candidates, product, product.buy_box_winner, search.term);
         } else {
-          details.push(String(product.id));
+          details.push({ id: String(product.id), term: search.term });
         }
-
-        if (candidates.length >= limit * 2) break;
       }
-      if (candidates.length >= limit * 2) break;
     }
 
-    // 3) Alguns resultados são pais/agrupadores. Consultamos poucos detalhes
-    // para chegar aos filhos específicos, evitando a explosão de chamadas anterior.
-    for (const productId of details.slice(0, DETAIL_LIMIT)) {
-      if (candidates.length >= limit * 2) break;
+    // 3) Consulta os produtos-pai em paralelo.
+    const parentDetails = await Promise.all(
+      details.slice(0, DETAIL_LIMIT).map(async ({ id, term }) => ({
+        id,
+        term,
+        result: await getJson(ML + "/products/" + encodeURIComponent(id))
+      }))
+    );
 
-      const result = await getJson(
-        ML + "/products/" + encodeURIComponent(productId)
-      );
+    const children: { id: string; term: string }[] = [];
 
-      if (!result.ok || !result.data) continue;
+    for (const entry of parentDetails) {
+      const product = entry.result.ok ? entry.result.data : null;
+      if (!product) continue;
 
-      const product = result.data;
       if (product.buy_box_winner?.item_id) {
-        addCandidate(candidates, product, product.buy_box_winner, "catalog");
+        addCandidate(candidates, product, product.buy_box_winner, entry.term);
         continue;
       }
 
-      const children = Array.isArray(product.children_ids)
-        ? product.children_ids.slice(0, 2)
-        : [];
-
-      for (const childId of children) {
-        if (candidates.length >= limit * 2) break;
-
-        const child = await getJson(
-          ML + "/products/" + encodeURIComponent(String(childId))
-        );
-
-        if (child.ok && child.data?.buy_box_winner?.item_id) {
-          addCandidate(
-            candidates,
-            child.data,
-            child.data.buy_box_winner,
-            "catalog"
-          );
+      if (Array.isArray(product.children_ids)) {
+        for (const childId of product.children_ids.slice(0, 2)) {
+          children.push({ id: String(childId), term: entry.term });
+          if (children.length >= CHILD_LIMIT) break;
         }
+      }
+      if (children.length >= CHILD_LIMIT) break;
+    }
+
+    // 3b) Consulta os filhos em paralelo. É neles que normalmente existe
+    // uma página de produto específica e comprável com buy_box_winner.
+    const childDetails = await Promise.all(
+      children.map(async ({ id, term }) => ({
+        id,
+        term,
+        result: await getJson(ML + "/products/" + encodeURIComponent(id))
+      }))
+    );
+
+    for (const entry of childDetails) {
+      if (!entry.result.ok || !entry.result.data) continue;
+      const product = entry.result.data;
+      if (product.buy_box_winner?.item_id) {
+        addCandidate(candidates, product, product.buy_box_winner, entry.term);
       }
     }
 
@@ -251,7 +258,7 @@ Deno.serve(async (req) => {
         moeda: "BRL",
         disponibilidade: true,
         classificacao:
-          o.discount >= 20 ? "excelente" :
+          o.discount >= 20 ? "interessante" :
           o.discount >= 10 ? "interessante" : "verificar",
         permitido_afiliado: true,
         permitido_divulgacao: true,
