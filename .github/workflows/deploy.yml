@@ -28,48 +28,62 @@ jobs:
           p = Path('src/App.jsx')
           s = p.read_text(encoding='utf-8')
 
+          old_top = '''            <div className="panel" style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <button className={abaOfertas === "mercadolivre" ? "primary" : "secondary"} onClick={() => { setAbaOfertas("mercadolivre"); setMensagemOferta(""); }}>
+                🛒 Mercado Livre
+              </button>
+              <button className={abaOfertas === "shopee" ? "primary" : "secondary"} onClick={() => { setAbaOfertas("shopee"); setMensagemOferta(""); }}>
+                🟠 Shopee
+              </button>
+            </div>
+'''
+
           old_menu = '''  const menu = [
-            ["inicio", "Inicio"],
-            ["ofertas", "Ofertas"],
-            ["conteudo", "Conteudo"],
-            ["resultados", "Resultados"],
-            ["config", "Config"]
-          ];'''
+    ["inicio", "Inicio"],
+    ["ofertas", "Ofertas"],
+    ["conteudo", "Conteudo"],
+    ["resultados", "Resultados"],
+    ["config", "Config"]
+  ];'''
           new_menu = '''  const menu = [
-            ["inicio", "Inicio", "inicio", ""],
-            ["ofertas-ml", "Mercado Livre", "ofertas", "mercadolivre"],
-            ["ofertas-shopee", "Shopee", "ofertas", "shopee"],
-            ["conteudo", "Conteudo", "conteudo", ""],
-            ["resultados", "Resultados", "resultados", ""],
-            ["config", "Config", "config", ""]
-          ];'''
+    ["inicio", "Inicio", "inicio", ""],
+    ["ofertas-ml", "Mercado Livre", "ofertas", "mercadolivre"],
+    ["ofertas-shopee", "Shopee", "ofertas", "shopee"],
+    ["conteudo", "Conteudo", "conteudo", ""],
+    ["resultados", "Resultados", "resultados", ""],
+    ["config", "Config", "config", ""]
+  ];'''
 
           old_nav = '''      <nav>
-            {menu.map(([id, nome]) => <button key={id} className={pagina === id ? "ativo" : ""} onClick={() => setPagina(id)}><span>{id === "inicio" && "🏠"}{id === "ofertas" && "🔎"}{id === "conteudo" && "🎬"}{id === "resultados" && "📊"}{id === "config" && "⚙️"}</span><small>{nome}</small></button>)}
-          </nav>'''
+        {menu.map(([id, nome]) => <button key={id} className={pagina === id ? "ativo" : ""} onClick={() => setPagina(id)}><span>{id === "inicio" && "🏠"}{id === "ofertas" && "🔎"}{id === "conteudo" && "🎬"}{id === "resultados" && "📊"}{id === "config" && "⚙️"}</span><small>{nome}</small></button>)}
+      </nav>'''
           new_nav = '''      <nav>
-            {menu.map(([id, nome, destino, aba]) => (
-              <button
-                key={id}
-                className={pagina === destino && (!aba || abaOfertas === aba) ? "ativo" : ""}
-                onClick={() => {
-                  setPagina(destino);
-                  if (aba) {
-                    setAbaOfertas(aba);
-                    setMensagemOferta("");
-                  }
-                }}
-              >
-                <span>{destino === "inicio" && "🏠"}{aba === "mercadolivre" && "🛒"}{aba === "shopee" && "🟠"}{destino === "conteudo" && "🎬"}{destino === "resultados" && "📊"}{destino === "config" && "⚙️"}</span>
-                <small>{nome}</small>
-              </button>
-            ))}
-          </nav>'''
+        {menu.map(([id, nome, destino, aba]) => (
+          <button
+            key={id}
+            className={pagina === destino && (!aba || abaOfertas === aba) ? "ativo" : ""}
+            onClick={() => {
+              setPagina(destino);
+              if (aba) {
+                setAbaOfertas(aba);
+                setMensagemOferta("");
+              }
+            }}
+          >
+            <span>{destino === "inicio" && "🏠"}{aba === "mercadolivre" && "🛒"}{aba === "shopee" && "🟠"}{destino === "conteudo" && "🎬"}{destino === "resultados" && "📊"}{destino === "config" && "⚙️"}</span>
+            <small>{nome}</small>
+          </button>
+        ))}
+      </nav>'''
 
+          if old_top not in s:
+              raise SystemExit('abas do topo esperadas não encontradas')
           if old_menu not in s:
               raise SystemExit('menu esperado não encontrado')
           if old_nav not in s:
               raise SystemExit('navegação esperada não encontrada')
+
+          s = s.replace(old_top, '', 1)
           s = s.replace(old_menu, new_menu, 1)
           s = s.replace(old_nav, new_nav, 1)
           s = s.replace('const FRONTEND_BUILD_VERSION = "2026-10-01-ofertas-abas";', 'const FRONTEND_BUILD_VERSION = "2026-10-01-ofertas-ml-shopee-bottom";', 1)
