@@ -61,3 +61,5 @@ jobs:
         run: supabase functions deploy publish-content --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
       - name: Publicar robot-worker
         run: supabase functions deploy robot-worker --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+      - name: Publicar shopee-offers
+        run: supabase functions deploy shopee-offers --project-ref "$SUPABASE_PROJECT_ID"
