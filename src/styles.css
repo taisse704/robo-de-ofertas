@@ -279,3 +279,63 @@ nav button small {
     max-width: none;
   }
 }
+
+/* Abas de ofertas: Mercado Livre e Shopee ficam na barra inferior, no lugar da aba unica "Ofertas". */
+.app:has(main > h2 + .panel > button.primary + button.secondary) {
+  padding-bottom: 76px;
+}
+
+.app:has(main > h2 + .panel > button.primary + button.secondary) nav {
+  left: 40%;
+}
+
+.app:has(main > h2 + .panel > button.primary + button.secondary) nav button:nth-child(2) {
+  display: none;
+}
+
+.app:has(main > h2 + .panel > button.primary + button.secondary) main > .panel:first-of-type {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  z-index: 11;
+  width: 40%;
+  height: 76px;
+  margin: 0;
+  padding: 8px 4px;
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  background: #111114;
+  border: 0;
+  border-top: 1px solid #29292e;
+  border-radius: 0;
+}
+
+.app:has(main > h2 + .panel > button.primary + button.secondary) main > .panel:first-of-type button {
+  width: 50%;
+  min-width: 0;
+  height: 60px;
+  margin: 0;
+  padding: 8px 4px;
+  border-radius: 8px;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.app:has(main > h2 + .panel > button.primary + button.secondary) main > .panel:first-of-type button.primary {
+  margin-top: 0;
+}
+
+@media (max-width: 600px) {
+  .app:has(main > h2 + .panel > button.primary + button.secondary) nav {
+    left: 42%;
+  }
+
+  .app:has(main > h2 + .panel > button.primary + button.secondary) main > .panel:first-of-type {
+    width: 42%;
+  }
+
+  .app:has(main > h2 + .panel > button.primary + button.secondary) main > .panel:first-of-type button {
+    font-size: 11px;
+  }
+}
