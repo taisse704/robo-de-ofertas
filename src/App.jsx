@@ -453,7 +453,7 @@ export default function App() {
       }
 
       await carregarOfertas();
-      const diagnostico = Array.isArray(resultado.diagnostico) ? resultado.diagnostico.map((d) => `${d.term}: busca HTTP ${d.search_status ?? "—"}, ${d.search_results || 0} resultados (${d.search_mode || "—"}) | candidatos ${d.candidatos || 0} | rejeitados ${d.rejeitados || 0}${d.erro ? ` | erro: ${d.erro}` : ""}`).join(" | ") : "";
+      const diagnostico = Array.isArray(resultado.diagnostico) ? resultado.diagnostico.map((d) => `${d.term}: catálogo HTTP ${d.catalog_status ?? "—"}, ${d.catalog_results || 0} resultados | candidatos ${d.term_candidates || 0} | sem vencedor ${d.no_winner || 0} | vencedor sem preço ${d.winner_without_price || 0} | detalhes HTTP ${Array.isArray(d.detail_statuses) ? d.detail_statuses.join(",") : "—"} | erro detalhe ${d.detail_errors || 0}`).join(" | ") : "";
       setMensagemOferta(`Busca concluida: ${resultado.produtos_encontrados || 0} produtos encontrados e ${resultado.novas || 0} nova(s) oferta(s) adicionada(s).${diagnostico ? ` Diagnostico: ${diagnostico}` : ""}`);
     } catch (error) {
       console.error("Erro na busca de ofertas:", error);
