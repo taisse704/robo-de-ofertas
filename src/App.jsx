@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-01-automacao-shopee-horaria-v4";
+const FRONTEND_BUILD_VERSION = "2026-10-01-frontend-publicacao-v5";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
@@ -771,7 +771,7 @@ export default function App() {
             <div className="panel">
               <h3>{abaOfertas === "novas" ? "Novas ofertas — Shopee" : abaOfertas === "publicadas" ? "Ofertas já publicadas — Shopee" : "Ofertas já cadastradas — Shopee"}</h3>
               {carregandoShopee && <p>Carregando ofertas...</p>}
-              {!carregandoShopee && ofertasDaAba("shopee").length === 0 && <p>{abaOfertas === "novas" ? "Nenhuma oferta nova nas últimas 24 horas." : abaOfertas === "publicadas" ? "Nenhuma oferta publicada ainda." : "Nenhuma oferta cadastrada nesta aba."}</p>}
+              {!carregandoShopee && ofertasDaAba("shopee").length === 0 && <p>{abaOfertas === "novas" ? "Nenhuma oferta nova nesta busca." : abaOfertas === "publicadas" ? "Nenhuma oferta publicada ainda." : "Nenhuma oferta cadastrada nesta aba."}</p>}
               {ofertasDaAba("shopee").map((o) => (
                 <div className="offer" key={o.id}>
                   <div className="offer-image">{o.imagem_url ? <img src={o.imagem_url} alt="" /> : "Oferta"}</div>
