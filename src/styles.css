@@ -288,3 +288,33 @@ nav button small {
     max-width: none;
   }
 }
+
+.offer-tabs {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.offer-tabs button {
+  border: 1px solid #33343a;
+  background: #151519;
+  color: #aaa;
+  border-radius: 10px;
+  padding: 10px 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.offer-tabs button.tab-ativo {
+  background: #fff;
+  color: #111;
+  border-color: #fff;
+}
+
+.offer-tabs button span {
+  display: inline-block;
+  margin-left: 5px;
+  font-weight: bold;
+}
