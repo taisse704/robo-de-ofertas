@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-01-shopee-geral-v3";
+const FRONTEND_BUILD_VERSION = "2026-10-01-ofertas-sem-duplicacao-v1";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
@@ -52,6 +52,8 @@ export default function App() {
   const [aprovandoConteudo, setAprovandoConteudo] = useState(null);
   const [instagramConectado, setInstagramConectado] = useState(false);
   const [desconectandoAfiliada, setDesconectandoAfiliada] = useState(null);
+  const [abaOfertas, setAbaOfertas] = useState("novas");
+  const [ofertasPublicadas, setOfertasPublicadas] = useState(new Set());
 
   useEffect(() => {
     verificarSessao();
@@ -175,7 +177,7 @@ export default function App() {
   }
 
   async function carregarDados() {
-    await Promise.all([carregarPlataformas(), carregarOfertas(), carregarContasAfiliadas(), carregarConfiguracao(), carregarConteudos()]);
+    await Promise.all([carregarPlataformas(), carregarOfertas(), carregarOfertasPublicadas(), carregarContasAfiliadas(), carregarConfiguracao(), carregarConteudos()]);
   }
 
   async function carregarPlataformas() {
@@ -205,6 +207,25 @@ export default function App() {
       setListaOfertas(data || []);
     }
     setCarregandoOfertas(false);
+  }
+
+  async function carregarOfertasPublicadas() {
+    const { data, error } = await supabase
+      .from("offer_publications")
+      .select("offer_id,status,published_at")
+      .eq("user_id", usuario.id);
+    if (error) {
+      console.error(error);
+      setOfertasPublicadas(new Set());
+      return;
+    }
+    const ids = new Set(
+      (data || [])
+        .filter((p) => p.published_at || ["publicado", "publicada", "published", "sucesso"].includes(String(p.status || "").toLowerCase()))
+        .map((p) => p.offer_id)
+        .filter(Boolean)
+    );
+    setOfertasPublicadas(ids);
   }
 
   async function carregarContasAfiliadas() {
@@ -470,16 +491,6 @@ export default function App() {
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !session?.access_token) throw new Error("Sessao expirada.");
 
-      // Cada nova busca da Shopee começa limpa: remove somente as ofertas
-      // antigas da Shopee deste usuário antes de gravar os novos resultados.
-      const { error: limparErro } = await supabase
-        .from("offers")
-        .delete()
-        .eq("user_id", usuario.id)
-        .eq("store_provider", "shopee");
-      if (limparErro) throw limparErro;
-      setListaOfertas((atual) => atual.filter((item) => item.store_provider !== "shopee"));
-
       const response = await fetch(`${SUPABASE_URL}/functions/v1/shopee-offers`, {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
@@ -593,6 +604,22 @@ export default function App() {
     ["config", "Config"]
   ];
 
+  function ofertaEhPublicada(o) {
+    return ofertasPublicadas.has(o.id);
+  }
+
+  function ofertaEhNova(o) {
+    const criado = new Date(o.created_at || o.encontrada_em || 0).getTime();
+    return !ofertaEhPublicada(o) && criado >= Date.now() - 24 * 60 * 60 * 1000;
+  }
+
+  function ofertasDaAba(provider) {
+    const base = listaOfertas.filter((o) => o.store_provider === provider || o.platforms?.nome === (provider === "shopee" ? "Shopee" : "Mercado Livre"));
+    if (abaOfertas === "publicadas") return base.filter(ofertaEhPublicada);
+    if (abaOfertas === "novas") return base.filter(ofertaEhNova);
+    return base.filter((o) => !ofertaEhPublicada(o) && !ofertaEhNova(o));
+  }
+
   const emRevisao = conteudos.filter((c) => c.status === "aguardando_revisao").length;
   const interessantes = listaOfertas.filter((o) => o.classificacao === "interessante").length;
 
@@ -670,11 +697,16 @@ export default function App() {
             <h2>Ofertas Mercado Livre</h2>
             <div className="panel"><button className="primary" onClick={buscarOfertasMercadoLivre} disabled={carregandoOfertas}>{carregandoOfertas ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DO MERCADO LIVRE"}</button></div>
             {mensagemOferta && <div className="panel"><p>{mensagemOferta}</p></div>}
+            <div className="offer-tabs">
+              <button className={abaOfertas === "novas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("novas")}>🆕 Novas <span>{ofertasDaAba("mercadolivre").length}</span></button>
+              <button className={abaOfertas === "cadastradas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("cadastradas")}>📦 Cadastradas</button>
+              <button className={abaOfertas === "publicadas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("publicadas")}>📢 Publicadas</button>
+            </div>
             <div className="panel">
-              <h3>Ofertas cadastradas — Mercado Livre</h3>
+              <h3>{abaOfertas === "novas" ? "Novas ofertas — Mercado Livre" : abaOfertas === "publicadas" ? "Ofertas já publicadas — Mercado Livre" : "Ofertas já cadastradas — Mercado Livre"}</h3>
               {carregandoOfertas && <p>Carregando ofertas...</p>}
-              {!carregandoOfertas && listaOfertas.filter((o) => o.store_provider === "mercadolivre" || o.platforms?.nome === "Mercado Livre").length === 0 && <p>Nenhuma oferta do Mercado Livre cadastrada ainda.</p>}
-              {listaOfertas.filter((o) => o.store_provider === "mercadolivre" || o.platforms?.nome === "Mercado Livre").map((o) => (
+              {!carregandoOfertas && ofertasDaAba("mercadolivre").length === 0 && <p>{abaOfertas === "novas" ? "Nenhuma oferta nova nas últimas 24 horas." : abaOfertas === "publicadas" ? "Nenhuma oferta publicada ainda." : "Nenhuma oferta cadastrada nesta aba."}</p>}
+              {ofertasDaAba("mercadolivre").map((o) => (
                 <div className="offer" key={o.id}>
                   <div className="offer-image">{o.imagem_url ? <img src={o.imagem_url} alt="" /> : "Oferta"}</div>
                   <div className="offer-info"><h3>{o.titulo}</h3><p>Mercado Livre</p><strong>{o.preco_atual == null ? "Preço não informado" : moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{Number(o.desconto_percentual || 0)}% de desconto</span>}<small>Comissao estimada: {moeda(o.comissao_estimada)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
@@ -689,11 +721,16 @@ export default function App() {
             <h2>Ofertas Shopee</h2>
             <div className="panel"><button className="primary" onClick={buscarOfertasShopee} disabled={carregandoShopee}>{carregandoShopee ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DA SHOPEE"}</button></div>
             {mensagemShopee && <div className="panel"><p>{mensagemShopee}</p></div>}
+            <div className="offer-tabs">
+              <button className={abaOfertas === "novas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("novas")}>🆕 Novas <span>{ofertasDaAba("shopee").length}</span></button>
+              <button className={abaOfertas === "cadastradas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("cadastradas")}>📦 Cadastradas</button>
+              <button className={abaOfertas === "publicadas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("publicadas")}>📢 Publicadas</button>
+            </div>
             <div className="panel">
-              <h3>Ofertas cadastradas — Shopee</h3>
+              <h3>{abaOfertas === "novas" ? "Novas ofertas — Shopee" : abaOfertas === "publicadas" ? "Ofertas já publicadas — Shopee" : "Ofertas já cadastradas — Shopee"}</h3>
               {carregandoShopee && <p>Carregando ofertas...</p>}
-              {!carregandoShopee && listaOfertas.filter((o) => o.store_provider === "shopee" || o.platforms?.nome === "Shopee").length === 0 && <p>Nenhuma oferta da Shopee cadastrada ainda.</p>}
-              {listaOfertas.filter((o) => o.store_provider === "shopee" || o.platforms?.nome === "Shopee").map((o) => (
+              {!carregandoShopee && ofertasDaAba("shopee").length === 0 && <p>{abaOfertas === "novas" ? "Nenhuma oferta nova nas últimas 24 horas." : abaOfertas === "publicadas" ? "Nenhuma oferta publicada ainda." : "Nenhuma oferta cadastrada nesta aba."}</p>}
+              {ofertasDaAba("shopee").map((o) => (
                 <div className="offer" key={o.id}>
                   <div className="offer-image">{o.imagem_url ? <img src={o.imagem_url} alt="" /> : "Oferta"}</div>
                   <div className="offer-info"><h3>{o.titulo}</h3><p>Shopee</p><strong>{o.preco_atual == null ? "Preço não informado" : moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{Number(o.desconto_percentual || 0)}% de desconto</span>}<small>Comissao estimada: {moeda(o.comissao_estimada)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
