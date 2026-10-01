@@ -158,16 +158,16 @@ Deno.serve(async (req) => {
     const processedProducts = new Set<string>();
 
     for (const term of TERMS) {
-      const catalogUrl =
-        ML + "/products/search?status=active&site_id=MLB&limit=" +
-        CATALOG_LIMIT + "&q=" + encodeURIComponent(term);
+      const searchUrl =
+        ML + "/sites/MLB/search?q=" +
+        encodeURIComponent(term) + "&limit=10";
 
-      const catalog = await getJson(catalogUrl);
+      const search = await getJson(searchUrl);
 
       const diagnostic: any = {
         term,
-        catalog_status: catalog.status,
-        catalog_results: Array.isArray(catalog.data?.results) ? catalog.data.results.length : 0,
+        catalog_status: search.status,
+        catalog_results: Array.isArray(search.data?.results) ? search.data.results.length : 0,
         no_winner: 0,
         winner_without_price: 0,
         rejected_by_make_offer: 0,
@@ -176,56 +176,61 @@ Deno.serve(async (req) => {
         detail_statuses: [],
         item_statuses: [],
         item_detail_errors: 0,
+        search_mode: "items",
       };
 
-      if (!catalog.ok || !Array.isArray(catalog.data?.results)) {
-        diagnostic.catalog_error = catalog.error;
+      if (!search.ok || !Array.isArray(search.data?.results)) {
+        diagnostic.catalog_error = search.error;
         diagnostics.push(diagnostic);
         continue;
       }
 
-      for (const product of catalog.data.results) {
-        if (!product?.id) continue;
+      for (const result of search.data.results) {
+        const itemId = typeof result === "string" ? result : result?.id;
+        if (!itemId) continue;
 
-        const productId = String(product.id);
-        if (processedProducts.has(productId)) continue;
-        processedProducts.add(productId);
+        const id = String(itemId);
+        if (processedProducts.has(id)) continue;
+        processedProducts.add(id);
 
-        const detail = await getJson(ML + "/products/" + encodeURIComponent(productId));
+        const itemDetail = await getJson(
+          ML + "/items/" + encodeURIComponent(id)
+        );
 
-        diagnostic.detail_statuses.push(detail.status);
-        if (!detail.ok || !detail.data) {
+        diagnostic.detail_statuses.push(itemDetail.status);
+
+        if (!itemDetail.ok || !itemDetail.data) {
           diagnostic.detail_errors++;
           continue;
         }
 
-        const detailProduct = detail.data;
-        const winner = detailProduct?.buy_box_winner;
+        const item = itemDetail.data;
+        const current = Number(item?.price);
 
-        if (!winner) {
-          diagnostic.no_winner++;
-          continue;
-        }
-
-        let item: any = null;
-
-        if (winner?.item_id) {
-          const itemDetail = await getJson(ML + "/items/" + encodeURIComponent(String(winner.item_id)));
-          if (itemDetail.ok && itemDetail.data) {
-            item = itemDetail.data;
-          } else {
-            diagnostic.item_detail_errors++;
-            diagnostic.item_statuses.push(itemDetail.status);
-          }
-        }
-
-        const winnerPrice = Number(winner?.price ?? item?.price);
-        if (!Number.isFinite(winnerPrice) || winnerPrice <= 0) {
+        if (!Number.isFinite(current) || current <= 0) {
           diagnostic.winner_without_price++;
           continue;
         }
 
-        const offer = makeOffer(detailProduct, winner, item, term);
+        const winner = {
+          item_id: id,
+          price: current,
+          original_price: item?.original_price ?? null,
+          shipping: item?.shipping,
+          deal_ids: item?.deal_ids,
+          listing_type_id: item?.listing_type_id,
+          seller_id: item?.seller_id,
+        };
+
+        const product = {
+          id: String(item?.catalog_product_id || id),
+          name: item?.title || "Produto Mercado Livre",
+          permalink: item?.permalink || null,
+          pictures: item?.pictures || [],
+        };
+
+        const offer = makeOffer(product, winner, item, term);
+
         if (!offer) {
           diagnostic.rejected_by_make_offer++;
           continue;
