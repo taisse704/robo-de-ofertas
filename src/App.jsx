@@ -469,6 +469,17 @@ export default function App() {
     try {
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !session?.access_token) throw new Error("Sessao expirada.");
+
+      // Cada nova busca da Shopee começa limpa: remove somente as ofertas
+      // antigas da Shopee deste usuário antes de gravar os novos resultados.
+      const { error: limparErro } = await supabase
+        .from("offers")
+        .delete()
+        .eq("user_id", usuario.id)
+        .eq("store_provider", "shopee");
+      if (limparErro) throw limparErro;
+      setListaOfertas((atual) => atual.filter((item) => item.store_provider !== "shopee"));
+
       const response = await fetch(`${SUPABASE_URL}/functions/v1/shopee-offers`, {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
