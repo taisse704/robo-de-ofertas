@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-01-ofertas-sem-duplicacao-v1";
+const FRONTEND_BUILD_VERSION = "2026-10-01-ofertas-sem-duplicacao-v2";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
@@ -54,6 +54,7 @@ export default function App() {
   const [desconectandoAfiliada, setDesconectandoAfiliada] = useState(null);
   const [abaOfertas, setAbaOfertas] = useState("novas");
   const [ofertasPublicadas, setOfertasPublicadas] = useState(new Set());
+  const [shopeeNovasIds, setShopeeNovasIds] = useState(new Set());
 
   useEffect(() => {
     verificarSessao();
@@ -488,6 +489,13 @@ export default function App() {
     setMensagemShopee("Buscando ofertas na Shopee...");
     setCarregandoShopee(true);
     try {
+      const idsAntes = new Set(
+        listaOfertas
+          .filter((o) => o.store_provider === "shopee" || o.platforms?.nome === "Shopee")
+          .map((o) => String(o.product_external_id || ""))
+          .filter(Boolean)
+      );
+
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !session?.access_token) throw new Error("Sessao expirada.");
 
@@ -498,9 +506,32 @@ export default function App() {
       });
       const resultado = await response.json().catch(() => ({}));
       if (!response.ok || !resultado.ok) throw new Error(resultado?.error || resultado?.message || `Erro ${response.status}`);
-      await carregarOfertas();
-      const diagnostico = Array.isArray(resultado.diagnostico) ? resultado.diagnostico.map((d) => `${d.keyword}: HTTP ${d.status ?? "—"}, ${d.resultados || 0} resultados${d.erro ? ` | erro: ${d.erro}` : ""}`).join(" | ") : "";
-      setMensagemShopee(`Busca concluida: ${resultado.produtos || 0} produtos encontrados e ${resultado.novas_ofertas || 0} nova(s) oferta(s) adicionada(s).${diagnostico ? ` Diagnostico: ${diagnostico}` : ""}`);
+
+      const { data: ofertasAtualizadas, error: ofertasError } = await supabase
+        .from("offers")
+        .select("*, platforms(id, nome)")
+        .eq("user_id", usuario.id)
+        .order("created_at", { ascending: false });
+
+      if (ofertasError) throw ofertasError;
+      setListaOfertas(ofertasAtualizadas || []);
+
+      const novasIds = new Set(
+        (Array.isArray(resultado.ofertas) ? resultado.ofertas : [])
+          .map((o) => String(o.product_external_id || ""))
+          .filter((id) => id && !idsAntes.has(id))
+      );
+      setShopeeNovasIds(novasIds);
+
+      const novas = Number(resultado.novas_ofertas ?? resultado.novas ?? novasIds.size ?? 0);
+      const atualizadas = Number(resultado.atualizadas ?? 0);
+      const diagnostico = Array.isArray(resultado.diagnostico)
+        ? resultado.diagnostico.map((d) => `${d.keyword || d.tipo || "(geral)"}: HTTP ${d.status ?? "—"}, ${d.resultados || 0} resultados${d.erro ? ` | erro: ${d.erro}` : ""}`).join(" | ")
+        : "";
+
+      setMensagemShopee(
+        `Busca concluida: ${resultado.produtos || 0} produtos encontrados • ${novas} novos • ${atualizadas} atualizados.${diagnostico ? ` Diagnostico: ${diagnostico}` : ""}`
+      );
     } catch (error) {
       console.error("Erro na busca de ofertas Shopee:", error);
       setMensagemShopee(error?.message || "Nao foi possivel buscar ofertas na Shopee.");
@@ -616,7 +647,12 @@ export default function App() {
   function ofertasDaAba(provider) {
     const base = listaOfertas.filter((o) => o.store_provider === provider || o.platforms?.nome === (provider === "shopee" ? "Shopee" : "Mercado Livre"));
     if (abaOfertas === "publicadas") return base.filter(ofertaEhPublicada);
-    if (abaOfertas === "novas") return base.filter(ofertaEhNova);
+    if (abaOfertas === "novas") {
+      if (provider === "shopee") {
+        return base.filter((o) => shopeeNovasIds.has(String(o.product_external_id || "")));
+      }
+      return base.filter(ofertaEhNova);
+    }
     return base.filter((o) => !ofertaEhPublicada(o) && !ofertaEhNova(o));
   }
 
