@@ -1,3 +1,3 @@
 # robo-de-ofertas
 
-Deploy de correção do filtro de novas ofertas Shopee.
+Deploy final da correção do filtro de novas ofertas Shopee.
