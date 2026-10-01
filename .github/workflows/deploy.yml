@@ -25,6 +25,25 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Corrigir filtro de novas ofertas Shopee
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/App.jsx')
+          s = p.read_text(encoding='utf-8')
+          old = '''    if (abaOfertas === "novas") {
+      return base.filter(ofertaEhNova);
+    }'''
+          new = '''    if (abaOfertas === "novas") {
+      if (provider === "shopee") {
+        return base.filter((o) => shopeeNovasIds.has(String(o.product_external_id || "")));
+      }
+      return base.filter(ofertaEhNova);
+    }'''
+          if old in s:
+              s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
       - name: Instalar dependências
         run: npm install
       - name: Criar aplicação
