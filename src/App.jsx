@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-01-ofertas-shopee-filtro-v3";
+const FRONTEND_BUILD_VERSION = "2026-10-01-automacao-shopee-horaria-v4";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
@@ -67,6 +67,15 @@ export default function App() {
 
   useEffect(() => {
     if (usuario) carregarDados();
+  }, [usuario]);
+
+  useEffect(() => {
+    if (!usuario) return;
+    const timer = setInterval(() => {
+      carregarOfertas();
+      carregarOfertasPublicadas();
+    }, 5 * 60 * 1000);
+    return () => clearInterval(timer);
   }, [usuario]);
 
   async function verificarSessao() {
@@ -641,16 +650,13 @@ export default function App() {
 
   function ofertaEhNova(o) {
     const criado = new Date(o.created_at || o.encontrada_em || 0).getTime();
-    return !ofertaEhPublicada(o) && criado >= Date.now() - 24 * 60 * 60 * 1000;
+    return !ofertaEhPublicada(o) && criado >= Date.now() - 60 * 60 * 1000;
   }
 
   function ofertasDaAba(provider) {
     const base = listaOfertas.filter((o) => o.store_provider === provider || o.platforms?.nome === (provider === "shopee" ? "Shopee" : "Mercado Livre"));
     if (abaOfertas === "publicadas") return base.filter(ofertaEhPublicada);
     if (abaOfertas === "novas") {
-      if (provider === "shopee") {
-        return base.filter((o) => shopeeNovasIds.has(String(o.product_external_id || "")));
-      }
       return base.filter(ofertaEhNova);
     }
     return base.filter((o) => !ofertaEhPublicada(o) && !ofertaEhNova(o));
@@ -741,7 +747,7 @@ export default function App() {
             <div className="panel">
               <h3>{abaOfertas === "novas" ? "Novas ofertas — Mercado Livre" : abaOfertas === "publicadas" ? "Ofertas já publicadas — Mercado Livre" : "Ofertas já cadastradas — Mercado Livre"}</h3>
               {carregandoOfertas && <p>Carregando ofertas...</p>}
-              {!carregandoOfertas && ofertasDaAba("mercadolivre").length === 0 && <p>{abaOfertas === "novas" ? "Nenhuma oferta nova nas últimas 24 horas." : abaOfertas === "publicadas" ? "Nenhuma oferta publicada ainda." : "Nenhuma oferta cadastrada nesta aba."}</p>}
+              {!carregandoOfertas && ofertasDaAba("mercadolivre").length === 0 && <p>{abaOfertas === "novas" ? "Nenhuma oferta nova na última hora." : abaOfertas === "publicadas" ? "Nenhuma oferta publicada ainda." : "Nenhuma oferta cadastrada nesta aba."}</p>}
               {ofertasDaAba("mercadolivre").map((o) => (
                 <div className="offer" key={o.id}>
                   <div className="offer-image">{o.imagem_url ? <img src={o.imagem_url} alt="" /> : "Oferta"}</div>
