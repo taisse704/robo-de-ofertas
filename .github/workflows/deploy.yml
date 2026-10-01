@@ -13,8 +13,8 @@ permissions:
 
 concurrency:
   group: robo-de-ofertas-deploy
-  cancel-in-progress: false
-
+  cancel-in-progress: false 
+  
 jobs:
   build:
     runs-on: ubuntu-latest
