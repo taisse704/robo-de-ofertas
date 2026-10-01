@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-01-ofertas-sem-duplicacao-v2";
+const FRONTEND_BUILD_VERSION = "2026-10-01-ofertas-shopee-filtro-v3";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
@@ -52,7 +52,7 @@ export default function App() {
   const [aprovandoConteudo, setAprovandoConteudo] = useState(null);
   const [instagramConectado, setInstagramConectado] = useState(false);
   const [desconectandoAfiliada, setDesconectandoAfiliada] = useState(null);
-  const [abaOfertas, setAbaOfertas] = useState("novas");
+  const [abaOfertas, setAbaOfertas] = useState("cadastradas");
   const [ofertasPublicadas, setOfertasPublicadas] = useState(new Set());
   const [shopeeNovasIds, setShopeeNovasIds] = useState(new Set());
 
