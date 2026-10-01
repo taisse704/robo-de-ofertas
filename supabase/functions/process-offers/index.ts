@@ -173,6 +173,8 @@ Deno.serve(async (req) => {
         rejected_by_make_offer: 0,
         term_candidates: 0,
         detail_errors: 0,
+        detail_statuses: [],
+        item_statuses: [],
         item_detail_errors: 0,
       };
 
@@ -191,6 +193,7 @@ Deno.serve(async (req) => {
 
         const detail = await getJson(ML + "/products/" + encodeURIComponent(productId));
 
+        diagnostic.detail_statuses.push(detail.status);
         if (!detail.ok || !detail.data) {
           diagnostic.detail_errors++;
           continue;
@@ -204,12 +207,6 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const winnerPrice = Number(winner?.price);
-        if (!Number.isFinite(winnerPrice) || winnerPrice <= 0) {
-          diagnostic.winner_without_price++;
-          continue;
-        }
-
         let item: any = null;
 
         if (winner?.item_id) {
@@ -218,7 +215,14 @@ Deno.serve(async (req) => {
             item = itemDetail.data;
           } else {
             diagnostic.item_detail_errors++;
+            diagnostic.item_statuses.push(itemDetail.status);
           }
+        }
+
+        const winnerPrice = Number(winner?.price ?? item?.price);
+        if (!Number.isFinite(winnerPrice) || winnerPrice <= 0) {
+          diagnostic.winner_without_price++;
+          continue;
         }
 
         const offer = makeOffer(detailProduct, winner, item, term);
