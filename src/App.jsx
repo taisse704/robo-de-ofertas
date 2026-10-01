@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-09-30-diagnostico-ml";
+const FRONTEND_BUILD_VERSION = "2026-10-01-ofertas-abas";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
@@ -42,6 +42,7 @@ export default function App() {
   const [carregandoAfiliadas, setCarregandoAfiliadas] = useState(false);
   const [mensagemOferta, setMensagemOferta] = useState("");
   const [mensagemAfiliadas, setMensagemAfiliadas] = useState("");
+  const [abaOfertas, setAbaOfertas] = useState("mercadolivre");
   const [config, setConfig] = useState({ativo:true,busca_automatica:true,publicar_automaticamente:true,aprovacao_antes_publicar:false,instagram:false,youtube:false,whatsapp:false,tiktok:false,kwai:false,facebook:false,pinterest:false,intervalo_minutos:30});
   const [salvandoConfig, setSalvandoConfig] = useState(false);
   const [mensagemConfig, setMensagemConfig] = useState("");
@@ -335,6 +336,7 @@ export default function App() {
       setMensagemConfig(`Não foi possível preparar o ${rede.name}.`);
     }
   }
+
   async function prepararConexao(provider) {
     setMensagemAfiliadas("");
 
@@ -422,12 +424,6 @@ export default function App() {
     setMensagemAfiliadas(`${provider.name} adicionada. A conexao oficial sera configurada quando a plataforma fornecer a autorizacao/API.`);
   }
 
-  function numero(valor) {
-    if (valor === "" || valor == null) return null;
-    const n = Number(String(valor).replace(/\./g, "").replace(",", "."));
-    return Number.isFinite(n) ? n : null;
-  }
-
   async function buscarOfertasMercadoLivre() {
     setMensagemOferta("Buscando ofertas no Mercado Livre...");
     setCarregandoOfertas(true);
@@ -456,6 +452,41 @@ export default function App() {
     } catch (error) {
       console.error("Erro na busca de ofertas:", error);
       setMensagemOferta(error?.message || "Nao foi possivel buscar ofertas.");
+    } finally {
+      setCarregandoOfertas(false);
+    }
+  }
+
+  async function buscarOfertasShopee() {
+    setMensagemOferta("Buscando ofertas na Shopee...");
+    setCarregandoOfertas(true);
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.access_token) throw new Error("Sessao expirada.");
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/shopee-offers`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: SUPABASE_ANON_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ limit: 20, termos: ["celular", "notebook", "air fryer", "smart tv"] })
+      });
+
+      const resultado = await response.json().catch(() => ({}));
+      if (!response.ok || resultado.ok === false) {
+        throw new Error(resultado?.error || resultado?.message || `Erro ${response.status}`);
+      }
+
+      await carregarOfertas();
+      const diagnostico = Array.isArray(resultado.diagnostico) ? resultado.diagnostico.map((d) => `${d.term || d.termo || "busca"}: ${d.status || d.http_status || "OK"}${d.erro ? ` | erro: ${d.erro}` : ""}`).join(" | ") : "";
+      const encontrados = resultado.produtos_encontrados ?? resultado.encontrados ?? resultado.total ?? 0;
+      const novas = resultado.novas ?? resultado.ofertas_adicionadas ?? 0;
+      setMensagemOferta(`Busca concluida: ${encontrados} produtos encontrados e ${novas} nova(s) oferta(s) adicionada(s).${diagnostico ? ` Diagnostico: ${diagnostico}` : ""}`);
+    } catch (error) {
+      console.error("Erro na busca de ofertas Shopee:", error);
+      setMensagemOferta(error?.message || "Nao foi possivel buscar ofertas da Shopee.");
     } finally {
       setCarregandoOfertas(false);
     }
@@ -557,6 +588,12 @@ export default function App() {
 
   const emRevisao = conteudos.filter((c) => c.status === "aguardando_revisao").length;
   const interessantes = listaOfertas.filter((o) => o.classificacao === "interessante").length;
+  const ofertasVisiveis = listaOfertas.filter((o) => {
+    const nome = String(o.platforms?.nome || o.plataforma || "").toLowerCase();
+    if (abaOfertas === "mercadolivre") return nome.includes("mercado livre") || nome.includes("mercadolivre");
+    if (abaOfertas === "shopee") return nome.includes("shopee");
+    return true;
+  });
 
   if (carregando) {
     return <div className="app"><main><div className="panel"><h1>ROBO DE OFERTAS</h1><p>Carregando...</p></div></main></div>;
@@ -630,20 +667,58 @@ export default function App() {
         {pagina === "ofertas" && (
           <>
             <h2>Ofertas</h2>
-            <div className="panel" style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <button className="primary" onClick={buscarOfertasMercadoLivre} disabled={carregandoOfertas}>
-                {carregandoOfertas ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DO MERCADO LIVRE"}
+            <div className="panel" style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <button className={abaOfertas === "mercadolivre" ? "primary" : "secondary"} onClick={() => { setAbaOfertas("mercadolivre"); setMensagemOferta(""); }}>
+                🛒 Mercado Livre
+              </button>
+              <button className={abaOfertas === "shopee" ? "primary" : "secondary"} onClick={() => { setAbaOfertas("shopee"); setMensagemOferta(""); }}>
+                🟠 Shopee
               </button>
             </div>
+
+            {abaOfertas === "mercadolivre" && (
+              <div className="panel">
+                <h3>Ofertas Mercado Livre</h3>
+                <button className="primary" onClick={buscarOfertasMercadoLivre} disabled={carregandoOfertas}>
+                  {carregandoOfertas ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DO MERCADO LIVRE"}
+                </button>
+              </div>
+            )}
+
+            {abaOfertas === "shopee" && (
+              <div className="panel">
+                <h3>Ofertas Shopee</h3>
+                <button className="primary" onClick={buscarOfertasShopee} disabled={carregandoOfertas}>
+                  {carregandoOfertas ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DA SHOPEE"}
+                </button>
+              </div>
+            )}
+
             {mensagemOferta && <div className="panel"><p>{mensagemOferta}</p></div>}
+
             <div className="panel">
-              <h3>Ofertas cadastradas</h3>
+              <h3>{abaOfertas === "mercadolivre" ? "Ofertas cadastradas — Mercado Livre" : "Ofertas cadastradas — Shopee"}</h3>
               {carregandoOfertas && <p>Carregando ofertas...</p>}
-              {!carregandoOfertas && listaOfertas.length === 0 && <p>Nenhuma oferta cadastrada ainda.</p>}
-              {listaOfertas.map((o) => (
+              {!carregandoOfertas && ofertasVisiveis.length === 0 && <p>Nenhuma oferta cadastrada nesta aba.</p>}
+              {ofertasVisiveis.map((o) => (
                 <div className="offer" key={o.id}>
                   <div className="offer-image">Oferta</div>
-                  <div className="offer-info"><h3>{o.titulo}</h3><p>{o.platforms?.nome || "Plataforma"}</p><strong>{moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{o.desconto_percentual}% de desconto</span>}<small>Comissao estimada: {moeda(o.comissao_estimada)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
+                  <div className="offer-info">
+                    <h3>{o.titulo}</h3>
+                    <p>{o.platforms?.nome || "Plataforma"}</p>
+                    <strong>{moeda(o.preco_atual)}</strong>
+                    {o.desconto_percentual != null && <span>{o.desconto_percentual}% de desconto</span>}
+                    <small>Comissao estimada: {moeda(o.comissao_estimada)}</small>
+                    <small>Status: {o.classificacao}</small>
+                    <div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}>
+                      <select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}>
+                        <option value="interessante">Interessante</option>
+                        <option value="verificar">Verificar</option>
+                        <option value="descartada">Descartada</option>
+                      </select>
+                      <button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
@@ -733,7 +808,7 @@ export default function App() {
               <p>Remove as conexoes sociais salvas no Robô de Ofertas.</p>
               <button className="secondary" onClick={desconectarTodasRedes}>DESCONECTAR TODAS AS REDES</button>
             </div>
-                        <div className="panel">
+            <div className="panel">
               <h3>Automacao</h3>
               <p>O robo busca ofertas, gera conteudo e prepara a divulgacao automaticamente.</p>
               {mensagemConfig && <p className="status">{mensagemConfig}</p>}
