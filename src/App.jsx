@@ -483,7 +483,7 @@ export default function App() {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/shopee-offers`, {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ limit: 20, keywords: ["celular", "notebook", "air fryer", "smart tv"] })
+        body: JSON.stringify({ limit: 20 })
       });
       const resultado = await response.json().catch(() => ({}));
       if (!response.ok || !resultado.ok) throw new Error(resultado?.error || resultado?.message || `Erro ${response.status}`);
