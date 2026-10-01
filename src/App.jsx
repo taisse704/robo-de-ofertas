@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-09-30-diagnostico-ml";
+const FRONTEND_BUILD_VERSION = "2026-10-01-separacao-ml-shopee";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
@@ -41,6 +41,8 @@ export default function App() {
   const [carregandoOfertas, setCarregandoOfertas] = useState(false);
   const [carregandoAfiliadas, setCarregandoAfiliadas] = useState(false);
   const [mensagemOferta, setMensagemOferta] = useState("");
+  const [mensagemShopee, setMensagemShopee] = useState("");
+  const [carregandoShopee, setCarregandoShopee] = useState(false);
   const [mensagemAfiliadas, setMensagemAfiliadas] = useState("");
   const [config, setConfig] = useState({ativo:true,busca_automatica:true,publicar_automaticamente:true,aprovacao_antes_publicar:false,instagram:false,youtube:false,whatsapp:false,tiktok:false,kwai:false,facebook:false,pinterest:false,intervalo_minutos:30});
   const [salvandoConfig, setSalvandoConfig] = useState(false);
@@ -461,6 +463,30 @@ export default function App() {
     }
   }
 
+  async function buscarOfertasShopee() {
+    setMensagemShopee("Buscando ofertas na Shopee...");
+    setCarregandoShopee(true);
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.access_token) throw new Error("Sessao expirada.");
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/shopee-offers`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: 20, keywords: ["celular", "notebook", "air fryer", "smart tv"] })
+      });
+      const resultado = await response.json().catch(() => ({}));
+      if (!response.ok || !resultado.ok) throw new Error(resultado?.error || resultado?.message || `Erro ${response.status}`);
+      await carregarOfertas();
+      const diagnostico = Array.isArray(resultado.diagnostico) ? resultado.diagnostico.map((d) => `${d.keyword}: HTTP ${d.status ?? "—"}, ${d.resultados || 0} resultados${d.erro ? ` | erro: ${d.erro}` : ""}`).join(" | ") : "";
+      setMensagemShopee(`Busca concluida: ${resultado.produtos || 0} produtos encontrados e ${resultado.novas_ofertas || 0} nova(s) oferta(s) adicionada(s).${diagnostico ? ` Diagnostico: ${diagnostico}` : ""}`);
+    } catch (error) {
+      console.error("Erro na busca de ofertas Shopee:", error);
+      setMensagemShopee(error?.message || "Nao foi possivel buscar ofertas na Shopee.");
+    } finally {
+      setCarregandoShopee(false);
+    }
+  }
+
   async function excluirOferta(id) {
     if (!window.confirm("Deseja excluir esta oferta?")) return;
     const { error } = await supabase
@@ -549,7 +575,8 @@ export default function App() {
 
   const menu = [
     ["inicio", "Inicio"],
-    ["ofertas", "Ofertas"],
+    ["ofertas-ml", "Ofertas Mercado Livre"],
+    ["ofertas-shopee", "Ofertas Shopee"],
     ["conteudo", "Conteudo"],
     ["resultados", "Resultados"],
     ["config", "Config"]
@@ -627,23 +654,38 @@ export default function App() {
           </>
         )}
 
-        {pagina === "ofertas" && (
+        {pagina === "ofertas-ml" && (
           <>
-            <h2>Ofertas</h2>
-            <div className="panel" style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <button className="primary" onClick={buscarOfertasMercadoLivre} disabled={carregandoOfertas}>
-                {carregandoOfertas ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DO MERCADO LIVRE"}
-              </button>
-            </div>
+            <h2>Ofertas Mercado Livre</h2>
+            <div className="panel"><button className="primary" onClick={buscarOfertasMercadoLivre} disabled={carregandoOfertas}>{carregandoOfertas ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DO MERCADO LIVRE"}</button></div>
             {mensagemOferta && <div className="panel"><p>{mensagemOferta}</p></div>}
             <div className="panel">
-              <h3>Ofertas cadastradas</h3>
+              <h3>Ofertas cadastradas — Mercado Livre</h3>
               {carregandoOfertas && <p>Carregando ofertas...</p>}
-              {!carregandoOfertas && listaOfertas.length === 0 && <p>Nenhuma oferta cadastrada ainda.</p>}
-              {listaOfertas.map((o) => (
+              {!carregandoOfertas && listaOfertas.filter((o) => o.store_provider === "mercadolivre" || o.platforms?.nome === "Mercado Livre").length === 0 && <p>Nenhuma oferta do Mercado Livre cadastrada ainda.</p>}
+              {listaOfertas.filter((o) => o.store_provider === "mercadolivre" || o.platforms?.nome === "Mercado Livre").map((o) => (
                 <div className="offer" key={o.id}>
-                  <div className="offer-image">Oferta</div>
-                  <div className="offer-info"><h3>{o.titulo}</h3><p>{o.platforms?.nome || "Plataforma"}</p><strong>{moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{o.desconto_percentual}% de desconto</span>}<small>Comissao estimada: {moeda(o.comissao_estimada)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
+                  <div className="offer-image">{o.imagem_url ? <img src={o.imagem_url} alt="" /> : "Oferta"}</div>
+                  <div className="offer-info"><h3>{o.titulo}</h3><p>Mercado Livre</p><strong>{o.preco_atual == null ? "Preço não informado" : moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{Number(o.desconto_percentual || 0)}% de desconto</span>}<small>Comissao estimada: {moeda(o.comissao_estimada)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {pagina === "ofertas-shopee" && (
+          <>
+            <h2>Ofertas Shopee</h2>
+            <div className="panel"><button className="primary" onClick={buscarOfertasShopee} disabled={carregandoShopee}>{carregandoShopee ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DA SHOPEE"}</button></div>
+            {mensagemShopee && <div className="panel"><p>{mensagemShopee}</p></div>}
+            <div className="panel">
+              <h3>Ofertas cadastradas — Shopee</h3>
+              {carregandoShopee && <p>Carregando ofertas...</p>}
+              {!carregandoShopee && listaOfertas.filter((o) => o.store_provider === "shopee" || o.platforms?.nome === "Shopee").length === 0 && <p>Nenhuma oferta da Shopee cadastrada ainda.</p>}
+              {listaOfertas.filter((o) => o.store_provider === "shopee" || o.platforms?.nome === "Shopee").map((o) => (
+                <div className="offer" key={o.id}>
+                  <div className="offer-image">{o.imagem_url ? <img src={o.imagem_url} alt="" /> : "Oferta"}</div>
+                  <div className="offer-info"><h3>{o.titulo}</h3><p>Shopee</p><strong>{o.preco_atual == null ? "Preço não informado" : moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{Number(o.desconto_percentual || 0)}% de desconto</span>}<small>Comissao estimada: {moeda(o.comissao_estimada)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
                 </div>
               ))}
             </div>
@@ -761,7 +803,7 @@ export default function App() {
       </main>
 
       <nav>
-        {menu.map(([id, nome]) => <button key={id} className={pagina === id ? "ativo" : ""} onClick={() => setPagina(id)}><span>{id === "inicio" && "🏠"}{id === "ofertas" && "🔎"}{id === "conteudo" && "🎬"}{id === "resultados" && "📊"}{id === "config" && "⚙️"}</span><small>{nome}</small></button>)}
+        {menu.map(([id, nome]) => <button key={id} className={pagina === id ? "ativo" : ""} onClick={() => setPagina(id)}><span>{id === "inicio" && "🏠"}{id === "ofertas-ml" && "🔎"}{id === "ofertas-shopee" && "🔎"}{id === "conteudo" && "🎬"}{id === "resultados" && "📊"}{id === "config" && "⚙️"}</span><small>{nome}</small></button>)}
       </nav>
     </div>
   );
