@@ -368,62 +368,27 @@ Deno.serve(async (req) => {
       // Não usamos /products/{id}/items: essa rota foi descontinuada.
       // Também não usamos /items/{id} de terceiros com o OAuth do afiliado.
       if (type === "PRODUCT") {
-        // Primeiro tenta com o token da conta. Se o Mercado Livre bloquear
-        // esse recurso para token de afiliado, getCatalogJson troca
-        // automaticamente para o token da aplicação.
-        const product = await getCatalogJson(
-          ML + "/products/" + encodeURIComponent(id)
-        );
-
-        if (!product.ok || !product.data) {
-          return {
-            error: true,
-            sourceId: id,
-            sourceType: type,
-            status: product.status,
-            message: product.error || "Produto de catálogo não disponível."
-          };
-        }
-
-        const data = product.data;
-        const winner = data?.buy_box_winner;
-
-        // Quando existe Buy Box, ela já identifica uma publicação concreta.
-        if (typeof winner?.item_id === "string" && winner.item_id.startsWith("MLB")) {
-          return {
-            itemId: String(winner.item_id),
-            sourceId: id,
-            sourceType: type,
-            product: data,
-            fromBuyBox: true
-          };
-        }
-
-        // Sem Buy Box NÃO é erro. Procuramos uma publicação ativa que
-        // corresponda ao mesmo catalog_product_id.
-        const query = String(data?.name || data?.family_name || "").trim();
-        if (!query) {
-          return {
-            error: true,
-            sourceId: id,
-            sourceType: type,
-            status: product.status,
-            message: "Produto de catálogo sem nome para pesquisa pública."
-          };
-        }
-
+        // PRODUCT é um ID de catálogo, não uma publicação. Para evitar
+        // 403 em /products/{id} para tokens de afiliado, resolvemos o produto
+        // exclusivamente pela busca pública do marketplace.
         const params = new URLSearchParams({
-          q: query,
-          limit: "20",
+          q: id,
+          limit: "50",
           sort: "relevance"
         });
 
-        const categoryId = String(data?.category_id || "");
-        if (categoryId.startsWith("MLB")) params.set("category", categoryId);
-
-        const search = await getCatalogJson(
-          ML + "/sites/" + SITE_ID + "/search?" + params.toString()
+        let search = await getJson(
+          ML + "/sites/" + SITE_ID + "/search?" + params.toString(),
+          false
         );
+
+        // Algumas instalações podem exigir autenticação mesmo na busca.
+        if (!search.ok) {
+          search = await getJson(
+            ML + "/sites/" + SITE_ID + "/search?" + params.toString(),
+            true
+          );
+        }
 
         if (!search.ok || !Array.isArray(search.data?.results)) {
           return {
@@ -436,49 +401,52 @@ Deno.serve(async (req) => {
         }
 
         const results = search.data.results as any[];
+
+        // A publicação precisa apontar exatamente para o mesmo produto de
+        // catálogo. Assim não confundimos um produto parecido com o ranking.
         const exactCatalog = results.filter(
           (item) => String(item?.catalog_product_id || "") === id
         );
 
-        let candidates = exactCatalog;
-
-        // Algumas respostas públicas podem não trazer catalog_product_id.
-        // Só aceitamos fallback se o título for fortemente correspondente;
-        // nunca substituímos um produto por outro apenas pelo nome parcial.
-        if (!candidates.length) {
-          candidates = results.filter((item) => {
-            if (!item?.id || !String(item.id).startsWith("MLB")) return false;
-            const similarity = titleSimilarity(query, item.title);
-            return similarity >= 0.78;
-          });
-        }
-
-        if (!candidates.length) {
+        if (!exactCatalog.length) {
           return {
             error: true,
             sourceId: id,
             sourceType: type,
             status: 200,
-            message: "Nenhuma publicação ativa encontrada para o mesmo produto."
+            message: "Nenhuma publicação ativa encontrada para o mesmo produto de catálogo."
           };
         }
 
-        candidates.sort((a, b) => {
-          const aCatalog = String(a?.catalog_product_id || "") === id ? 1 : 0;
-          const bCatalog = String(b?.catalog_product_id || "") === id ? 1 : 0;
-          if (bCatalog !== aCatalog) return bCatalog - aCatalog;
-          const aSim = titleSimilarity(query, a?.title);
-          const bSim = titleSimilarity(query, b?.title);
-          if (bSim !== aSim) return bSim - aSim;
-          return Number(a?.price || Infinity) - Number(b?.price || Infinity);
+        // Preferimos uma publicação com preço válido e, entre elas, o menor
+        // preço para aumentar a chance de encontrar uma oferta utilizável.
+        exactCatalog.sort((a, b) => {
+          const aPrice = Number(a?.price);
+          const bPrice = Number(b?.price);
+          const aValid = Number.isFinite(aPrice) && aPrice > 0 ? 0 : 1;
+          const bValid = Number.isFinite(bPrice) && bPrice > 0 ? 0 : 1;
+
+          if (aValid !== bValid) return aValid - bValid;
+          return aPrice - bPrice;
         });
 
-        const selected = candidates[0];
+        const selected = exactCatalog[0];
+
+        if (!selected?.id) {
+          return {
+            error: true,
+            sourceId: id,
+            sourceType: type,
+            status: 200,
+            message: "A publicação encontrada não possui ID válido."
+          };
+        }
+
         return {
           itemId: String(selected.id),
           sourceId: id,
           sourceType: type,
-          product: data,
+          product: null,
           publicItem: selected,
           fromBuyBox: false
         };
