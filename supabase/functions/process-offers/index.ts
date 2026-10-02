@@ -70,7 +70,7 @@ Deno.serve(async (req) => {
     if (accountError || !accounts?.length) return json({ ok: false, error: "Mercado Livre não está conectado." }, 400);
 
     const cfg = accounts[0].configuracao && typeof accounts[0].configuracao === "object" ? accounts[0].configuracao : {};
-    const accessToken = typeof cfg.access_token === "string" ? cfg.access_token : "";
+    let accessToken = typeof cfg.access_token === "string" ? cfg.access_token : "";
 
     if (!accessToken) return json({ ok: false, error: "Token do Mercado Livre não encontrado." }, 400);
 
@@ -79,12 +79,89 @@ Deno.serve(async (req) => {
       Accept: "application/json",
     };
 
-    async function getJson(url: string) {
+    async function refreshAccessToken() {
+      const clientId =
+        Deno.env.get("MERCADOLIVRE_CLIENT_ID") ||
+        Deno.env.get("MERCADOLIVRE_APP_ID") ||
+        "";
+
+      const clientSecret =
+        Deno.env.get("MERCADOLIVRE_CLIENT_SECRET") ||
+        Deno.env.get("MERCADOLIVRE_APP_SECRET") ||
+        "";
+
+      const refreshToken =
+        typeof cfg.refresh_token === "string"
+          ? cfg.refresh_token
+          : "";
+
+      if (!clientId || !clientSecret || !refreshToken) {
+        return false;
+      }
+
+      const tokenResponse = await fetch(
+        "https://api.mercadolibre.com/oauth/token",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Accept: "application/json",
+          },
+          body: new URLSearchParams({
+            grant_type: "refresh_token",
+            client_id: clientId,
+            client_secret: clientSecret,
+            refresh_token: refreshToken,
+          }),
+        }
+      );
+
+      const tokenData = await tokenResponse.json().catch(() => null);
+
+      if (!tokenResponse.ok || !tokenData?.access_token) {
+        console.error("MERCADO LIVRE REFRESH ERRO:", tokenResponse.status, tokenData);
+        return false;
+      }
+
+      accessToken = String(tokenData.access_token);
+      authHeaders.Authorization = "Bearer " + accessToken;
+
+      const newCfg = {
+        ...cfg,
+        access_token: accessToken,
+        refresh_token:
+          typeof tokenData.refresh_token === "string"
+            ? tokenData.refresh_token
+            : refreshToken,
+        token_type:
+          tokenData.token_type || cfg.token_type || "Bearer",
+        expires_in:
+          tokenData.expires_in ?? cfg.expires_in ?? null,
+        token_obtido_em: new Date().toISOString(),
+      };
+
+      const { error: saveError } = await db
+        .from("affiliate_accounts")
+        .update({
+          configuracao: newCfg,
+          atualizado_em: new Date().toISOString(),
+        })
+        .eq("id", accounts[0].id)
+        .eq("user_id", userId);
+
+      if (saveError) {
+        console.error("MERCADO LIVRE REFRESH SAVE ERRO:", saveError);
+      }
+
+      return true;
+    }
+
+    async function getJson(url: string, headers = authHeaders) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
       try {
-        const response = await fetch(url, { headers: authHeaders, signal: controller.signal });
+        const response = await fetch(url, { headers, signal: controller.signal });
         const raw = await response.text();
         let data: any = null;
         try { data = JSON.parse(raw); } catch {}
@@ -162,7 +239,14 @@ Deno.serve(async (req) => {
         ML + "/sites/MLB/search?q=" +
         encodeURIComponent(term) + "&limit=10";
 
-      const search = await getJson(searchUrl);
+      let search = await getJson(searchUrl);
+
+      if (search.status === 401) {
+        const refreshed = await refreshAccessToken();
+        if (refreshed) {
+          search = await getJson(searchUrl);
+        }
+      }
 
       const diagnostic: any = {
         term,
@@ -193,9 +277,18 @@ Deno.serve(async (req) => {
         if (processedProducts.has(id)) continue;
         processedProducts.add(id);
 
-        const itemDetail = await getJson(
+        let itemDetail = await getJson(
           ML + "/items/" + encodeURIComponent(id)
         );
+
+        if (itemDetail.status === 401) {
+          const refreshed = await refreshAccessToken();
+          if (refreshed) {
+            itemDetail = await getJson(
+              ML + "/items/" + encodeURIComponent(id)
+            );
+          }
+        }
 
         diagnostic.detail_statuses.push(itemDetail.status);
 
