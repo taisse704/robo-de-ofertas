@@ -326,7 +326,14 @@ Deno.serve(async (req) => {
             ML + "/products/search?status=active&site_id=" + SITE_ID +
             "&limit=10&q=" + encodeURIComponent(productName);
 
-          const search = await getJson(searchUrl, true);
+          // /products/search é um recurso de leitura. Tentamos sem OAuth
+          // primeiro para evitar o PolicyAgent/403 que já ocorreu quando
+          // endpoints públicos foram chamados com o Bearer do afiliado.
+          let search = await getJson(searchUrl, false);
+          if (!search.ok) {
+            search = await getJson(searchUrl, true);
+          }
+
           const results = Array.isArray(search.data?.results)
             ? search.data.results.slice(0, 10)
             : [];
