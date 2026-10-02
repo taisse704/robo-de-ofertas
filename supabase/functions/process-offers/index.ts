@@ -315,14 +315,63 @@ Deno.serve(async (req) => {
           }
         }
 
+        // Alguns produtos retornados pelo ranking são páginas de catálogo
+        // sem buy_box_winner e sem children_ids. A documentação atual do ML
+        // orienta usar /products/search para localizar um produto ativo.
+        // Tentamos pelo nome do produto e, se encontrarmos outro produto
+        // ativo com buy_box_winner, usamos esse vencedor.
+        const productName = String(data?.name || data?.family_name || "").trim();
+        if (productName.length >= 3) {
+          const searchUrl =
+            ML + "/products/search?status=active&site_id=" + SITE_ID +
+            "&limit=10&q=" + encodeURIComponent(productName);
+
+          const search = await getJson(searchUrl, true);
+          const results = Array.isArray(search.data?.results)
+            ? search.data.results.slice(0, 10)
+            : [];
+
+          for (const found of results) {
+            const foundId = String(found?.id || "");
+            if (!foundId || foundId === id) continue;
+
+            let candidate = await getJson(
+              ML + "/products/" + encodeURIComponent(foundId),
+              false
+            );
+
+            if (!candidate.ok) {
+              candidate = await getJson(
+                ML + "/products/" + encodeURIComponent(foundId),
+                true
+              );
+            }
+
+            if (
+              candidate.ok &&
+              candidate.data &&
+              candidate.data.status === "active" &&
+              typeof candidate.data?.buy_box_winner?.item_id === "string"
+            ) {
+              return {
+                itemId: String(candidate.data.buy_box_winner.item_id),
+                sourceId: id,
+                sourceType: type,
+                product: candidate.data,
+                parentProduct: data
+              };
+            }
+          }
+        }
+
         return {
           error: true,
           sourceId: id,
           sourceType: type,
           status: product.status,
           message: children.length
-            ? "Produto sem buy_box_winner nos produtos-filhos."
-            : "Produto sem buy_box_winner e sem produtos-filhos."
+            ? "Produto sem buy_box_winner nos produtos-filhos e sem produto ativo substituto."
+            : "Produto sem buy_box_winner; tentamos localizar um produto ativo equivalente."
         };
       }
 
