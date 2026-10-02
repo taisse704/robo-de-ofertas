@@ -61,5 +61,19 @@ jobs:
         run: supabase functions deploy publish-content --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
       - name: Publicar robot-worker
         run: supabase functions deploy robot-worker --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+      - name: Publicar robot-cron
+        run: supabase functions deploy robot-cron --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+      - name: Publicar mercadolivre-oauth
+        run: supabase functions deploy mercadolivre-oauth --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+      - name: Publicar instagram-oauth
+        run: supabase functions deploy instagram-oauth --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+      - name: Publicar approve-content
+        run: supabase functions deploy approve-content --project-ref "$SUPABASE_PROJECT_ID"
+      - name: Publicar affiliate-link
+        run: supabase functions deploy affiliate-link --project-ref "$SUPABASE_PROJECT_ID"
+      - name: Publicar affiliate-connect
+        run: supabase functions deploy affiliate-connect --project-ref "$SUPABASE_PROJECT_ID"
+      - name: Publicar shopee-affiliate
+        run: supabase functions deploy shopee-affiliate --project-ref "$SUPABASE_PROJECT_ID"
       - name: Publicar shopee-offers
         run: supabase functions deploy shopee-offers --project-ref "$SUPABASE_PROJECT_ID"
