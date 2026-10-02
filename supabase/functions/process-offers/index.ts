@@ -101,6 +101,48 @@ Deno.serve(async (req) => {
       Accept: "application/json"
     };
 
+    // O token do afiliado pode receber 403 em recursos de catálogo.
+    // Para catálogo público, usamos o token da própria aplicação (client credentials)
+    // como segunda tentativa, sem trocar o token salvo da conta do usuário.
+    let applicationAccessToken = "";
+
+    async function getApplicationAccessToken() {
+      if (applicationAccessToken) return applicationAccessToken;
+
+      const clientId =
+        Deno.env.get("MERCADOLIVRE_CLIENT_ID") ||
+        Deno.env.get("MERCADOLIVRE_APP_ID") ||
+        "";
+      const clientSecret =
+        Deno.env.get("MERCADOLIVRE_CLIENT_SECRET") ||
+        Deno.env.get("MERCADOLIVRE_APP_SECRET") ||
+        "";
+
+      if (!clientId || !clientSecret) return "";
+
+      const response = await fetch("https://api.mercadolibre.com/oauth/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json"
+        },
+        body: new URLSearchParams({
+          grant_type: "client_credentials",
+          client_id: clientId,
+          client_secret: clientSecret
+        })
+      });
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.access_token) {
+        console.error("ML APPLICATION TOKEN ERROR:", response.status, data?.error || data?.message || "falha");
+        return "";
+      }
+
+      applicationAccessToken = String(data.access_token);
+      return applicationAccessToken;
+    }
+
     async function refreshAccessToken() {
       const clientId =
         Deno.env.get("MERCADOLIVRE_CLIENT_ID") ||
@@ -207,13 +249,17 @@ Deno.serve(async (req) => {
       return json({ ok:false, produtos_encontrados:0, novas:0, atualizadas:0, limite:limit, reautenticacao_necessaria:true, url_reautenticacao:reauthenticationUrl, incidente_autenticacao:authenticationIncident, error:"A autorização do Mercado Livre precisa ser renovada. Abra o link de reautorização para reconectar a conta." }, 401);
     }
 
-    async function getJson(url: string, useAuth = false) {
+    async function getJson(
+      url: string,
+      useAuth = false,
+      customHeaders?: Record<string, string>
+    ) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
       try {
         let response = await fetch(url, {
-          headers: useAuth ? authHeaders : { Accept: "application/json" },
+          headers: customHeaders || (useAuth ? authHeaders : { Accept: "application/json" }),
           signal: controller.signal
         });
 
@@ -268,6 +314,22 @@ Deno.serve(async (req) => {
       return common / Math.max(aa.size, bb.size);
     }
 
+    async function getCatalogJson(url: string) {
+      let result = await getJson(url, true);
+
+      if (result.status === 403) {
+        const appToken = await getApplicationAccessToken();
+        if (appToken) {
+          result = await getJson(url, false, {
+            Authorization: "Bearer " + appToken,
+            Accept: "application/json"
+          });
+        }
+      }
+
+      return result;
+    }
+
     async function resolveHighlightEntry(entry: any) {
       const id = String(entry?.id || "");
       const type = String(entry?.type || "");
@@ -306,9 +368,11 @@ Deno.serve(async (req) => {
       // Não usamos /products/{id}/items: essa rota foi descontinuada.
       // Também não usamos /items/{id} de terceiros com o OAuth do afiliado.
       if (type === "PRODUCT") {
-        const product = await getJson(
-          ML + "/products/" + encodeURIComponent(id),
-          true
+        // Primeiro tenta com o token da conta. Se o Mercado Livre bloquear
+        // esse recurso para token de afiliado, getCatalogJson troca
+        // automaticamente para o token da aplicação.
+        const product = await getCatalogJson(
+          ML + "/products/" + encodeURIComponent(id)
         );
 
         if (!product.ok || !product.data) {
@@ -357,9 +421,8 @@ Deno.serve(async (req) => {
         const categoryId = String(data?.category_id || "");
         if (categoryId.startsWith("MLB")) params.set("category", categoryId);
 
-        const search = await getJson(
-          ML + "/sites/" + SITE_ID + "/search?" + params.toString(),
-          true
+        const search = await getCatalogJson(
+          ML + "/sites/" + SITE_ID + "/search?" + params.toString()
         );
 
         if (!search.ok || !Array.isArray(search.data?.results)) {
