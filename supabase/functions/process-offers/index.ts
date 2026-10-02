@@ -165,7 +165,7 @@ Deno.serve(async (req) => {
       return true;
     }
 
-    async function getJson(url: string, useAuth = true) {
+    async function getJson(url: string, useAuth = false) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -206,23 +206,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    function getItemIdFromUp(data: any): string | null {
-      const possible = [
-        data?.item_id,
-        data?.itemId,
-        data?.item?.id,
-        Array.isArray(data?.items) ? data.items[0]?.id : null,
-        Array.isArray(data?.items) ? data.items[0] : null,
-        Array.isArray(data?.item_ids) ? data.item_ids[0] : null
-      ];
-
-      for (const value of possible) {
-        if (typeof value === "string" && value.startsWith("MLB")) return value;
-      }
-
-      return null;
-    }
-
     async function resolveHighlightEntry(entry: any) {
       const id = String(entry?.id || "");
       const type = String(entry?.type || "");
@@ -231,10 +214,21 @@ Deno.serve(async (req) => {
 
       // ITEM: o ID retornado pelo /highlights já é a publicação.
       if (type === "ITEM") {
-        const item = await getJson(
+        // /items é leitura de publicação e não precisa da autorização
+        // da conta do afiliado. Isso evita o bloqueio que já ocorreu
+        // quando endpoints públicos foram chamados com Bearer OAuth.
+        let item = await getJson(
           ML + "/items/" + encodeURIComponent(id),
-          true
+          false
         );
+
+        // Fallback autenticado somente se a leitura pública falhar.
+        if (!item.ok) {
+          item = await getJson(
+            ML + "/items/" + encodeURIComponent(id),
+            true
+          );
+        }
 
         if (item.ok && item.data?.id) {
           return {
@@ -258,10 +252,20 @@ Deno.serve(async (req) => {
       // Nesse caso, precisamos percorrer os children_ids até encontrar
       // um produto-filho ativo com uma publicação vencedora.
       if (type === "PRODUCT") {
-        const product = await getJson(
+        // Produtos de catálogo são dados de leitura. Primeiro consultamos
+        // sem Bearer para evitar o PolicyAgent/403 que já ocorreu na busca.
+        let product = await getJson(
           ML + "/products/" + encodeURIComponent(id),
-          true
+          false
         );
+
+        // Se a API exigir autenticação, tentamos novamente com OAuth.
+        if (!product.ok) {
+          product = await getJson(
+            ML + "/products/" + encodeURIComponent(id),
+            true
+          );
+        }
 
         if (!product.ok || !product.data) {
           return {
@@ -285,14 +289,21 @@ Deno.serve(async (req) => {
         }
 
         const children = Array.isArray(data?.children_ids)
-          ? data.children_ids.slice(0, 8)
+          ? data.children_ids.slice(0, 5)
           : [];
 
         for (const childId of children) {
-          const child = await getJson(
+          let child = await getJson(
             ML + "/products/" + encodeURIComponent(String(childId)),
-            true
+            false
           );
+
+          if (!child.ok) {
+            child = await getJson(
+              ML + "/products/" + encodeURIComponent(String(childId)),
+              true
+            );
+          }
 
           if (
             child.ok &&
@@ -321,10 +332,17 @@ Deno.serve(async (req) => {
       }
 
       if (type === "USER_PRODUCT") {
-        const up = await getJson(
+        let up = await getJson(
           ML + "/user-products/" + encodeURIComponent(id),
-          true
+          false
         );
+
+        if (!up.ok) {
+          up = await getJson(
+            ML + "/user-products/" + encodeURIComponent(id),
+            true
+          );
+        }
 
         if (!up.ok || !up.data) {
           return {
@@ -416,13 +434,14 @@ Deno.serve(async (req) => {
     }
 
     const diagnostics: any[] = [];
+    const resolutionErrors: any[] = [];
     const highlightEntries: any[] = [];
     const seenSource = new Set<string>();
 
     // Primeiro tentamos o ranking oficial "Mais vendidos". Se ele não
     // entregar 20 itens válidos, tentamos outras categorias de ranking.
     for (const category of HIGHLIGHT_CATEGORIES) {
-      if (highlightEntries.length >= 40) break;
+      if (highlightEntries.length >= Math.min(30, limit + 10)) break;
 
       const result = await getJson(
         ML + "/highlights/" + SITE_ID + "/category/" +
@@ -457,7 +476,7 @@ Deno.serve(async (req) => {
           categoria_nome: category.nome
         });
 
-        if (highlightEntries.length >= 40) break;
+        if (highlightEntries.length >= Math.min(30, limit + 10)) break;
       }
     }
 
@@ -477,12 +496,12 @@ Deno.serve(async (req) => {
     // Resolve somente o necessário para chegar aos 20 itens, evitando
     // dezenas de chamadas e reduzindo o risco de HTTP 429.
     const resolved: any[] = [];
-    const resolutionBatch = highlightEntries.slice(0, 30);
+    const resolutionBatch = highlightEntries.slice(0, Math.min(25, limit + 5));
 
     const resolutionResults = await runWithConcurrency(
       resolutionBatch,
       (entry) => resolveHighlightEntry(entry),
-      5
+      3
     );
 
     for (let i = 0; i < resolutionResults.length; i++) {
@@ -491,6 +510,13 @@ Deno.serve(async (req) => {
         resolved.push({
           ...resolvedEntry,
           highlight: resolutionBatch[i]
+        });
+      } else if (resolvedEntry?.error) {
+        resolutionErrors.push({
+          tipo: resolvedEntry.sourceType,
+          id: resolvedEntry.sourceId,
+          status: resolvedEntry.status ?? null,
+          erro: resolvedEntry.message || "Falha ao resolver publicação."
         });
       }
       if (resolved.length >= Math.min(limit + 5, MAX)) break;
@@ -504,7 +530,10 @@ Deno.serve(async (req) => {
         atualizadas: 0,
         limite: limit,
         ofertas: [],
-        diagnostico: diagnostics,
+        diagnostico: {
+          categorias_consultadas: diagnostics,
+          erros_resolucao: resolutionErrors.slice(0, 25)
+        },
         resolvidos: 0,
         error: "O ranking foi encontrado, mas nenhuma publicação pôde ser convertida em item do Mercado Livre."
       });
@@ -519,10 +548,17 @@ Deno.serve(async (req) => {
     ).slice(0, 20);
 
     // O endpoint bulk é usado para consultar os detalhes dos itens em lote.
-    const bulk = await getJson(
+    let bulk = await getJson(
       ML + "/items/bulk?ids=" + itemIds.map(encodeURIComponent).join(","),
-      true
+      false
     );
+
+    if (!bulk.ok) {
+      bulk = await getJson(
+        ML + "/items/bulk?ids=" + itemIds.map(encodeURIComponent).join(","),
+        true
+      );
+    }
 
     const itemMap = new Map<string, any>();
 
@@ -539,10 +575,17 @@ Deno.serve(async (req) => {
       const fallbackItems = await runWithConcurrency(
         itemIds.slice(0, 10),
         async (id) => {
-          const result = await getJson(
+          let result = await getJson(
             ML + "/items/" + encodeURIComponent(id),
-            true
+            false
           );
+
+          if (!result.ok) {
+            result = await getJson(
+              ML + "/items/" + encodeURIComponent(id),
+              true
+            );
+          }
           return result.ok ? result.data : null;
         },
         4
@@ -755,7 +798,8 @@ Deno.serve(async (req) => {
         itens_com_detalhes: itemMap.size,
         candidatos_com_preco: candidates.length,
         em_promocao: candidates.filter((x) => x.discount > 0 || x.promotion_id).length,
-        sem_preco: Math.max(0, resolved.length - itemMap.size)
+        sem_preco: Math.max(0, resolved.length - itemMap.size),
+        erros_resolucao: resolutionErrors.slice(0, 25)
       }
     });
   } catch (e) {
