@@ -368,25 +368,27 @@ Deno.serve(async (req) => {
       // Não usamos /products/{id}/items: essa rota foi descontinuada.
       // Também não usamos /items/{id} de terceiros com o OAuth do afiliado.
       if (type === "PRODUCT") {
-        // PRODUCT é um ID de catálogo, não uma publicação. Para evitar
-        // 403 em /products/{id} para tokens de afiliado, resolvemos o produto
-        // exclusivamente pela busca pública do marketplace.
+        // O ranking retorna PRODUCT (produto de catálogo). A rota
+        // /products/{id} está retornando 403 para o token de afiliado.
+        // A documentação atual do Mercado Livre disponibiliza a busca
+        // /products/search por Product ID e essa resposta já pode trazer
+        // o buy_box_winner.item_id, que é a publicação real a ser usada.
         const params = new URLSearchParams({
+          status: "active",
+          site_id: SITE_ID,
           q: id,
-          limit: "50",
-          sort: "relevance"
+          limit: "10"
         });
 
         let search = await getJson(
-          ML + "/sites/" + SITE_ID + "/search?" + params.toString(),
-          false
+          ML + "/products/search?" + params.toString(),
+          true
         );
 
-        // Algumas instalações podem exigir autenticação mesmo na busca.
         if (!search.ok) {
           search = await getJson(
-            ML + "/sites/" + SITE_ID + "/search?" + params.toString(),
-            true
+            ML + "/products/search?" + params.toString(),
+            false
           );
         }
 
@@ -396,59 +398,90 @@ Deno.serve(async (req) => {
             sourceId: id,
             sourceType: type,
             status: search.status,
-            message: search.error || "Busca pública de publicações indisponível."
+            message: search.error || "Busca do produto no catálogo indisponível."
           };
         }
 
-        const results = search.data.results as any[];
-
-        // A publicação precisa apontar exatamente para o mesmo produto de
-        // catálogo. Assim não confundimos um produto parecido com o ranking.
-        const exactCatalog = results.filter(
-          (item) => String(item?.catalog_product_id || "") === id
+        const exact = search.data.results.find(
+          (product: any) =>
+            String(product?.id || product?.catalog_product_id || "") === id
         );
 
-        if (!exactCatalog.length) {
+        if (!exact) {
           return {
             error: true,
             sourceId: id,
             sourceType: type,
             status: 200,
-            message: "Nenhuma publicação ativa encontrada para o mesmo produto de catálogo."
+            message: "Produto de catálogo não encontrado na busca por Product ID."
           };
         }
 
-        // Preferimos uma publicação com preço válido e, entre elas, o menor
-        // preço para aumentar a chance de encontrar uma oferta utilizável.
-        exactCatalog.sort((a, b) => {
-          const aPrice = Number(a?.price);
-          const bPrice = Number(b?.price);
-          const aValid = Number.isFinite(aPrice) && aPrice > 0 ? 0 : 1;
-          const bValid = Number.isFinite(bPrice) && bPrice > 0 ? 0 : 1;
-
-          if (aValid !== bValid) return aValid - bValid;
-          return aPrice - bPrice;
-        });
-
-        const selected = exactCatalog[0];
-
-        if (!selected?.id) {
+        const winner = exact?.buy_box_winner;
+        if (winner?.item_id) {
           return {
-            error: true,
+            itemId: String(winner.item_id),
             sourceId: id,
             sourceType: type,
-            status: 200,
-            message: "A publicação encontrada não possui ID válido."
+            product: exact,
+            publicItem: winner,
+            fromBuyBox: true
           };
+        }
+
+        // Se não houver buy_box_winner, tentamos uma busca pública pelo
+        // nome exato retornado pelo product search, mantendo a validação
+        // por catalog_product_id para não pegar outro produto.
+        const productName = String(exact?.name || "").trim();
+        if (productName) {
+          const publicParams = new URLSearchParams({
+            q: productName,
+            limit: "50",
+            sort: "relevance"
+          });
+
+          const publicSearch = await getJson(
+            ML + "/sites/" + SITE_ID + "/search?" + publicParams.toString(),
+            false
+          );
+
+          if (publicSearch.ok && Array.isArray(publicSearch.data?.results)) {
+            const exactCatalog = publicSearch.data.results.filter(
+              (item: any) =>
+                String(item?.catalog_product_id || "") === id
+            );
+
+            if (exactCatalog.length) {
+              exactCatalog.sort((a: any, b: any) => {
+                const aPrice = Number(a?.price);
+                const bPrice = Number(b?.price);
+                const aValid = Number.isFinite(aPrice) && aPrice > 0 ? 0 : 1;
+                const bValid = Number.isFinite(bPrice) && bPrice > 0 ? 0 : 1;
+                if (aValid !== bValid) return aValid - bValid;
+                return aPrice - bPrice;
+              });
+
+              const selected = exactCatalog[0];
+              if (selected?.id) {
+                return {
+                  itemId: String(selected.id),
+                  sourceId: id,
+                  sourceType: type,
+                  product: exact,
+                  publicItem: selected,
+                  fromBuyBox: false
+                };
+              }
+            }
+          }
         }
 
         return {
-          itemId: String(selected.id),
+          error: true,
           sourceId: id,
           sourceType: type,
-          product: null,
-          publicItem: selected,
-          fromBuyBox: false
+          status: 200,
+          message: "Produto encontrado, mas não possui publicação vencedora nem publicação pública associada."
         };
       }
 
