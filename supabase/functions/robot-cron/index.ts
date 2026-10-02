@@ -5,7 +5,7 @@ const C={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"conte
 const j=(d:unknown,s=200)=>new Response(JSON.stringify(d),{status:s,headers:{...C,"Content-Type":"application/json"}});
 Deno.serve(async req=>{
  if(req.method==="OPTIONS")return new Response("ok",{headers:C});
- let expected=Deno.env.get("ROBOT_CRON_SECRET")||"";
+ let expected="";
  try{
   if(!expected){
    const {data,error}=await db.rpc("get_robot_cron_secret");
