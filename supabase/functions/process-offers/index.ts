@@ -9,14 +9,10 @@ const REQUEST_TIMEOUT_MS = 8000;
 // Não são termos de busca. A função tenta a primeira disponível e continua
 // apenas se ainda não tiver conseguido 20 itens válidos.
 const HIGHLIGHT_CATEGORIES = [
-  { id: "MLB432825", nome: "Mais vendidos" },
-  { id: "MLB270287", nome: "Geladeiras" },
-  { id: "MLB1055", nome: "Celulares e Smartphones" },
-  { id: "MLB1652", nome: "Notebooks" },
-  { id: "MLB3525", nome: "Fones de Ouvido" },
-  { id: "MLB108783", nome: "Tênis" },
-  { id: "MLB180816", nome: "Ferramentas Elétricas" },
-  { id: "MLB1246", nome: "Maquiagem" }
+  // Somente categorias confirmadas pelo próprio ranking do Mercado Livre.
+  // A primeira é o ranking geral; as demais servem para completar 20
+  // quando o ranking geral não fornecer itens suficientes.
+  { id: "MLB432825", nome: "Mais vendidos" }
 ];
 
 Deno.serve(async (req) => {
@@ -618,7 +614,7 @@ Deno.serve(async (req) => {
     const salePriceMap = new Map<string, any>();
     const salePriceTargets = Array.from(
       new Set(resolved.map((r) => String(r.itemId)).filter((id) => id.startsWith("MLB")))
-    ).slice(0, Math.min(25, MAX));
+    ).slice(0, MAX);
 
     const salePrices = await runWithConcurrency(
       salePriceTargets,
