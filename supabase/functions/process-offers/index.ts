@@ -549,7 +549,12 @@ Deno.serve(async (req) => {
           erros_resolucao: resolutionErrors.slice(0, 25)
         },
         resolvidos: 0,
-        error: "O ranking foi encontrado, mas nenhuma publicação pôde ser convertida em item do Mercado Livre."
+        error: resolutionErrors.length
+          ? "O ranking foi encontrado, mas as publicações públicas não puderam ser convertidas. " +
+            resolutionErrors.slice(0, 3).map((x) =>
+              `${x.tipo || "resultado"} ${x.id || ""}: ${x.status || "sem status"} - ${x.erro || "erro"}`
+            ).join(" | ")
+          : "O ranking foi encontrado, mas nenhuma publicação pública pôde ser convertida em item do Mercado Livre."
       });
     }
 
