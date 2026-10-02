@@ -229,7 +229,7 @@ Deno.serve(async (req) => {
       if (type === "ITEM") {
         const item = await getJson(
           ML + "/items/" + encodeURIComponent(id),
-          false
+          true
         );
 
         if (item.ok && item.data?.id) {
@@ -259,7 +259,7 @@ Deno.serve(async (req) => {
       if (type === "PRODUCT") {
         const product = await getJson(
           ML + "/products/" + encodeURIComponent(id),
-          false
+          true
         );
 
         if (!product.ok || !product.data) {
@@ -310,7 +310,7 @@ Deno.serve(async (req) => {
 
         const search = await getJson(
           ML + "/sites/" + SITE_ID + "/search?" + params.toString(),
-          false
+          true
         );
 
         if (!search.ok || !Array.isArray(search.data?.results)) {
