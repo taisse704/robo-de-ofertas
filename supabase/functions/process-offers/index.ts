@@ -9,10 +9,13 @@ const REQUEST_TIMEOUT_MS = 8000;
 // Não são termos de busca. A função tenta a primeira disponível e continua
 // apenas se ainda não tiver conseguido 20 itens válidos.
 const HIGHLIGHT_CATEGORIES = [
-  // Somente categorias confirmadas pelo próprio ranking do Mercado Livre.
-  // A primeira é o ranking geral; as demais servem para completar 20
-  // quando o ranking geral não fornecer itens suficientes.
-  { id: "MLB432825", nome: "Mais vendidos" }
+  { id: "MLB432825", nome: "Mais vendidos" },
+  { id: "MLB1055", nome: "Celulares e Smartphones" },
+  { id: "MLB1652", nome: "Notebooks" },
+  { id: "MLB3525", nome: "Fones de Ouvido" },
+  { id: "MLB108783", nome: "Tênis" },
+  { id: "MLB180816", nome: "Ferramentas Elétricas" },
+  { id: "MLB1246", nome: "Maquiagem" }
 ];
 
 Deno.serve(async (req) => {
@@ -463,7 +466,9 @@ Deno.serve(async (req) => {
       if (!result.ok || !content.length) continue;
 
       for (const entry of content) {
-        const key = String(entry?.type || "") + ":" + String(entry?.id || "");
+        const entryType = String(entry?.type || "");
+        if (entryType === "USER_PRODUCT") continue;
+        const key = entryType + ":" + String(entry?.id || "");
         if (!entry?.id || seenSource.has(key)) continue;
         seenSource.add(key);
 
@@ -558,103 +563,120 @@ Deno.serve(async (req) => {
       });
     }
 
-    const itemIds = Array.from(
-      new Set(
-        resolved
-          .map((r) => String(r.itemId))
-          .filter((id) => id.startsWith("MLB"))
-      )
-    ).slice(0, 20);
-
-    // O endpoint bulk é usado para consultar os detalhes dos itens em lote.
-    let bulk = await getJson(
-      ML + "/items/bulk?ids=" + itemIds.map(encodeURIComponent).join(","),
-      false
-    );
-
-    if (!bulk.ok) {
-      bulk = await getJson(
-        ML + "/items/bulk?ids=" + itemIds.map(encodeURIComponent).join(","),
-        true
-      );
-    }
+    const itemIds = Array.from(new Set(
+      resolved.filter((r) => !r.product).map((r) => String(r.itemId)).filter((id) => id.startsWith("MLB"))
+    )).slice(0, 20);
 
     const itemMap = new Map<string, any>();
 
-    if (bulk.ok && Array.isArray(bulk.data)) {
-      for (const row of bulk.data) {
-        const item = row?.body || row;
-        if (item?.id) itemMap.set(String(item.id), item);
-      }
-    }
-
-    // Se o bulk falhar, usamos apenas uma quantidade pequena de GETs
-    // individuais para não transformar uma falha em uma enxurrada de requests.
-    if (!itemMap.size) {
-      const fallbackItems = await runWithConcurrency(
-        itemIds.slice(0, 10),
-        async (id) => {
-          let result = await getJson(
-            ML + "/items/" + encodeURIComponent(id),
-            false
-          );
-
-          if (!result.ok) {
-            result = await getJson(
-              ML + "/items/" + encodeURIComponent(id),
-              true
-            );
-          }
-          return result.ok ? result.data : null;
-        },
-        4
+    if (itemIds.length) {
+      let bulk = await getJson(
+        ML + "/items/bulk?ids=" + itemIds.map(encodeURIComponent).join(","),
+        false
       );
-
-      for (const item of fallbackItems) {
-        if (item?.id) itemMap.set(String(item.id), item);
-      }
-    }
-
-    // O /items pode trazer preços legados/incompletos. Para decidir se há
-    // promoção de verdade, consultamos o preço de venda vencedor no endpoint
-    // oficial /items/{id}/sale_price. A API informa amount, regular_amount e
-    // metadata.promotion_id/promotion_type.
-    const salePriceMap = new Map<string, any>();
-    const salePriceTargets = Array.from(
-      new Set(resolved.map((r) => String(r.itemId)).filter((id) => id.startsWith("MLB")))
-    ).slice(0, MAX);
-    // Concorrência baixa para reduzir risco de 429 no endpoint de preços.
-    const salePrices = await runWithConcurrency(
-      salePriceTargets,
-      async (id) => {
-        const result = await getJson(
-          ML + "/items/" + encodeURIComponent(id) +
-          "/sale_price?context=channel_marketplace",
+      if (!bulk.ok) {
+        bulk = await getJson(
+          ML + "/items/bulk?ids=" + itemIds.map(encodeURIComponent).join(","),
           true
         );
-        return { id, result };
-      },
-      2
-    );
+      }
+      if (bulk.ok && Array.isArray(bulk.data)) {
+        for (const row of bulk.data) {
+          const item = row?.body || row;
+          if (item?.id) itemMap.set(String(item.id), item);
+        }
+      }
+      if (!itemMap.size) {
+        const fallbackItems = await runWithConcurrency(
+          itemIds.slice(0, 10),
+          async (id) => {
+            let result = await getJson(ML + "/items/" + encodeURIComponent(id), false);
+            if (!result.ok) result = await getJson(ML + "/items/" + encodeURIComponent(id), true);
+            return result.ok ? result.data : null;
+          },
+          4
+        );
+        for (const item of fallbackItems) if (item?.id) itemMap.set(String(item.id), item);
+      }
+    }
 
-    for (const entry of salePrices) {
-      if (entry.result?.ok && entry.result?.data) {
-        salePriceMap.set(entry.id, entry.result.data);
+    const salePriceMap = new Map<string, any>();
+    if (itemIds.length) {
+      const salePrices = await runWithConcurrency(
+        itemIds.slice(0, MAX),
+        async (id) => ({
+          id,
+          result: await getJson(
+            ML + "/items/" + encodeURIComponent(id) + "/sale_price?context=channel_marketplace",
+            true
+          )
+        }),
+        2
+      );
+      for (const entry of salePrices) {
+        if (entry.result?.ok && entry.result?.data) salePriceMap.set(entry.id, entry.result.data);
       }
     }
 
     const candidates: any[] = [];
 
     for (const r of resolved) {
+      // PRODUCT: usa diretamente os dados do catálogo e do buy_box_winner.
+      // Não faz /items nem /sale_price, evitando 403 em publicações de terceiros.
+      if (r.product?.buy_box_winner) {
+        const product = r.product;
+        const winner = product.buy_box_winner;
+        const current = Number(winner.price);
+        if (!Number.isFinite(current) || current <= 0) continue;
+
+        const originalNumber = Number(winner.original_price);
+        const original = Number.isFinite(originalNumber) && originalNumber > current ? originalNumber : null;
+        const discount = original ? Math.round(((original - current) / original) * 100) : 0;
+        const promotionId = Array.isArray(winner.deal_ids) && winner.deal_ids.length
+          ? String(winner.deal_ids[0])
+          : null;
+        const freeShipping =
+          winner?.shipping?.free_shipping === true ||
+          winner?.shipping?.tags?.includes("mandatory_free_shipping");
+        const position = Number(r.highlight?.position) || 999;
+
+        if (somenteDescontos && discount <= 0 && !promotionId) continue;
+
+        candidates.push({
+          external_id: String(winner.item_id || product.id),
+          product_external_id: String(product.id),
+          title: product.name || product.family_name || r.highlight?.categoria_nome || "Produto Mercado Livre",
+          current,
+          original,
+          discount,
+          image:
+            product.pictures?.[0]?.secure_url ||
+            product.pictures?.[0]?.url ||
+            product.pictures?.[0]?.thumbnail ||
+            null,
+          permalink: product.permalink || null,
+          promotion_id: promotionId,
+          promotion_type: promotionId ? "deal" : (winner.listing_type_id || null),
+          free_shipping: freeShipping,
+          position,
+          categoria_id: r.highlight?.categoria_id || winner.category_id || null,
+          categoria_nome: r.highlight?.categoria_nome || null,
+          score:
+            discount * 100 +
+            (promotionId ? 25 : 0) +
+            (freeShipping ? 10 : 0) +
+            Math.max(0, 21 - position),
+          oferta_tipo: discount > 0 || promotionId ? "promocao" : "mais_vendido"
+        });
+        continue;
+      }
+
+      // Fallback para ITEM não pertencente ao catálogo.
       const item = itemMap.get(String(r.itemId));
       if (!item) continue;
 
       const salePrice = salePriceMap.get(String(item.id));
-      const current = Number(
-        salePrice?.amount ??
-        item.price ??
-        item.base_price
-      );
+      const current = Number(salePrice?.amount ?? item.price ?? item.base_price);
       if (!Number.isFinite(current) || current <= 0) continue;
 
       const originalCandidates = [
@@ -663,7 +685,6 @@ Deno.serve(async (req) => {
         item.sale_price?.regular_amount,
         item.base_price
       ];
-
       let original: number | null = null;
       for (const value of originalCandidates) {
         const n = Number(value);
@@ -673,16 +694,10 @@ Deno.serve(async (req) => {
         }
       }
 
-      const discount = original
-        ? Math.round(((original - current) / original) * 100)
-        : 0;
-
+      const discount = original ? Math.round(((original - current) / original) * 100) : 0;
       const promotionId =
         salePrice?.metadata?.promotion_id ||
-        (Array.isArray(item?.deal_ids) && item.deal_ids.length
-          ? String(item.deal_ids[0])
-          : null);
-
+        (Array.isArray(item?.deal_ids) && item.deal_ids.length ? String(item.deal_ids[0]) : null);
       const promotionType =
         salePrice?.metadata?.promotion_type ||
         item?.sale_price?.metadata?.promotion_type ||
@@ -694,25 +709,16 @@ Deno.serve(async (req) => {
       const freeShipping =
         item?.shipping?.free_shipping === true ||
         item?.shipping?.tags?.includes("mandatory_free_shipping");
-
       const position = Number(r.highlight?.position) || 999;
 
       candidates.push({
         external_id: String(item.id),
-        product_external_id: String(
-          item.catalog_product_id ||
-          item.user_product_id ||
-          item.id
-        ),
+        product_external_id: String(item.catalog_product_id || item.user_product_id || item.id),
         title: item.title || r.highlight?.categoria_nome || "Produto Mercado Livre",
         current,
         original,
         discount,
-        image:
-          item.thumbnail ||
-          item.pictures?.[0]?.secure_url ||
-          item.pictures?.[0]?.url ||
-          null,
+        image: item.thumbnail || item.pictures?.[0]?.secure_url || item.pictures?.[0]?.url || null,
         permalink: item.permalink || null,
         promotion_id: promotionId,
         promotion_type: promotionType,
@@ -729,8 +735,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Promoções vêm primeiro; dentro do mesmo nível, preservamos a força
-    // do ranking de Mais Vendidos.
     candidates.sort(
       (a, b) =>
         b.score - a.score ||
@@ -855,6 +859,7 @@ Deno.serve(async (req) => {
         destaques_resolvidos: resolved.length,
         itens_consultados: itemIds.length,
         itens_com_detalhes: itemMap.size,
+        produtos_catalogo_processados: resolved.filter((r) => Boolean(r.product?.buy_box_winner)).length,
         candidatos_com_preco: candidates.length,
         em_promocao: candidates.filter((x) => x.discount > 0 || x.promotion_id).length,
         sem_preco: Math.max(0, resolved.length - itemMap.size),
