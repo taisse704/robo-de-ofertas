@@ -213,7 +213,11 @@ Deno.serve(async (req) => {
         ? Math.round(((original - current) / original) * 100)
         : 0;
 
-      if (somenteDescontos && discount <= 0) return null;
+      const hasPromotion =
+        (Array.isArray(item?.deal_ids) && item.deal_ids.length > 0) ||
+        discount > 0;
+
+      if (somenteDescontos && !hasPromotion) return null;
 
       const image =
         item?.thumbnail ||
@@ -266,6 +270,7 @@ Deno.serve(async (req) => {
         search_blocked_by: search.blocked_by,
         search_mode: "public-items",
         token_sent: true,
+        discount_filter_enabled: somenteDescontos,
         candidates: 0,
         rejected_without_price: 0,
         rejected_discount_filter: 0,
@@ -284,7 +289,15 @@ Deno.serve(async (req) => {
         const offer = makeOffer(item, term);
 
         if (!offer) {
-          diagnostic.rejected_without_price++;
+          const currentPrice = Number(item?.price);
+          const hasValidPrice = Number.isFinite(currentPrice) && currentPrice > 0;
+
+          if (!hasValidPrice) {
+            diagnostic.rejected_without_price++;
+          } else if (somenteDescontos) {
+            diagnostic.rejected_discount_filter++;
+          }
+
           continue;
         }
 
