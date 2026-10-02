@@ -26,7 +26,24 @@ jobs:
         with:
           node-version: 24
       - name: Corrigir filtro de novas ofertas Shopee
-        run: python -c 'from pathlib import Path; p=Path("src/App.jsx"); s=p.read_text(encoding="utf-8"); old="    if (abaOfertas === \\"novas\\") {\\n      return base.filter(ofertaEhNova);\\n    }"; new="    if (abaOfertas === \\"novas\\") {\\n      if (provider === \\"shopee\\") {\\n        return base.filter((o) => shopeeNovasIds.has(String(o.product_external_id || \\"\\")));\\n      }\\n      return base.filter(ofertaEhNova);\\n    }"; p.write_text(s.replace(old,new,1),encoding="utf-8")'
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          p = Path("src/App.jsx")
+          s = p.read_text(encoding="utf-8")
+          old = '''    if (abaOfertas === "novas") {
+      return base.filter(ofertaEhNova);
+    }'''
+          new = '''    if (abaOfertas === "novas") {
+      if (provider === "shopee") {
+        return base.filter((o) => shopeeNovasIds.has(String(o.product_external_id || "")));
+      }
+      return base.filter(ofertaEhNova);
+    }'''
+          if old in s:
+              p.write_text(s.replace(old, new, 1), encoding="utf-8")
+          PY
       - name: Instalar dependências
         run: npm install
       - name: Criar aplicação
