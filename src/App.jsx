@@ -747,6 +747,11 @@ export default function App() {
       .filter((o) => provider !== "mercadolivre" || Number(o.preco_atual) > 0);
     if (abaOfertas === "publicadas") return base.filter(ofertaEhPublicada);
     if (abaOfertas === "novas") {
+      if (provider === "shopee") {
+        return base.filter((o) =>
+          shopeeNovasIds.has(String(o.product_external_id || ""))
+        );
+      }
       return base.filter(ofertaEhNova);
     }
     return base.filter((o) => !ofertaEhPublicada(o) && !ofertaEhNova(o));
