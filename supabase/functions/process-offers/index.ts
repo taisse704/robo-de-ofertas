@@ -3,8 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const ML = "https://api.mercadolibre.com";
 const TERMS = ["celular", "notebook", "air fryer", "smart tv"];
 const MAX = 30;
-const CATALOG_LIMIT = 5;
-const REQUEST_TIMEOUT_MS = 10000;
+const REQUEST_TIMEOUT_MS = 12000;
 
 Deno.serve(async (req) => {
   const cors = {
@@ -164,7 +163,10 @@ Deno.serve(async (req) => {
       try {
         const response = await fetch(url, {
           method: "GET",
-          headers: { Accept: "application/json" },
+          headers: {
+            Accept: "application/json",
+            "User-Agent": "RoboDeOfertas/1.0",
+          },
           signal: controller.signal,
         });
 
@@ -176,93 +178,68 @@ Deno.serve(async (req) => {
           ok: response.ok,
           status: response.status,
           data,
-          error: typeof data?.message === "string"
-            ? data.message
-            : typeof data?.error === "string"
-              ? data.error
-              : raw.slice(0, 300),
+          error: data?.message || data?.error || (raw ? raw.slice(0, 500) : null),
+          code: data?.code || null,
+          blocked_by: data?.blocked_by || null,
         };
-      } catch (e) {
+      } catch (error) {
         return {
           ok: false,
           status: 0,
           data: null,
-          error: e instanceof Error ? e.message : "Falha de rede.",
+          error: error instanceof Error ? error.message : "Falha de rede.",
+          code: null,
+          blocked_by: null,
         };
       } finally {
         clearTimeout(timer);
       }
     }
 
-    async function getJson(url: string, headers = authHeaders) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    function makeOffer(item: any, term: string) {
+      const id = String(item?.id || "");
+      if (!id) return null;
 
-      try {
-        const response = await fetch(url, { headers, signal: controller.signal });
-        const raw = await response.text();
-        let data: any = null;
-        try { data = JSON.parse(raw); } catch {}
+      const current = Number(item?.price);
+      if (!Number.isFinite(current) || current <= 0) return null;
 
-        return {
-          ok: response.ok,
-          status: response.status,
-          data,
-          error: typeof data?.message === "string" ? data.message :
-            typeof data?.error === "string" ? data.error : raw.slice(0, 300),
-        };
-      } catch (e) {
-        return {
-          ok: false,
-          status: 0,
-          data: null,
-          error: e instanceof Error ? e.message : "Falha de rede.",
-        };
-      } finally {
-        clearTimeout(timer);
-      }
-    }
+      const originalCandidate = Number(item?.original_price);
+      const original =
+        Number.isFinite(originalCandidate) && originalCandidate > current
+          ? originalCandidate
+          : null;
 
-    function makeOffer(product: any, winner: any, item: any, term: string) {
-      const current = Number(winner?.price ?? item?.price);
-      if (!winner?.item_id || !Number.isFinite(current) || current <= 0) return null;
+      const discount = original
+        ? Math.round(((original - current) / original) * 100)
+        : 0;
 
-      let original: number | null = null;
-      for (const value of [winner?.original_price, item?.original_price, item?.base_price]) {
-        const n = Number(value);
-        if (Number.isFinite(n) && n > current) {
-          original = n;
-          break;
-        }
-      }
-
-      const discount = original ? Math.round(((original - current) / original) * 100) : 0;
       if (somenteDescontos && discount <= 0) return null;
 
-      const image = item?.thumbnail ||
-        item?.pictures?.[0]?.url ||
+      const image =
+        item?.thumbnail ||
         item?.pictures?.[0]?.secure_url ||
-        product?.pictures?.[0]?.url ||
+        item?.pictures?.[0]?.url ||
         null;
 
-      const permalink = item?.permalink || product?.permalink || null;
-      const title = item?.title || product?.name || "Produto Mercado Livre";
-      const freeShipping = winner?.shipping?.free_shipping === true || item?.shipping?.free_shipping === true;
-      const promotionId = winner?.deal_ids?.[0] || null;
+      const freeShipping = item?.shipping?.free_shipping === true;
+      const promotionId =
+        Array.isArray(item?.deal_ids) && item.deal_ids.length
+          ? String(item.deal_ids[0])
+          : null;
 
       return {
-        external_id: String(winner.item_id),
-        product_external_id: String(product.id),
-        title,
+        external_id: id,
+        product_external_id: String(item?.catalog_product_id || id),
+        title: item?.title || ("Produto Mercado Livre " + id),
         current,
         original,
         discount,
         image,
-        permalink,
+        permalink: item?.permalink || null,
         promotion_id: promotionId,
-        promotion_type: winner?.listing_type_id || null,
+        promotion_type: item?.listing_type_id || null,
         free_shipping: freeShipping,
-        seller_id: winner?.seller_id ?? item?.seller_id ?? null,
+        seller_id: item?.seller?.id || item?.seller_id || null,
         score: discount * 10 + (freeShipping ? 5 : 0) + (promotionId ? 5 : 0),
         term,
       };
@@ -275,87 +252,46 @@ Deno.serve(async (req) => {
     for (const term of TERMS) {
       const searchUrl =
         ML + "/sites/MLB/search?q=" +
-        encodeURIComponent(term) + "&limit=10";
+        encodeURIComponent(term) +
+        "&limit=50&sort=relevance";
 
-      // Busca geral de produtos: recurso público. Não enviar o token do afiliado.
-      let search = await getPublicJson(searchUrl);
+      const search = await getPublicJson(searchUrl);
 
       const diagnostic: any = {
         term,
-        catalog_status: search.status,
-        catalog_results: Array.isArray(search.data?.results) ? search.data.results.length : 0,
-        no_winner: 0,
-        winner_without_price: 0,
-        rejected_by_make_offer: 0,
-        term_candidates: 0,
-        detail_errors: 0,
-        detail_statuses: [],
-        item_statuses: [],
-        item_detail_errors: 0,
+        search_status: search.status,
+        search_results: Array.isArray(search.data?.results) ? search.data.results.length : 0,
+        search_error: search.error,
+        search_code: search.code,
+        search_blocked_by: search.blocked_by,
         search_mode: "public-items",
-        auth_not_sent_to_public_search: true,
+        token_sent: false,
+        candidates: 0,
+        rejected_without_price: 0,
+        rejected_discount_filter: 0,
       };
 
       if (!search.ok || !Array.isArray(search.data?.results)) {
-        diagnostic.catalog_error = search.error;
         diagnostics.push(diagnostic);
         continue;
       }
 
-      for (const result of search.data.results) {
-        const itemId = typeof result === "string" ? result : result?.id;
-        if (!itemId) continue;
-
-        const id = String(itemId);
-        if (processedProducts.has(id)) continue;
+      for (const item of search.data.results) {
+        const id = String(item?.id || "");
+        if (!id || processedProducts.has(id)) continue;
         processedProducts.add(id);
 
-        // Dados públicos da publicação: consultar sem o token do afiliado.
-        const itemDetail = await getPublicJson(
-          ML + "/items/" + encodeURIComponent(id)
-        );
-
-        diagnostic.detail_statuses.push(itemDetail.status);
-
-        if (!itemDetail.ok || !itemDetail.data) {
-          diagnostic.detail_errors++;
-          continue;
-        }
-
-        const item = itemDetail.data;
-        const current = Number(item?.price);
-
-        if (!Number.isFinite(current) || current <= 0) {
-          diagnostic.winner_without_price++;
-          continue;
-        }
-
-        const winner = {
-          item_id: id,
-          price: current,
-          original_price: item?.original_price ?? null,
-          shipping: item?.shipping,
-          deal_ids: item?.deal_ids,
-          listing_type_id: item?.listing_type_id,
-          seller_id: item?.seller_id,
-        };
-
-        const product = {
-          id: String(item?.catalog_product_id || id),
-          name: item?.title || "Produto Mercado Livre",
-          permalink: item?.permalink || null,
-          pictures: item?.pictures || [],
-        };
-
-        const offer = makeOffer(product, winner, item, term);
+        const offer = makeOffer(item, term);
 
         if (!offer) {
-          diagnostic.rejected_by_make_offer++;
+          diagnostic.rejected_without_price++;
           continue;
         }
 
         candidates.push(offer);
-        diagnostic.term_candidates++;
+        diagnostic.candidates++;
+
+        if (candidates.length >= MAX * 3) break;
       }
 
       diagnostics.push(diagnostic);
@@ -473,6 +409,8 @@ Deno.serve(async (req) => {
       ofertas,
       diagnostico: diagnostics,
       fonte: "mercadolivre-public-search",
+      busca_autenticada: false,
+      registros_antigos_sem_preco: invalidExisting.count || 0,
     });
   } catch (e) {
     console.error("PROCESS-OFFERS ERRO:", e);
