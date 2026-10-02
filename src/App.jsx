@@ -742,7 +742,9 @@ export default function App() {
   }
 
   function ofertasDaAba(provider) {
-    const base = listaOfertas.filter((o) => o.store_provider === provider || o.platforms?.nome === (provider === "shopee" ? "Shopee" : "Mercado Livre"));
+    const base = listaOfertas
+      .filter((o) => o.store_provider === provider || o.platforms?.nome === (provider === "shopee" ? "Shopee" : "Mercado Livre"))
+      .filter((o) => provider !== "mercadolivre" || Number(o.preco_atual) > 0);
     if (abaOfertas === "publicadas") return base.filter(ofertaEhPublicada);
     if (abaOfertas === "novas") {
       return base.filter(ofertaEhNova);
