@@ -164,7 +164,7 @@ Deno.serve(async (req) => {
         const response = await fetch(url, {
           method: "GET",
           headers: {
-            Accept: "application/json",
+            ...authHeaders,
             "User-Agent": "RoboDeOfertas/1.0",
           },
           signal: controller.signal,
@@ -265,7 +265,7 @@ Deno.serve(async (req) => {
         search_code: search.code,
         search_blocked_by: search.blocked_by,
         search_mode: "public-items",
-        token_sent: false,
+        token_sent: true,
         candidates: 0,
         rejected_without_price: 0,
         rejected_discount_filter: 0,
@@ -409,7 +409,7 @@ Deno.serve(async (req) => {
       ofertas,
       diagnostico: diagnostics,
       fonte: "mercadolivre-public-search",
-      busca_autenticada: false,
+      busca_autenticada: true,
       registros_antigos_sem_preco: 0,
     });
   } catch (e) {
