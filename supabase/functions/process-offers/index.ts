@@ -9,9 +9,8 @@ const REQUEST_TIMEOUT_MS = 8000;
 // Não são termos de busca. A função tenta a primeira disponível e continua
 // apenas se ainda não tiver conseguido 20 itens válidos.
 const CATEGORY_GROUPS = [
-  { id: "MLB1430", nome: "Moda" },
-  { id: "MLB1574", nome: "Casa" },
-  { id: "MLB3937", nome: "Acessórios" }
+  // TESTE: buscar somente Moda.
+  { id: "MLB1430", nome: "Moda" }
 ];
 
 Deno.serve(async (req) => {
