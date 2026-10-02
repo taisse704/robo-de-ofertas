@@ -410,7 +410,7 @@ Deno.serve(async (req) => {
       diagnostico: diagnostics,
       fonte: "mercadolivre-public-search",
       busca_autenticada: false,
-      registros_antigos_sem_preco: invalidExisting.count || 0,
+      registros_antigos_sem_preco: 0,
     });
   } catch (e) {
     console.error("PROCESS-OFFERS ERRO:", e);
