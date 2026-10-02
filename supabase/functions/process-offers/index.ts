@@ -611,24 +611,57 @@ Deno.serve(async (req) => {
       }
     }
 
+    // O /items pode trazer preços legados/incompletos. Para decidir se há
+    // promoção de verdade, consultamos o preço de venda vencedor no endpoint
+    // oficial /items/{id}/sale_price. A API informa amount, regular_amount e
+    // metadata.promotion_id/promotion_type.
+    const salePriceMap = new Map<string, any>();
+    const salePriceTargets = Array.from(
+      new Set(resolved.map((r) => String(r.itemId)).filter((id) => id.startsWith("MLB")))
+    ).slice(0, Math.min(25, MAX));
+
+    const salePrices = await runWithConcurrency(
+      salePriceTargets,
+      async (id) => {
+        const result = await getJson(
+          ML + "/items/" + encodeURIComponent(id) +
+          "/sale_price?context=channel_marketplace",
+          true
+        );
+        return { id, result };
+      },
+      3
+    );
+
+    for (const entry of salePrices) {
+      if (entry.result?.ok && entry.result?.data) {
+        salePriceMap.set(entry.id, entry.result.data);
+      }
+    }
+
     const candidates: any[] = [];
 
     for (const r of resolved) {
       const item = itemMap.get(String(r.itemId));
       if (!item) continue;
 
-      const current = Number(item.price ?? item.base_price);
+      const salePrice = salePriceMap.get(String(item.id));
+      const current = Number(
+        salePrice?.amount ??
+        item.price ??
+        item.base_price
+      );
       if (!Number.isFinite(current) || current <= 0) continue;
 
-      const originalValues = [
+      const originalCandidates = [
+        salePrice?.regular_amount,
         item.original_price,
         item.sale_price?.regular_amount,
-        item.sale_price?.amount,
         item.base_price
       ];
 
       let original: number | null = null;
-      for (const value of originalValues) {
+      for (const value of originalCandidates) {
         const n = Number(value);
         if (Number.isFinite(n) && n > current) {
           original = n;
@@ -640,16 +673,23 @@ Deno.serve(async (req) => {
         ? Math.round(((original - current) / original) * 100)
         : 0;
 
-      if (somenteDescontos && discount <= 0) continue;
+      const promotionId =
+        salePrice?.metadata?.promotion_id ||
+        (Array.isArray(item?.deal_ids) && item.deal_ids.length
+          ? String(item.deal_ids[0])
+          : null);
+
+      const promotionType =
+        salePrice?.metadata?.promotion_type ||
+        item?.sale_price?.metadata?.promotion_type ||
+        item.listing_type_id ||
+        null;
+
+      if (somenteDescontos && discount <= 0 && !promotionId) continue;
 
       const freeShipping =
         item?.shipping?.free_shipping === true ||
         item?.shipping?.tags?.includes("mandatory_free_shipping");
-
-      const promotionId =
-        Array.isArray(item?.deal_ids) && item.deal_ids.length
-          ? String(item.deal_ids[0])
-          : null;
 
       const position = Number(r.highlight?.position) || 999;
 
@@ -671,7 +711,7 @@ Deno.serve(async (req) => {
           null,
         permalink: item.permalink || null,
         promotion_id: promotionId,
-        promotion_type: item.listing_type_id || null,
+        promotion_type: promotionType,
         free_shipping: freeShipping,
         position,
         categoria_id: r.highlight?.categoria_id || item.category_id || null,
