@@ -350,6 +350,9 @@ Deno.serve(async (req) => {
           };
         }
 
+        const directItemId = up.data?.item_id || up.data?.item?.id || up.data?.buy_box_winner?.item_id;
+        if (typeof directItemId === "string" && directItemId.startsWith("MLB")) return { itemId: directItemId, sourceId: id, sourceType: type, userProduct: up.data };
+
         const sellerId = up.data?.user_id;
         if (!sellerId) {
           return {
@@ -615,7 +618,7 @@ Deno.serve(async (req) => {
     const salePriceTargets = Array.from(
       new Set(resolved.map((r) => String(r.itemId)).filter((id) => id.startsWith("MLB")))
     ).slice(0, MAX);
-
+    // Concorrência baixa para reduzir risco de 429 no endpoint de preços.
     const salePrices = await runWithConcurrency(
       salePriceTargets,
       async (id) => {
@@ -626,7 +629,7 @@ Deno.serve(async (req) => {
         );
         return { id, result };
       },
-      3
+      2
     );
 
     for (const entry of salePrices) {
