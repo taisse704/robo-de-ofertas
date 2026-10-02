@@ -229,10 +229,34 @@ Deno.serve(async (req) => {
 
       if (!id) return null;
 
+      // ITEM: o ID retornado pelo /highlights já é a publicação.
       if (type === "ITEM") {
-        return { itemId: id, sourceId: id, sourceType: type };
+        const item = await getJson(
+          ML + "/items/" + encodeURIComponent(id),
+          true
+        );
+
+        if (item.ok && item.data?.id) {
+          return {
+            itemId: String(item.data.id),
+            sourceId: id,
+            sourceType: type,
+            item: item.data
+          };
+        }
+
+        return {
+          error: true,
+          sourceId: id,
+          sourceType: type,
+          status: item.status,
+          message: item.error || "Não foi possível consultar o item."
+        };
       }
 
+      // PRODUCT: produtos-pai podem vir sem buy_box_winner.
+      // Nesse caso, precisamos percorrer os children_ids até encontrar
+      // um produto-filho ativo com uma publicação vencedora.
       if (type === "PRODUCT") {
         const product = await getJson(
           ML + "/products/" + encodeURIComponent(id),
@@ -249,14 +273,40 @@ Deno.serve(async (req) => {
           };
         }
 
-        const itemId = product.data?.buy_box_winner?.item_id;
-        if (typeof itemId === "string" && itemId.startsWith("MLB")) {
+        const data = product.data;
+
+        if (typeof data?.buy_box_winner?.item_id === "string") {
           return {
-            itemId,
+            itemId: String(data.buy_box_winner.item_id),
             sourceId: id,
             sourceType: type,
-            product: product.data
+            product: data
           };
+        }
+
+        const children = Array.isArray(data?.children_ids)
+          ? data.children_ids.slice(0, 8)
+          : [];
+
+        for (const childId of children) {
+          const child = await getJson(
+            ML + "/products/" + encodeURIComponent(String(childId)),
+            true
+          );
+
+          if (
+            child.ok &&
+            child.data &&
+            typeof child.data?.buy_box_winner?.item_id === "string"
+          ) {
+            return {
+              itemId: String(child.data.buy_box_winner.item_id),
+              sourceId: id,
+              sourceType: type,
+              product: child.data,
+              parentProduct: data
+            };
+          }
         }
 
         return {
@@ -264,7 +314,9 @@ Deno.serve(async (req) => {
           sourceId: id,
           sourceType: type,
           status: product.status,
-          message: "Produto sem buy_box_winner."
+          message: children.length
+            ? "Produto sem buy_box_winner nos produtos-filhos."
+            : "Produto sem buy_box_winner e sem produtos-filhos."
         };
       }
 
@@ -284,39 +336,48 @@ Deno.serve(async (req) => {
           };
         }
 
-        let itemId = getItemIdFromUp(up.data);
-
-        if (!itemId && up.data?.user_id) {
-          const sellerId = String(up.data.user_id);
-          const items = await getJson(
-            ML + "/users/" + encodeURIComponent(sellerId) +
-            "/items/search?user_product_id=" + encodeURIComponent(id) +
-            "&limit=1",
-            true
-          );
-
-          if (items.ok && Array.isArray(items.data?.results)) {
-            itemId = items.data.results.find(
-              (v: any) => typeof v === "string" && v.startsWith("MLB")
-            ) || null;
-          }
-        }
-
-        if (itemId) {
+        const sellerId = up.data?.user_id;
+        if (!sellerId) {
           return {
-            itemId,
+            error: true,
             sourceId: id,
             sourceType: type,
-            userProduct: up.data
+            status: up.status,
+            message: "User Product sem user_id do vendedor."
           };
+        }
+
+        // A documentação do Mercado Livre orienta obter os itens
+        // associados ao User Product por /users/{SELLER_ID}/items/search.
+        const items = await getJson(
+          ML + "/users/" + encodeURIComponent(String(sellerId)) +
+          "/items/search?user_product_id=" + encodeURIComponent(id) +
+          "&limit=10",
+          true
+        );
+
+        if (items.ok && Array.isArray(items.data?.results)) {
+          const itemId = items.data.results.find(
+            (value: any) =>
+              typeof value === "string" && value.startsWith("MLB")
+          );
+
+          if (itemId) {
+            return {
+              itemId: String(itemId),
+              sourceId: id,
+              sourceType: type,
+              userProduct: up.data
+            };
+          }
         }
 
         return {
           error: true,
           sourceId: id,
           sourceType: type,
-          status: up.status,
-          message: "User Product sem item associado."
+          status: items.status,
+          message: items.error || "User Product sem item associado."
         };
       }
 
@@ -328,7 +389,6 @@ Deno.serve(async (req) => {
         message: "Tipo de destaque não reconhecido."
       };
     }
-
     async function runWithConcurrency<T>(
       values: any[],
       worker: (value: any) => Promise<T>,
