@@ -160,6 +160,53 @@ Deno.serve(async (req) => {
       return true;
     }
 
+
+    let reauthenticationUrl: string | null = null;
+    let authenticationIncident: any = null;
+
+    async function createReauthenticationUrl() {
+      if (reauthenticationUrl) return reauthenticationUrl;
+      const clientId = Deno.env.get("MERCADOLIVRE_CLIENT_ID") || Deno.env.get("MERCADOLIVRE_APP_ID") || "";
+      if (!clientId) return null;
+      const redirectUri = `${supabaseUrl}/functions/v1/mercadolivre-oauth`;
+      const bytes = new Uint8Array(48); crypto.getRandomValues(bytes);
+      const state = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+      const verifierBytes = new Uint8Array(48); crypto.getRandomValues(verifierBytes);
+      const codeVerifier = Array.from(verifierBytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(codeVerifier));
+      let binary = ""; for (const byte of new Uint8Array(digest)) binary += String.fromCharCode(byte);
+      const codeChallenge = btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      const stateInsert = await db.from("oauth_states").insert({ user_id:userId, provider:"mercadolivre", state, code_verifier:codeVerifier, redirect_uri:redirectUri, expires_at:expiresAt });
+      if (stateInsert.error) { console.error("ML REAUTH STATE ERROR:", stateInsert.error); return null; }
+      const authUrl = new URL("https://auth.mercadolivre.com.br/authorization");
+      authUrl.searchParams.set("response_type","code"); authUrl.searchParams.set("client_id",clientId); authUrl.searchParams.set("redirect_uri",redirectUri);
+      authUrl.searchParams.set("state",state); authUrl.searchParams.set("code_challenge",codeChallenge); authUrl.searchParams.set("code_challenge_method","S256");
+      reauthenticationUrl = authUrl.toString();
+      await db.from("affiliate_accounts").update({ configuracao:{...cfg,reautenticacao_necessaria:true,reautenticacao_url:reauthenticationUrl,reautenticacao_em:new Date().toISOString()}, updated_at:new Date().toISOString() }).eq("id",account.id).eq("user_id",userId);
+      return reauthenticationUrl;
+    }
+
+    async function ensureTokenFresh() {
+      const obtainedAt = Date.parse(String(cfg.token_obtido_em || ""));
+      const expiresIn = Number(cfg.expires_in || 0);
+      const refreshMarginMs = 5 * 60 * 1000;
+      if (Number.isFinite(obtainedAt) && expiresIn > 0 && Date.now() < obtainedAt + expiresIn * 1000 - refreshMarginMs) return true;
+      const refreshed = await refreshAccessToken();
+      if (refreshed) {
+        authenticationIncident = { tipo:"refresh_automatico", motivo:"token_expirado_ou_proximo_da_expiracao", em:new Date().toISOString() };
+        return true;
+      }
+      authenticationIncident = { tipo:"refresh_falhou", motivo:"access_token_expirado_ou_invalido", em:new Date().toISOString() };
+      await createReauthenticationUrl();
+      return false;
+    }
+
+    const tokenReady = await ensureTokenFresh();
+    if (!tokenReady) {
+      return json({ ok:false, produtos_encontrados:0, novas:0, atualizadas:0, limite:limit, reautenticacao_necessaria:true, url_reautenticacao:reauthenticationUrl, incidente_autenticacao:authenticationIncident, error:"A autorização do Mercado Livre precisa ser renovada. Abra o link de reautorização para reconectar a conta." }, 401);
+    }
+
     async function getJson(url: string, useAuth = false) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -173,10 +220,12 @@ Deno.serve(async (req) => {
         if (useAuth && response.status === 401) {
           const refreshed = await refreshAccessToken();
           if (refreshed) {
-            response = await fetch(url, {
-              headers: authHeaders,
-              signal: controller.signal
-            });
+            authenticationIncident = { tipo:"refresh_apos_401", motivo:"API_Mercado_Livre_recusou_o_access_token", em:new Date().toISOString() };
+            response = await fetch(url, { headers:authHeaders, signal:controller.signal });
+          } else {
+            const reauth = await createReauthenticationUrl();
+            authenticationIncident = { tipo:"401_reautorizacao", motivo:"API_Mercado_Livre_recusou_o_access_token_e_refresh_falhou", em:new Date().toISOString() };
+            return { ok:false, status:401, data:null, error:"authorization value not present", code:"AUTH_REAUTH_REQUIRED", reauth_url:reauth };
           }
         }
 
@@ -967,6 +1016,9 @@ Deno.serve(async (req) => {
         em_promocao: candidates.filter((x) => x.discount > 0 || x.promotion_id).length,
         sem_preco: Math.max(0, resolved.length - itemMap.size),
         erros_resolucao: resolutionErrors.slice(0, 25),
+        incidente_autenticacao: authenticationIncident,
+        reautenticacao_necessaria: Boolean(reauthenticationUrl),
+        url_reautenticacao: reauthenticationUrl,
         regra_fontes: "somente PRODUCT do catálogo oficial"
       }
     });
