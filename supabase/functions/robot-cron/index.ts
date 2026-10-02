@@ -5,9 +5,14 @@ const C={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"conte
 const j=(d:unknown,s=200)=>new Response(JSON.stringify(d),{status:s,headers:{...C,"Content-Type":"application/json"}});
 Deno.serve(async req=>{
  if(req.method==="OPTIONS")return new Response("ok",{headers:C});
- const expected=Deno.env.get("ROBOT_CRON_SECRET")||"";
- if(!expected||req.headers.get("x-robot-secret")!==expected)return j({ok:false,error:"Não autorizado."},401);
+ let expected=Deno.env.get("ROBOT_CRON_SECRET")||"";
  try{
+  if(!expected){
+   const {data,error}=await db.rpc("get_robot_cron_secret");
+   if(error)throw error;
+   expected=String(data||"");
+  }
+  if(!expected||req.headers.get("x-robot-secret")!==expected)return j({ok:false,error:"Não autorizado."},401);
   const {data:users,error}=await db.from("robot_settings").select("user_id").eq("ativo",true).eq("busca_automatica",true).not("user_id","is",null);
   if(error)throw error;
   const out:any[]=[];
