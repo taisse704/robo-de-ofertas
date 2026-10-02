@@ -8,14 +8,10 @@ const REQUEST_TIMEOUT_MS = 8000;
 // Categorias usadas somente como fonte de ranking "Mais vendidos".
 // Não são termos de busca. A função tenta a primeira disponível e continua
 // apenas se ainda não tiver conseguido 20 itens válidos.
-const HIGHLIGHT_CATEGORIES = [
-  { id: "MLB432825", nome: "Mais vendidos" },
-  { id: "MLB1055", nome: "Celulares e Smartphones" },
-  { id: "MLB1652", nome: "Notebooks" },
-  { id: "MLB3525", nome: "Fones de Ouvido" },
-  { id: "MLB108783", nome: "Tênis" },
-  { id: "MLB180816", nome: "Ferramentas Elétricas" },
-  { id: "MLB1246", nome: "Maquiagem" }
+const CATEGORY_GROUPS = [
+  { id: "MLB1430", nome: "Moda" },
+  { id: "MLB1574", nome: "Casa" },
+  { id: "MLB3937", nome: "Acessórios" }
 ];
 
 Deno.serve(async (req) => {
@@ -440,11 +436,73 @@ Deno.serve(async (req) => {
     const highlightEntries: any[] = [];
     const seenSource = new Set<string>();
 
-    // Coletamos o ranking completo de cada categoria antes de resolver.
-    // O problema anterior era parar em 30 destaques e resolver somente os
-    // primeiros 25. Se esses primeiros fossem PRODUCT/USER_PRODUCT sem uma
-    // publicação utilizável, a função encerrava sem testar os demais.
-    for (const category of HIGHLIGHT_CATEGORIES) {
+    // O /highlights exige uma categoria com ranking próprio; categorias
+    // raiz como Moda/Casa/Acessórios podem ter subcategorias. Por isso,
+    // descobrimos folhas da árvore e consultamos o ranking de cada folha.
+    async function discoverLeafCategories(root: { id: string; nome: string }) {
+      const leaves: any[] = [];
+      const queue: Array<{ id: string; nome: string; depth: number }> = [
+        { id: root.id, nome: root.nome, depth: 0 }
+      ];
+      const seen = new Set<string>();
+
+      while (queue.length && leaves.length < 18) {
+        const current = queue.shift()!;
+        if (seen.has(current.id)) continue;
+        seen.add(current.id);
+
+        const result = await getJson(
+          ML + "/categories/" + encodeURIComponent(current.id),
+          false
+        );
+
+        if (!result.ok || !result.data) continue;
+
+        const children = Array.isArray(result.data?.children_categories)
+          ? result.data.children_categories
+          : [];
+
+        if (!children.length) {
+          leaves.push({
+            id: current.id,
+            nome: current.nome,
+            grupo: root.nome
+          });
+          continue;
+        }
+
+        // Limitamos a profundidade para evitar uma explosão de chamadas.
+        if (current.depth >= 2) continue;
+
+        for (const child of children.slice(0, 12)) {
+          if (child?.id) {
+            queue.push({
+              id: String(child.id),
+              nome: String(child.name || current.nome),
+              depth: current.depth + 1
+            });
+          }
+        }
+      }
+
+      // Se a raiz já possuir ranking, ela também pode ser usada.
+      if (!leaves.length) {
+        leaves.push({ id: root.id, nome: root.nome, grupo: root.nome });
+      }
+
+      return leaves;
+    }
+
+    const highlightCategories: any[] = [];
+    for (const root of CATEGORY_GROUPS) {
+      const leaves = await discoverLeafCategories(root);
+      highlightCategories.push(...leaves);
+    }
+
+    // Coletamos os rankings das folhas encontradas. O foco agora é:
+    // Moda + Casa + Acessórios, priorizando mais vendidos e depois maior
+    // desconto/promoção.
+    for (const category of highlightCategories) {
       const result = await getJson(
         ML + "/highlights/" + SITE_ID + "/category/" +
         encodeURIComponent(category.id),
@@ -457,6 +515,7 @@ Deno.serve(async (req) => {
 
       diagnostics.push({
         categoria: category.nome,
+        grupo: category.grupo,
         categoria_id: category.id,
         status: result.status,
         encontrados: content.length,
@@ -475,9 +534,15 @@ Deno.serve(async (req) => {
         highlightEntries.push({
           ...entry,
           categoria_id: category.id,
-          categoria_nome: category.nome
+          categoria_nome: category.nome,
+          categoria_grupo: category.grupo
         });
       }
+
+      // Depois de consultar várias folhas, já temos candidatos suficientes
+      // para o filtro de 20 ofertas. Ainda deixamos margem para o filtro
+      // de desconto eliminar produtos sem promoção.
+      if (highlightEntries.length >= 120) break;
     }
 
     if (!highlightEntries.length) {
@@ -661,6 +726,7 @@ Deno.serve(async (req) => {
           position,
           categoria_id: r.highlight?.categoria_id || winner.category_id || null,
           categoria_nome: r.highlight?.categoria_nome || null,
+          categoria_grupo: r.highlight?.categoria_grupo || null,
           score:
             discount * 100 +
             (promotionId ? 25 : 0) +
@@ -726,6 +792,7 @@ Deno.serve(async (req) => {
         position,
         categoria_id: r.highlight?.categoria_id || item.category_id || null,
         categoria_nome: r.highlight?.categoria_nome || null,
+        categoria_grupo: r.highlight?.categoria_grupo || null,
         score:
           discount * 100 +
           (promotionId ? 25 : 0) +
@@ -781,6 +848,7 @@ Deno.serve(async (req) => {
           fonte: "mercadolivre-highlights",
           categoria_id: o.categoria_id,
           categoria_nome: o.categoria_nome,
+          categoria_grupo: o.categoria_grupo,
           posicao_ranking: o.position,
           item_id: o.external_id
         },
@@ -840,6 +908,7 @@ Deno.serve(async (req) => {
         promotion_type: o.promotion_type,
         position: o.position,
         categoria_nome: o.categoria_nome,
+        categoria_grupo: o.categoria_grupo,
         score: o.score,
         oferta_tipo: o.oferta_tipo
       });
