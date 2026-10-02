@@ -156,6 +156,44 @@ Deno.serve(async (req) => {
       return true;
     }
 
+
+    async function getPublicJson(url: string) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          signal: controller.signal,
+        });
+
+        const raw = await response.text();
+        let data: any = null;
+        try { data = JSON.parse(raw); } catch {}
+
+        return {
+          ok: response.ok,
+          status: response.status,
+          data,
+          error: typeof data?.message === "string"
+            ? data.message
+            : typeof data?.error === "string"
+              ? data.error
+              : raw.slice(0, 300),
+        };
+      } catch (e) {
+        return {
+          ok: false,
+          status: 0,
+          data: null,
+          error: e instanceof Error ? e.message : "Falha de rede.",
+        };
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
     async function getJson(url: string, headers = authHeaders) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -239,14 +277,8 @@ Deno.serve(async (req) => {
         ML + "/sites/MLB/search?q=" +
         encodeURIComponent(term) + "&limit=10";
 
-      let search = await getJson(searchUrl);
-
-      if (search.status === 401) {
-        const refreshed = await refreshAccessToken();
-        if (refreshed) {
-          search = await getJson(searchUrl);
-        }
-      }
+      // Busca geral de produtos: recurso público. Não enviar o token do afiliado.
+      let search = await getPublicJson(searchUrl);
 
       const diagnostic: any = {
         term,
@@ -260,7 +292,8 @@ Deno.serve(async (req) => {
         detail_statuses: [],
         item_statuses: [],
         item_detail_errors: 0,
-        search_mode: "items",
+        search_mode: "public-items",
+        auth_not_sent_to_public_search: true,
       };
 
       if (!search.ok || !Array.isArray(search.data?.results)) {
@@ -277,18 +310,10 @@ Deno.serve(async (req) => {
         if (processedProducts.has(id)) continue;
         processedProducts.add(id);
 
-        let itemDetail = await getJson(
+        // Dados públicos da publicação: consultar sem o token do afiliado.
+        const itemDetail = await getPublicJson(
           ML + "/items/" + encodeURIComponent(id)
         );
-
-        if (itemDetail.status === 401) {
-          const refreshed = await refreshAccessToken();
-          if (refreshed) {
-            itemDetail = await getJson(
-              ML + "/items/" + encodeURIComponent(id)
-            );
-          }
-        }
 
         diagnostic.detail_statuses.push(itemDetail.status);
 
@@ -447,7 +472,7 @@ Deno.serve(async (req) => {
       limite: limit,
       ofertas,
       diagnostico: diagnostics,
-      fonte: "mercadolivre-catalog-buy-box",
+      fonte: "mercadolivre-public-search",
     });
   } catch (e) {
     console.error("PROCESS-OFFERS ERRO:", e);
