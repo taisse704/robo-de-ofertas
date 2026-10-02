@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
         .from("affiliate_accounts")
         .update({
           configuracao: newCfg,
-          atualizado_em: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         })
         .eq("id", accounts[0].id)
         .eq("user_id", userId);
@@ -374,7 +374,7 @@ Deno.serve(async (req) => {
         permitido_divulgacao: true,
         imagem_url: o.image,
         dados_origem: {
-          fonte: "mercadolivre-catalog-buy-box",
+          fonte: "mercadolivre-public-search",
           termo: o.term,
           catalog_product_id: o.product_external_id,
           item_id: o.external_id,
