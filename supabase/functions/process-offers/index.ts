@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
     if (ae || !accounts?.length) return json({ ok: false, error: "Mercado Livre não está conectado." }, 400);
 
     const cfg = accounts[0].configuracao && typeof accounts[0].configuracao === "object" ? accounts[0].configuracao : {};
-    const accessToken = typeof cfg.access_token === "string" ? cfg.access_token : "";
+    let accessToken = typeof cfg.access_token === "string" ? cfg.access_token : "";
     if (!accessToken) return json({ ok: false, error: "Token do Mercado Livre não encontrado." }, 400);
 
     const authHeaders = { Authorization: "Bearer " + accessToken, Accept: "application/json" };
