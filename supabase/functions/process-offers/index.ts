@@ -667,6 +667,59 @@ Deno.serve(async (req) => {
     const candidates: any[] = [];
 
     for (const r of resolved) {
+      // PRODUCT sem Buy Box: usa a publicação encontrada pela busca pública.
+      // O preço/permalink vêm da própria resposta pública; não fazemos
+      // /items/{id} em publicação de terceiro.
+      if (r.publicItem) {
+        const item = r.publicItem;
+        const current = Number(item.price);
+        if (!Number.isFinite(current) || current <= 0) continue;
+
+        const originalNumber = Number(item.original_price);
+        const original = Number.isFinite(originalNumber) && originalNumber > current
+          ? originalNumber
+          : null;
+        const discount = original
+          ? Math.round(((original - current) / original) * 100)
+          : 0;
+        const promotionId =
+          (Array.isArray(item?.deal_ids) && item.deal_ids.length)
+            ? String(item.deal_ids[0])
+            : null;
+
+        if (somenteDescontos && discount <= 0 && !promotionId) continue;
+
+        const freeShipping = item?.shipping?.free_shipping === true ||
+          item?.shipping?.tags?.includes("mandatory_free_shipping");
+        const position = Number(r.highlight?.position) || 999;
+        const productId = String(r.sourceId);
+
+        candidates.push({
+          external_id: String(item.id),
+          product_external_id: productId,
+          title: item.title || r.product?.name || "Produto Mercado Livre",
+          current,
+          original,
+          discount,
+          image: item.thumbnail || item.pictures?.[0]?.secure_url || item.pictures?.[0]?.url || null,
+          permalink: item.permalink || null,
+          promotion_id: promotionId,
+          promotion_type: item.listing_type_id || null,
+          free_shipping: freeShipping,
+          position,
+          categoria_id: r.highlight?.categoria_id || item.category_id || r.product?.category_id || null,
+          categoria_nome: r.highlight?.categoria_nome || null,
+          categoria_grupo: r.highlight?.categoria_grupo || null,
+          score:
+            discount * 100 +
+            (promotionId ? 25 : 0) +
+            (freeShipping ? 10 : 0) +
+            Math.max(0, 21 - position),
+          oferta_tipo: discount > 0 || promotionId ? "promocao" : "mais_vendido"
+        });
+        continue;
+      }
+
       // PRODUCT: usa diretamente os dados do catálogo e do buy_box_winner.
       // Não faz /items nem /sale_price, evitando 403 em publicações de terceiros.
       if (r.product?.buy_box_winner) {
