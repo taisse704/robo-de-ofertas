@@ -126,26 +126,39 @@ Deno.serve(async (req) => {
       } finally { clearTimeout(timer); }
     }
 
-    function makeOffer(item: any, term: string) {
-      const current = Number(item?.price);
-      if (!item?.id || !Number.isFinite(current) || current <= 0) return null;
-      const originalRaw = Number(item?.original_price);
-      const original = Number.isFinite(originalRaw) && originalRaw > current ? originalRaw : null;
+    function makeOffer(product: any, winner: any, item: any, term: string) {
+      const current = Number(winner?.price ?? item?.price);
+      if (!winner?.item_id || !Number.isFinite(current) || current <= 0) return null;
+
+      const originalValues = [winner?.original_price, item?.original_price, item?.base_price];
+      let original: number | null = null;
+      for (const value of originalValues) {
+        const n = Number(value);
+        if (Number.isFinite(n) && n > current) {
+          original = n;
+          break;
+        }
+      }
+
       const discount = original ? Math.round(((original - current) / original) * 100) : 0;
       if (somenteDescontos && discount <= 0) return null;
+
+      const freeShipping = winner?.shipping?.free_shipping === true || item?.shipping?.free_shipping === true;
+      const promotionId = Array.isArray(winner?.deal_ids) && winner.deal_ids.length ? winner.deal_ids[0] : null;
+
       return {
-        external_id: String(item.id),
-        product_external_id: String(item.catalog_product_id || item.id),
-        title: item.title || "Produto Mercado Livre",
+        external_id: String(winner.item_id),
+        product_external_id: String(product?.id || winner?.product_id || winner.item_id),
+        title: item?.title || product?.name || "Produto Mercado Livre",
         current,
         original,
         discount,
-        image: item.thumbnail || item.pictures?.[0]?.url || null,
-        permalink: item.permalink || null,
-        promotion_id: null,
-        promotion_type: null,
-        free_shipping: !!item.shipping?.free_shipping,
-        score: discount * 10 + (item.shipping?.free_shipping ? 5 : 0),
+        image: item?.thumbnail || item?.pictures?.[0]?.url || item?.pictures?.[0]?.secure_url || product?.pictures?.[0]?.url || product?.pictures?.[0]?.secure_url || null,
+        permalink: item?.permalink || product?.permalink || null,
+        promotion_id: promotionId,
+        promotion_type: winner?.listing_type_id || item?.listing_type_id || null,
+        free_shipping: freeShipping,
+        score: discount * 10 + (freeShipping ? 5 : 0) + (promotionId ? 5 : 0),
         term
       };
     }
@@ -188,6 +201,20 @@ Deno.serve(async (req) => {
           }
 
           let winner = detail?.buy_box_winner;
+
+          // Mesmo quando a busca retorna um buy_box_winner, consultamos o item vencedor
+          // para obter preço/base_price, título, imagem e permalink completos.
+          let itemDetail: any = null;
+          if (winner?.item_id) {
+            const itemResult = await getJson(ML + "/items/" + encodeURIComponent(String(winner.item_id)), true);
+            diagnostic.item_details_consulted = (diagnostic.item_details_consulted || 0) + 1;
+            diagnostic.item_last_status = itemResult.status;
+            if (itemResult.ok && itemResult.data) {
+              itemDetail = itemResult.data;
+            } else {
+              diagnostic.item_detail_errors = (diagnostic.item_detail_errors || 0) + 1;
+            }
+          }
 
           // Alguns resultados da busca são produtos-pai sem vencedor direto.
           // Nesses casos, os produtos-filhos podem ter a publicação vencedora.
@@ -264,7 +291,7 @@ Deno.serve(async (req) => {
         user_id: userId,
         platform_id: platform.id,
         product_id: null,
-        product_external_id: o.external_id,
+        product_external_id: o.product_external_id,
         titulo: o.title,
         url_produto: o.permalink,
         store_provider: "mercadolivre",
@@ -287,7 +314,7 @@ Deno.serve(async (req) => {
         coletada_em: now
       };
 
-      const { data: existing, error: findError } = await db.from("offers").select("id").eq("user_id", userId).eq("platform_id", platform.id).eq("product_external_id", o.external_id).limit(1).maybeSingle();
+      const { data: existing, error: findError } = await db.from("offers").select("id").eq("user_id", userId).eq("platform_id", platform.id).eq("product_external_id", o.product_external_id).limit(1).maybeSingle();
       if (findError) throw findError;
 
       let offerId = existing?.id || null;
