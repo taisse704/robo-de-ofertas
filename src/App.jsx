@@ -464,31 +464,119 @@ export default function App() {
   async function buscarOfertasMercadoLivre() {
     setMensagemOferta("Buscando ofertas no Mercado Livre...");
     setCarregandoOfertas(true);
-    try {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !session?.access_token) throw new Error("Sessao expirada.");
 
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/process-offers`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          apikey: SUPABASE_ANON_KEY,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ limit: 20, somente_descontos: false })
-      });
+    try {
+      const {
+        data: { session },
+        error: sessionError
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.access_token) {
+        throw new Error("Sessao expirada. Faca login novamente.");
+      }
+
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/process-offers`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: SUPABASE_ANON_KEY,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            user_id: usuario.id,
+            limit: 20,
+            somente_descontos: false
+          })
+        }
+      );
 
       const resultado = await response.json().catch(() => ({}));
-      if (!response.ok || !resultado.ok) {
-        throw new Error(resultado?.error || resultado?.message || `Erro ${response.status}`);
+
+      if (!response.ok || resultado?.ok === false) {
+        throw new Error(
+          resultado?.error ||
+          resultado?.message ||
+          `Erro HTTP ${response.status}`
+        );
       }
 
       await carregarOfertas();
-      const diagnostico = Array.isArray(resultado.diagnostico) ? resultado.diagnostico.map((d) => `${d.term}: catálogo HTTP ${d.catalog_status ?? "—"}, ${d.catalog_results || 0} resultados | candidatos ${d.term_candidates || 0} | sem vencedor ${d.no_winner || 0} | vencedor sem preço ${d.winner_without_price || 0} | detalhes HTTP ${Array.isArray(d.detail_statuses) ? d.detail_statuses.join(",") : "—"} | erro detalhe ${d.detail_errors || 0}`).join(" | ") : "";
-      setMensagemOferta(`Busca concluida: ${resultado.produtos_encontrados || 0} produtos encontrados e ${resultado.novas || 0} nova(s) oferta(s) adicionada(s).${diagnostico ? ` Diagnostico: ${diagnostico}` : ""}`);
+
+      const encontrados = Number(
+        resultado?.found ??
+        resultado?.produtos_encontrados ??
+        resultado?.total ??
+        0
+      );
+
+      const novas = Number(
+        resultado?.inserted ??
+        resultado?.novas ??
+        resultado?.new_offers ??
+        0
+      );
+
+      const atualizadas = Number(
+        resultado?.updated ??
+        resultado?.atualizadas ??
+        0
+      );
+
+      const selecionadas = Number(
+        resultado?.selected ??
+        0
+      );
+
+      const diagnosticos = Array.isArray(resultado?.diagnostics)
+        ? resultado.diagnostics
+        : Array.isArray(resultado?.diagnostico)
+          ? resultado.diagnostico
+          : [];
+
+      const diagnosticoTexto = diagnosticos
+        .map((d) => {
+          if (typeof d === "string") return d;
+
+          const term = d?.term || d?.termo || "Mercado Livre";
+          const status =
+            d?.search_status ??
+            d?.catalog_status ??
+            d?.status ??
+            "—";
+          const results =
+            d?.search_results ??
+            d?.catalog_results ??
+            d?.results ??
+            0;
+
+          return `${term}: HTTP ${status}, ${results} resultados`;
+        })
+        .join(" | ");
+
+      let mensagem =
+        `Busca concluida: ${encontrados} produtos encontrados e ${novas} nova(s) oferta(s) adicionada(s).`;
+
+      if (atualizadas > 0) {
+        mensagem += ` ${atualizadas} oferta(s) atualizada(s).`;
+      }
+
+      if (selecionadas > 0) {
+        mensagem += ` ${selecionadas} oferta(s) processada(s).`;
+      }
+
+      if (diagnosticoTexto) {
+        mensagem += ` Diagnostico: ${diagnosticoTexto}`;
+      }
+
+      setMensagemOferta(mensagem);
     } catch (error) {
       console.error("Erro na busca de ofertas:", error);
-      setMensagemOferta(error?.message || "Nao foi possivel buscar ofertas.");
+      setMensagemOferta(
+        error?.message ||
+        "Nao foi possivel buscar ofertas do Mercado Livre."
+      );
     } finally {
       setCarregandoOfertas(false);
     }
