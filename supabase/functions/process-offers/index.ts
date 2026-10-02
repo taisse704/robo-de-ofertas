@@ -526,7 +526,13 @@ Deno.serve(async (req) => {
 
       for (const entry of content) {
         const entryType = String(entry?.type || "");
-        if (entryType === "USER_PRODUCT") continue;
+
+        // Para afiliados, usamos somente PRODUCT do catálogo oficial.
+        // ITEM pode retornar 403 por restrições de acesso à publicação de
+        // terceiros e USER_PRODUCT é específico do vendedor. Ignoramos
+        // ambos no ranking e seguimos para outros produtos/categorias.
+        if (entryType !== "PRODUCT") continue;
+
         const key = entryType + ":" + String(entry?.id || "");
         if (!entry?.id || seenSource.has(key)) continue;
         seenSource.add(key);
@@ -558,9 +564,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Resolvemos em pequenos lotes e continuamos enquanto ainda faltarem
-    // itens válidos. Assim, uma sequência de PRODUCT/USER_PRODUCT inválidos
-    // não impede que os próximos destaques sejam aproveitados.
+    // Resolvemos somente produtos de catálogo e continuamos enquanto ainda
+    // faltarem itens válidos. Isso evita que ITEM/USER_PRODUCT bloqueados
+    // impeçam a coleta das ofertas de catálogo.
     const resolved: any[] = [];
     const targetResolved = Math.min(limit + 5, MAX);
     const RESOLUTION_BATCH_SIZE = 10;
@@ -932,7 +938,8 @@ Deno.serve(async (req) => {
         candidatos_com_preco: candidates.length,
         em_promocao: candidates.filter((x) => x.discount > 0 || x.promotion_id).length,
         sem_preco: Math.max(0, resolved.length - itemMap.size),
-        erros_resolucao: resolutionErrors.slice(0, 25)
+        erros_resolucao: resolutionErrors.slice(0, 25),
+        regra_fontes: "somente PRODUCT do catálogo oficial"
       }
     });
   } catch (e) {
