@@ -384,11 +384,21 @@ Deno.serve(async (req) => {
           true
         );
 
-        if (!search.ok) {
-          search = await getJson(
-            ML + "/products/search?" + params.toString(),
-            false
-          );
+        // Se o token do afiliado receber 403, tentamos novamente com
+        // o token da aplicação. A tentativa anterior sem Authorization
+        // não é suficiente para recursos protegidos do catálogo.
+        if (search.status === 403) {
+          const appToken = await getApplicationAccessToken();
+          if (appToken) {
+            search = await getJson(
+              ML + "/products/search?" + params.toString(),
+              false,
+              {
+                Authorization: "Bearer " + appToken,
+                Accept: "application/json"
+              }
+            );
+          }
         }
 
         if (!search.ok || !Array.isArray(search.data?.results)) {
@@ -414,6 +424,34 @@ Deno.serve(async (req) => {
             status: 200,
             message: "Produto de catálogo não encontrado na busca por Product ID."
           };
+        }
+
+        // O /products/{id} traz o estado atual do catálogo e,
+        // quando disponível, o buy_box_winner com o item público.
+        // Consultamos este detalhe antes da busca por nome porque o ranking
+        // fornece o Product ID exato.
+        if (!exact?.buy_box_winner?.item_id) {
+          const detail = await getCatalogJson(
+            ML + "/products/" + encodeURIComponent(id)
+          );
+
+          if (detail.ok && detail.data?.id) {
+            const detailedProduct = detail.data;
+            if (detailedProduct?.buy_box_winner?.item_id) {
+              return {
+                itemId: String(detailedProduct.buy_box_winner.item_id),
+                sourceId: id,
+                sourceType: type,
+                product: detailedProduct,
+                publicItem: detailedProduct.buy_box_winner,
+                fromBuyBox: true
+              };
+            }
+
+            // Mantém os dados mais completos do detalhe para a tentativa
+            // de busca pública abaixo.
+            exact = detailedProduct;
+          }
         }
 
         const winner = exact?.buy_box_winner;
