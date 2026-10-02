@@ -289,7 +289,7 @@ Deno.serve(async (req) => {
         }
 
         const children = Array.isArray(data?.children_ids)
-          ? data.children_ids.slice(0, 5)
+          ? data.children_ids.slice(0, 12)
           : [];
 
         for (const childId of children) {
@@ -438,11 +438,11 @@ Deno.serve(async (req) => {
     const highlightEntries: any[] = [];
     const seenSource = new Set<string>();
 
-    // Primeiro tentamos o ranking oficial "Mais vendidos". Se ele não
-    // entregar 20 itens válidos, tentamos outras categorias de ranking.
+    // Coletamos o ranking completo de cada categoria antes de resolver.
+    // O problema anterior era parar em 30 destaques e resolver somente os
+    // primeiros 25. Se esses primeiros fossem PRODUCT/USER_PRODUCT sem uma
+    // publicação utilizável, a função encerrava sem testar os demais.
     for (const category of HIGHLIGHT_CATEGORIES) {
-      if (highlightEntries.length >= Math.min(30, limit + 10)) break;
-
       const result = await getJson(
         ML + "/highlights/" + SITE_ID + "/category/" +
         encodeURIComponent(category.id),
@@ -453,15 +453,13 @@ Deno.serve(async (req) => {
         ? result.data.content
         : [];
 
-      const diagnostic = {
+      diagnostics.push({
         categoria: category.nome,
         categoria_id: category.id,
         status: result.status,
         encontrados: content.length,
         erro: result.ok ? null : result.error
-      };
-
-      diagnostics.push(diagnostic);
+      });
 
       if (!result.ok || !content.length) continue;
 
@@ -475,8 +473,6 @@ Deno.serve(async (req) => {
           categoria_id: category.id,
           categoria_nome: category.nome
         });
-
-        if (highlightEntries.length >= Math.min(30, limit + 10)) break;
       }
     }
 
@@ -493,33 +489,52 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Resolve somente o necessário para chegar aos 20 itens, evitando
-    // dezenas de chamadas e reduzindo o risco de HTTP 429.
+    // Resolvemos em pequenos lotes e continuamos enquanto ainda faltarem
+    // itens válidos. Assim, uma sequência de PRODUCT/USER_PRODUCT inválidos
+    // não impede que os próximos destaques sejam aproveitados.
     const resolved: any[] = [];
-    const resolutionBatch = highlightEntries.slice(0, Math.min(25, limit + 5));
+    const targetResolved = Math.min(limit + 5, MAX);
+    const RESOLUTION_BATCH_SIZE = 10;
 
-    const resolutionResults = await runWithConcurrency(
-      resolutionBatch,
-      (entry) => resolveHighlightEntry(entry),
-      3
-    );
+    for (
+      let offset = 0;
+      offset < highlightEntries.length && resolved.length < targetResolved;
+      offset += RESOLUTION_BATCH_SIZE
+    ) {
+      const resolutionBatch = highlightEntries.slice(
+        offset,
+        offset + RESOLUTION_BATCH_SIZE
+      );
 
-    for (let i = 0; i < resolutionResults.length; i++) {
-      const resolvedEntry = resolutionResults[i];
-      if (resolvedEntry && !resolvedEntry.error && resolvedEntry.itemId) {
-        resolved.push({
-          ...resolvedEntry,
-          highlight: resolutionBatch[i]
-        });
-      } else if (resolvedEntry?.error) {
-        resolutionErrors.push({
-          tipo: resolvedEntry.sourceType,
-          id: resolvedEntry.sourceId,
-          status: resolvedEntry.status ?? null,
-          erro: resolvedEntry.message || "Falha ao resolver publicação."
-        });
+      const resolutionResults = await runWithConcurrency(
+        resolutionBatch,
+        (entry) => resolveHighlightEntry(entry),
+        3
+      );
+
+      for (let i = 0; i < resolutionResults.length; i++) {
+        const resolvedEntry = resolutionResults[i];
+
+        if (
+          resolvedEntry &&
+          !resolvedEntry.error &&
+          resolvedEntry.itemId
+        ) {
+          resolved.push({
+            ...resolvedEntry,
+            highlight: resolutionBatch[i]
+          });
+        } else if (resolvedEntry?.error) {
+          resolutionErrors.push({
+            tipo: resolvedEntry.sourceType,
+            id: resolvedEntry.sourceId,
+            status: resolvedEntry.status ?? null,
+            erro: resolvedEntry.message || "Falha ao resolver publicação."
+          });
+        }
+
+        if (resolved.length >= targetResolved) break;
       }
-      if (resolved.length >= Math.min(limit + 5, MAX)) break;
     }
 
     if (!resolved.length) {
