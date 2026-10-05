@@ -80,6 +80,14 @@ export default function App() {
     return () => clearInterval(timer);
   }, [usuario]);
 
+  useEffect(() => {
+    if (!usuario || pagina !== "conteudo") return;
+    const timer = setInterval(() => {
+      carregarConteudos();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [usuario, pagina]);
+
   async function verificarSessao() {
     try {
       const { data, error } = await supabase.auth.getSession();
@@ -939,9 +947,9 @@ export default function App() {
                     <p>Status: <strong>{c.status || "rascunho"}</strong></p>
                     <small>{c.legenda || c.texto || ""}</small>
                     {c.status === "aguardando_revisao" && <button className="primary" style={{ marginTop: "10px" }} disabled={aprovandoConteudo === c.id} onClick={() => aprovarConteudo(c.id)}>{aprovandoConteudo === c.id ? "APROVANDO..." : "APROVAR E COLOCAR NA FILA"}</button>}
-                    {["pronto","aguardando_revisao"].includes(c.status) && <div className="content-actions">
-                      <button className="primary action-button" disabled={processandoConteudo === c.id} onClick={() => publicarAgora(c.id)}>🚀 PUBLICAR AGORA</button>
-                      <button className="secondary action-button" disabled={processandoConteudo === c.id} onClick={() => alterarStatusConteudo(c.id,"pronto")}>📥 COLOCAR NA FILA</button>
+                    {["pronto","aguardando_revisao","publicando"].includes(c.status) && <div className="content-actions">
+                      <button className="primary action-button" disabled={processandoConteudo === c.id} onClick={() => publicarAgora(c.id)}>{c.status === "publicando" ? "🔄 TENTAR PUBLICAR" : "🚀 PUBLICAR AGORA"}</button>
+                      {c.status !== "publicando" && <button className="secondary action-button" disabled={processandoConteudo === c.id} onClick={() => alterarStatusConteudo(c.id,"pronto")}>📥 COLOCAR NA FILA</button>}
                       <button className="secondary action-button danger" disabled={processandoConteudo === c.id} onClick={() => alterarStatusConteudo(c.id,"descartado")}>🗑️ DESCARTAR</button>
                     </div>}
                   </div>
