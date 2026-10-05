@@ -39,6 +39,7 @@ jobs:
           cp politica-de-privacidade.html dist/politica-de-privacidade.html
           cp tiktok5iKceDi7oMFd708uCSKvXbs12uS44Bv3.txt dist/tiktok5iKceDi7oMFd708uCSKvXbs12uS44Bv3.txt
           cp tiktokKyy4LndrKYE3YNKZjWyOZ2uSDD3gHbdy.txt dist/tiktokKyy4LndrKYE3YNKZjWyOZ2uSDD3gHbdy.txt
+          cp tiktokHrJplfRG1hrU6NuUJB8oXbq78gJ9vXZR.txt dist/tiktokHrJplfRG1hrU6NuUJB8oXbq78gJ9vXZR.txt
       - name: Configurar Pages
         uses: actions/configure-pages@v5
       - name: Preparar arquivos
