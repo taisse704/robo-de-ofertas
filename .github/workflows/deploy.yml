@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: robo-de-ofertas-deploy
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -47,4 +47,3 @@ jobs:
       - name: Publicar site
         id: deployment
         uses: actions/deploy-pages@v4
-
