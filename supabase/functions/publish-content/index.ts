@@ -6,7 +6,7 @@ const cors = {
   "Access-Control-Allow-Methods": "POST,OPTIONS",
 };
 
-const GRAPH = "https://graph.facebook.com/v24.0";
+const GRAPH = "https://graph.instagram.com";
 
 const response = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
