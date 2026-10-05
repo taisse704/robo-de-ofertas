@@ -56,7 +56,7 @@ async function upload(path, file) {
   return SUPABASE_URL + "/storage/v1/object/public/videos/" + path.split("/").map(encodeURIComponent).join("/");
 }
 
-async function main() {
+// Renderizador automático de vídeos do Robô de Ofertas.\nasync function main() {
   const jobs = await rest("video_jobs?status=eq.pendente&order=created_at.asc&limit=3&select=*");
   if (!Array.isArray(jobs) || !jobs.length) {
     console.log("Nenhum vídeo pendente.");
