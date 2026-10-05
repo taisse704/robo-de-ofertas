@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-05-selecao-fila-v8";
+const FRONTEND_BUILD_VERSION = "2026-10-05-gestao-conteudo-v9";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -217,7 +217,7 @@ export default function App() {
   }
 
   async function carregarConteudos() {
-    const { data, error } = await supabase.from("contents").select("*").eq("user_id", usuario.id).order("created_at", { ascending: false }).limit(30);
+    const { data, error } = await supabase.from("contents").select("*").eq("user_id", usuario.id).order("created_at", { ascending: false }).limit(500);
     if (error) { console.error(error); setMensagemConteudo("Nao foi possivel carregar os conteudos."); return; }
     setConteudos(data || []);
   }
@@ -978,6 +978,23 @@ export default function App() {
     return base.filter((o) => !ofertaEhPublicada(o) && !ofertaEhNova(o));
   }
 
+  function conteudoEhVideo(c) {
+    return c.tipo === "video_oferta" || !!c.video_url || !!c.video_source;
+  }
+
+  function conteudoNaFila(c) {
+    return ["pronto", "aguardando_revisao", "publicando"].includes(c.status);
+  }
+
+  function filtrarConteudosGestao(lista, aba) {
+    if (aba === "controle") return lista;
+    if (aba === "posts") return lista.filter((c) => conteudoNaFila(c) && !conteudoEhVideo(c));
+    if (aba === "videos") return lista.filter((c) => conteudoNaFila(c) && conteudoEhVideo(c));
+    if (aba === "publicados") return lista.filter((c) => ["publicado", "publicada"].includes(c.status));
+    if (aba === "descartados") return lista.filter((c) => c.status === "descartado");
+    return lista;
+  }
+
   const emRevisao = conteudos.filter((c) => c.status === "aguardando_revisao").length;
   const interessantes = listaOfertas.filter((o) => o.classificacao === "interessante").length;
 
@@ -1142,41 +1159,147 @@ export default function App() {
           <>
             <h2>Gestão de Conteúdo</h2>
             {mensagemConteudo && <div className="panel"><p>{mensagemConteudo}</p></div>}
+
             <div className="content-tabs">
-              <button className={abaConteudo === "fila" ? "tab-ativo" : ""} onClick={() => setAbaConteudo("fila")}>📥 Fila <span>{conteudos.filter(c => ["pronto","aguardando_revisao","publicando"].includes(c.status)).length}</span></button>
-              <button className={abaConteudo === "publicados" ? "tab-ativo" : ""} onClick={() => setAbaConteudo("publicados")}>📢 Publicados <span>{conteudos.filter(c => ["publicado","publicada"].includes(c.status)).length}</span></button>
-              <button className={abaConteudo === "descartados" ? "tab-ativo" : ""} onClick={() => setAbaConteudo("descartados")}>🗑️ Descartados <span>{conteudos.filter(c => c.status === "descartado").length}</span></button>
-              <button className={abaConteudo === "todos" ? "tab-ativo" : ""} onClick={() => setAbaConteudo("todos")}>Todos</button>
+              <button className={abaConteudo === "controle" ? "tab-ativo" : ""} onClick={() => setAbaConteudo("controle")}>
+                🗂️ Controle <span>{conteudos.length}</span>
+              </button>
+              <button className={abaConteudo === "posts" ? "tab-ativo" : ""} onClick={() => setAbaConteudo("posts")}>
+                🖼️ Fila de Posts <span>{conteudos.filter((c) => conteudoNaFila(c) && !conteudoEhVideo(c)).length}</span>
+              </button>
+              <button className={abaConteudo === "videos" ? "tab-ativo" : ""} onClick={() => setAbaConteudo("videos")}>
+                🎬 Fila de Vídeos <span>{conteudos.filter((c) => conteudoNaFila(c) && conteudoEhVideo(c)).length}</span>
+              </button>
+              <button className={abaConteudo === "publicados" ? "tab-ativo" : ""} onClick={() => setAbaConteudo("publicados")}>
+                📢 Publicados <span>{conteudos.filter((c) => ["publicado","publicada"].includes(c.status)).length}</span>
+              </button>
+              <button className={abaConteudo === "descartados" ? "tab-ativo" : ""} onClick={() => setAbaConteudo("descartados")}>
+                🗑️ Descartados <span>{conteudos.filter((c) => c.status === "descartado").length}</span>
+              </button>
             </div>
+
             <div className="panel">
-              <h3>Controle das publicações</h3>
-              <p>O robô continua automático. Aqui você pode colocar um conteúdo na fila, publicar imediatamente ou descartar antes da publicação.</p>
-              {conteudos.filter(c => {
-                if (abaConteudo === "fila") return ["pronto","aguardando_revisao","publicando"].includes(c.status);
-                if (abaConteudo === "publicados") return ["publicado","publicada"].includes(c.status);
-                if (abaConteudo === "descartados") return c.status === "descartado";
-                return true;
-              }).length === 0 && <p>Nenhum conteúdo nesta categoria.</p>}
-              {conteudos.filter(c => {
-                if (abaConteudo === "fila") return ["pronto","aguardando_revisao","publicando"].includes(c.status);
-                if (abaConteudo === "publicados") return ["publicado","publicada"].includes(c.status);
-                if (abaConteudo === "descartados") return c.status === "descartado";
-                return true;
-              }).map((c) => (
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px",flexWrap:"wrap"}}>
+                <div>
+                  <h3 style={{marginBottom:"4px"}}>
+                    {abaConteudo === "controle" ? "Controle geral" :
+                     abaConteudo === "posts" ? "Fila de Posts" :
+                     abaConteudo === "videos" ? "Fila de Vídeos" :
+                     abaConteudo === "publicados" ? "Conteúdos publicados" : "Conteúdos descartados"}
+                  </h3>
+                  <p style={{marginTop:0}}>
+                    {abaConteudo === "controle"
+                      ? "Aqui fica tudo: posts, vídeos, aguardando revisão, na fila, publicando, publicados e descartados."
+                      : abaConteudo === "posts"
+                      ? "Somente conteúdos em fila que serão publicados como post com imagem."
+                      : abaConteudo === "videos"
+                      ? "Somente conteúdos em fila que serão publicados como vídeo/Reels."
+                      : abaConteudo === "publicados"
+                      ? "Histórico dos conteúdos que já foram publicados."
+                      : "Histórico dos conteúdos que você descartou."}
+                  </p>
+                </div>
+                <button className="secondary" onClick={carregarConteudos}>🔄 ATUALIZAR</button>
+              </div>
+
+              {filtrarConteudosGestao(conteudos, abaConteudo).length === 0 && (
+                <p>Nenhum conteúdo nesta categoria.</p>
+              )}
+
+              {filtrarConteudosGestao(conteudos, abaConteudo).map((c) => (
                 <div className="content-card" key={c.id}>
-                  <div className="content-preview">{c.thumbnail_url ? <img src={c.thumbnail_url} alt="" loading="lazy" /> : <span>🎬</span>}</div>
+                  <div className="content-preview">
+                    {c.thumbnail_url
+                      ? <img src={c.thumbnail_url} alt="" loading="lazy" />
+                      : <span>{conteudoEhVideo(c) ? "🎬" : "🖼️"}</span>}
+                  </div>
+
                   <div className="offer-info">
-                    <h3>{c.titulo || "Conteúdo de oferta"}</h3>
-                    <p>Status: <strong>{c.status || "rascunho"}</strong></p>
+                    <div style={{display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}}>
+                      <h3 style={{margin:0}}>{c.titulo || "Conteúdo de oferta"}</h3>
+                      <span className="status" style={{margin:0}}>
+                        {conteudoEhVideo(c) ? "🎬 VÍDEO" : "🖼️ POST"}
+                      </span>
+                    </div>
+
+                    <p>
+                      Status: <strong>{c.status || "rascunho"}</strong>
+                      {c.video_status ? <> · Vídeo: <strong>{c.video_status}</strong></> : null}
+                    </p>
+
                     <small>{c.legenda || c.texto || ""}</small>
-                    {c.status === "aguardando_revisao" && <button className="primary" style={{ marginTop: "10px" }} disabled={aprovandoConteudo === c.id} onClick={() => aprovarConteudo(c.id)}>{aprovandoConteudo === c.id ? "APROVANDO..." : "APROVAR E COLOCAR NA FILA"}</button>}
-                    {["pronto","aguardando_revisao","publicando"].includes(c.status) && <div className="content-actions">
-                      <button type="button" className="primary action-button" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); publicarAgora(c.id); }}>{c.status === "publicando" ? "🔄 TENTAR PUBLICAR" : "🚀 PUBLICAR AGORA"}</button>
-                      {c.status !== "publicando" && <button type="button" className="secondary action-button" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); alterarStatusConteudo(c.id,"pronto"); }}>📥 COLOCAR NA FILA</button>}
-                      {c.status !== "publicando" && <button type="button" className="secondary action-button" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); alterarModoConteudo(c.id,"video"); }}>🎬 GERAR VÍDEO</button>}
-                      {c.status !== "publicando" && <button type="button" className="secondary action-button" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); alterarModoConteudo(c.id,"post"); }}>🖼️ USAR APENAS POST</button>}
-                      <button type="button" className="secondary action-button danger" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); alterarStatusConteudo(c.id,"descartado"); }}>🗑️ DESCARTAR</button>
-                    </div>}
+
+                    {c.video_url && (
+                      <small style={{display:"block",marginTop:"6px"}}>
+                        Vídeo pronto para publicação.
+                      </small>
+                    )}
+
+                    {c.status === "aguardando_revisao" && (
+                      <button
+                        className="primary"
+                        style={{marginTop:"10px"}}
+                        disabled={aprovandoConteudo === c.id}
+                        onClick={() => aprovarConteudo(c.id)}
+                      >
+                        {aprovandoConteudo === c.id ? "APROVANDO..." : "APROVAR E COLOCAR NA FILA"}
+                      </button>
+                    )}
+
+                    {conteudoNaFila(c) && (
+                      <div className="content-actions">
+                        <button
+                          type="button"
+                          className="primary action-button"
+                          disabled={processandoConteudo === c.id}
+                          onClick={(e) => { e.preventDefault(); publicarAgora(c.id); }}
+                        >
+                          {c.status === "publicando" ? "🔄 TENTAR PUBLICAR" : "🚀 PUBLICAR AGORA"}
+                        </button>
+
+                        {c.status !== "publicando" && (
+                          <button
+                            type="button"
+                            className="secondary action-button"
+                            disabled={processandoConteudo === c.id}
+                            onClick={(e) => { e.preventDefault(); alterarStatusConteudo(c.id,"pronto"); }}
+                          >
+                            📥 COLOCAR NA FILA
+                          </button>
+                        )}
+
+                        {c.status !== "publicando" && !conteudoEhVideo(c) && (
+                          <button
+                            type="button"
+                            className="secondary action-button"
+                            disabled={processandoConteudo === c.id}
+                            onClick={(e) => { e.preventDefault(); alterarModoConteudo(c.id,"video"); }}
+                          >
+                            🎬 GERAR VÍDEO
+                          </button>
+                        )}
+
+                        {c.status !== "publicando" && conteudoEhVideo(c) && (
+                          <button
+                            type="button"
+                            className="secondary action-button"
+                            disabled={processandoConteudo === c.id}
+                            onClick={(e) => { e.preventDefault(); alterarModoConteudo(c.id,"post"); }}
+                          >
+                            🖼️ USAR APENAS POST
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          className="secondary action-button danger"
+                          disabled={processandoConteudo === c.id}
+                          onClick={(e) => { e.preventDefault(); alterarStatusConteudo(c.id,"descartado"); }}
+                        >
+                          🗑️ DESCARTAR
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
