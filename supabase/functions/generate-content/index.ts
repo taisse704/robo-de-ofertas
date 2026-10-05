@@ -61,10 +61,18 @@ Deno.serve(async (req) => {
 
     if (selectedOfferIds.length) offersQuery = offersQuery.in("id", selectedOfferIds);
 
+    // No modo automático, não podemos limitar a seleção aos 10 primeiros
+    // antes de verificar se eles já possuem conteúdo. Se os 10 melhores já
+    // tiverem sido publicados, o robô ficava sem selecionar as próximas
+    // ofertas, mesmo havendo centenas de ofertas elegíveis.
+    //
+    // Para seleção manual (offer_ids), mantemos exatamente os IDs escolhidos.
+    const candidateLimit = selectedOfferIds.length ? selectedOfferIds.length : 100;
+
     const { data: offers, error } = await offersQuery
       .order("score_oferta", { ascending: false })
       .order("created_at", { ascending: false })
-      .limit(selectedOfferIds.length || 10);
+      .limit(candidateLimit);
 
     if (error) throw error;
     if (!offers?.length) {
