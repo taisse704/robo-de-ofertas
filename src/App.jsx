@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-05-gestao-publicacoes-v7";
+const FRONTEND_BUILD_VERSION = "2026-10-05-selecao-fila-v8";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -56,6 +56,8 @@ export default function App() {
   const [abaOfertas, setAbaOfertas] = useState("cadastradas");
   const [ofertasPublicadas, setOfertasPublicadas] = useState(new Set());
   const [shopeeNovasIds, setShopeeNovasIds] = useState(new Set());
+  const [ofertasSelecionadas, setOfertasSelecionadas] = useState(new Set());
+  const [enfileirandoOfertas, setEnfileirandoOfertas] = useState(false);
   const [abaConteudo, setAbaConteudo] = useState("fila");
   const [processandoConteudo, setProcessandoConteudo] = useState(null);
   const [cupons, setCupons] = useState([]);
@@ -750,6 +752,72 @@ export default function App() {
     }
   }
 
+
+  function alternarOfertaSelecionada(id) {
+    setOfertasSelecionadas((atual) => {
+      const proximo = new Set(atual);
+      if (proximo.has(id)) proximo.delete(id); else proximo.add(id);
+      return proximo;
+    });
+  }
+
+  function limparSelecaoOfertas() {
+    setOfertasSelecionadas(new Set());
+  }
+
+  async function colocarOfertasSelecionadasNaFila() {
+    const ids = Array.from(ofertasSelecionadas);
+    if (!ids.length) {
+      setMensagemOferta("Selecione pelo menos uma oferta.");
+      return;
+    }
+    setEnfileirandoOfertas(true);
+    setMensagemOferta("");
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.access_token) throw new Error("Sessao expirada. Faca login novamente.");
+      const response = await fetch(SUPABASE_URL + "/functions/v1/generate-content", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + session.access_token, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: usuario.id, offer_ids: ids })
+      });
+      const resultado = await response.json().catch(() => ({}));
+      if (!response.ok || resultado?.ok === false) throw new Error(resultado?.error || resultado?.message || ("Erro HTTP " + response.status));
+      const count = Number(resultado.count || 0);
+      setMensagemOferta(count > 0 ? count + " oferta(s) colocada(s) na fila de publicação." : (resultado.message || "Nenhuma oferta nova foi colocada na fila."));
+      limparSelecaoOfertas();
+      await carregarConteudos();
+    } catch (error) {
+      console.error("ENFILEIRAR OFERTAS:", error);
+      setMensagemOferta(error?.message || "Nao foi possivel colocar as ofertas na fila.");
+    } finally {
+      setEnfileirandoOfertas(false);
+    }
+  }
+
+  async function colocarOfertaNaFila(id) {
+    setEnfileirandoOfertas(true);
+    setMensagemOferta("");
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.access_token) throw new Error("Sessao expirada. Faca login novamente.");
+      const response = await fetch(SUPABASE_URL + "/functions/v1/generate-content", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + session.access_token, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: usuario.id, offer_ids: [id] })
+      });
+      const resultado = await response.json().catch(() => ({}));
+      if (!response.ok || resultado?.ok === false) throw new Error(resultado?.error || resultado?.message || ("Erro HTTP " + response.status));
+      setMensagemOferta(Number(resultado.count || 0) > 0 ? "Oferta colocada na fila de publicação." : (resultado.message || "Esta oferta já possui conteúdo na fila ou foi descartada."));
+      await carregarConteudos();
+    } catch (error) {
+      console.error("ENFILEIRAR OFERTA:", error);
+      setMensagemOferta(error?.message || "Nao foi possivel colocar a oferta na fila.");
+    } finally {
+      setEnfileirandoOfertas(false);
+    }
+  }
+
   async function excluirOferta(id) {
     if (!window.confirm("Deseja excluir esta oferta?")) return;
     const { error } = await supabase
@@ -953,6 +1021,7 @@ export default function App() {
               <button className={abaOfertas === "cadastradas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("cadastradas")}>📦 Cadastradas</button>
               <button className={abaOfertas === "publicadas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("publicadas")}>📢 Publicadas</button>
             </div>
+            <div className="panel" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px",flexWrap:"wrap"}}><div><strong>{ofertasSelecionadas.size}</strong> oferta(s) selecionada(s)</div><div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}><button className="primary" disabled={!ofertasSelecionadas.size || enfileirandoOfertas} onClick={colocarOfertasSelecionadasNaFila}>📥 COLOCAR SELECIONADAS NA FILA</button><button className="secondary" disabled={!ofertasSelecionadas.size || enfileirandoOfertas} onClick={limparSelecaoOfertas}>LIMPAR SELEÇÃO</button></div></div>
             <div className="panel">
               <h3>{abaOfertas === "novas" ? "Novas ofertas — Mercado Livre" : abaOfertas === "publicadas" ? "Ofertas já publicadas — Mercado Livre" : "Ofertas já cadastradas — Mercado Livre"}</h3>
               {carregandoOfertas && <p>Carregando ofertas...</p>}
@@ -960,7 +1029,7 @@ export default function App() {
               {ofertasDaAba("mercadolivre").map((o) => (
                 <div className="offer" key={o.id}>
                   <div className="offer-image">{o.imagem_url ? <img src={o.imagem_url} alt="" /> : "Oferta"}</div>
-                  <div className="offer-info"><h3>{o.titulo}</h3><p>Mercado Livre</p><strong>{o.preco_atual == null ? "Preço não informado" : moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{Number(o.desconto_percentual || 0)}% de desconto</span>}<small>Comissao estimada: {moeda(o.comissao_estimada)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
+                  <div className="offer-info"><label style={{display:"flex",alignItems:"center",gap:"8px",fontWeight:700}}><input type="checkbox" checked={ofertasSelecionadas.has(o.id)} onChange={() => alternarOfertaSelecionada(o.id)} /> Selecionar para publicação</label><h3>{o.titulo}</h3><p>Mercado Livre</p><strong>{o.preco_atual == null ? "Preço não informado" : moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{Number(o.desconto_percentual || 0)}% de desconto</span>}<small>Comissao estimada: {moeda(o.comissao_estimada)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="primary" disabled={enfileirandoOfertas} onClick={() => colocarOfertaNaFila(o.id)}>📥 COLOCAR NA FILA</button><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
                 </div>
               ))}
             </div>
@@ -977,6 +1046,7 @@ export default function App() {
               <button className={abaOfertas === "cadastradas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("cadastradas")}>📦 Cadastradas</button>
               <button className={abaOfertas === "publicadas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("publicadas")}>📢 Publicadas</button>
             </div>
+            <div className="panel" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px",flexWrap:"wrap"}}><div><strong>{ofertasSelecionadas.size}</strong> oferta(s) selecionada(s)</div><div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}><button className="primary" disabled={!ofertasSelecionadas.size || enfileirandoOfertas} onClick={colocarOfertasSelecionadasNaFila}>📥 COLOCAR SELECIONADAS NA FILA</button><button className="secondary" disabled={!ofertasSelecionadas.size || enfileirandoOfertas} onClick={limparSelecaoOfertas}>LIMPAR SELEÇÃO</button></div></div>
             <div className="panel">
               <h3>{abaOfertas === "novas" ? "Novas ofertas — Shopee" : abaOfertas === "publicadas" ? "Ofertas já publicadas — Shopee" : "Ofertas já cadastradas — Shopee"}</h3>
               {carregandoShopee && <p>Carregando ofertas...</p>}
@@ -984,7 +1054,7 @@ export default function App() {
               {ofertasDaAba("shopee").map((o) => (
                 <div className="offer" key={o.id}>
                   <div className="offer-image">{o.imagem_url ? <img src={o.imagem_url} alt="" /> : "Oferta"}</div>
-                  <div className="offer-info"><h3>{o.titulo}</h3><p>Shopee</p><strong>{o.preco_atual == null ? "Preço não informado" : moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{Number(o.desconto_percentual || 0)}% de desconto</span>}<small>Comissao estimada: {moeda(o.comissao_estimada)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
+                  <div className="offer-info"><label style={{display:"flex",alignItems:"center",gap:"8px",fontWeight:700}}><input type="checkbox" checked={ofertasSelecionadas.has(o.id)} onChange={() => alternarOfertaSelecionada(o.id)} /> Selecionar para publicação</label><h3>{o.titulo}</h3><p>Shopee</p><strong>{o.preco_atual == null ? "Preço não informado" : moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{Number(o.desconto_percentual || 0)}% de desconto</span>}<small>Comissao estimada: {moeda(o.comissao_estimada)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="primary" disabled={enfileirandoOfertas} onClick={() => colocarOfertaNaFila(o.id)}>📥 COLOCAR NA FILA</button><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
                 </div>
               ))}
             </div>
