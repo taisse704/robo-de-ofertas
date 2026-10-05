@@ -1,0 +1,40 @@
+name: Renderizar videos automaticamente
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: robo-render-videos-auto
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      SUPABASE_URL: https://ytymdncyaynmypiodhfc.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Instalar e verificar FFmpeg
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+          ffmpeg -version | head -1
+      - name: Verificar arquivos
+        run: |
+          test -f scripts/render-videos.mjs
+          test -f /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+      - name: Renderizar pendentes
+        run: node scripts/render-videos.mjs
