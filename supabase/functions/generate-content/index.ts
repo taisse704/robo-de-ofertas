@@ -11,7 +11,7 @@ Deno.serve(async(req)=>{
   if(!userId)return out({ok:false,error:"user_id obrigatório."},400);
   const {data:settings}=await db.from("robot_settings").select("configuracao,gerar_texto,gerar_imagem,gerar_video").eq("user_id",userId).maybeSingle();
   const cfg=settings?.configuracao||{}, approval=cfg.aprovacao_antes_publicar===true, status=approval?"aguardando_revisao":"pronto";
-  const {data:offers,error}=await db.from("offers").select("*").eq("user_id",userId).eq("permitido_divulgacao",true).order("score_oferta",{ascending:false}).order("created_at",{ascending:false}).limit(10);if(error)throw error;
+  const selectedOfferIds=Array.isArray(body?.offer_ids) ? body.offer_ids.map(String).filter(Boolean).slice(0,50) : [];\n  let offersQuery=db.from("offers").select("*").eq("user_id",userId).eq("permitido_divulgacao",true);\n  if(selectedOfferIds.length) offersQuery=offersQuery.in("id",selectedOfferIds);\n  const {data:offers,error}=await offersQuery.order("score_oferta",{ascending:false}).order("created_at",{ascending:false}).limit(selectedOfferIds.length || 10);if(error)throw error;
   if(!offers?.length)return out({ok:true,count:0,message:"Nenhuma oferta pronta para gerar conteúdo."});
   let count=0;const conteudos=[];
   for(const offer of offers){
