@@ -108,7 +108,15 @@ Deno.serve(async(req)=>{
    });
    const qd=await q.json().catch(()=>({ok:false,error:"Resposta inválida"}));
 
-   if(!qd?.ok){
+   let story:any={skipped:true};
+   if(qd?.ok){
+    const st=await fetch(base+"/storrito-story",{
+     method:"POST",
+     headers:h,
+     body:JSON.stringify({user_id:u.user_id,content_id:conteudo.id})
+    });
+    story=await st.json().catch(()=>({ok:false,error:"Resposta inválida"}));
+   }else{
     await db.from("contents").update({status:"pronto",updated_at:new Date().toISOString()})
       .eq("id",conteudo.id).eq("user_id",u.user_id);
    }
@@ -121,6 +129,7 @@ Deno.serve(async(req)=>{
     fila:qd?.ok?"publicado":"erro",
     content_id:conteudo.id,
     publicacao:qd,
+    story,
     proxima_publicacao:qd?.ok?new Date(now+intervalo*60*1000).toISOString():null
    });
   }
