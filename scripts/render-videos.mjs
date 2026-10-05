@@ -70,6 +70,8 @@ async function main() {
     const output = join(temp, "oferta.mp4");
     const titleFile = join(temp, "titulo.txt");
     const priceFile = join(temp, "preco.txt");
+    const discountFile = join(temp, "desconto.txt");
+    const ctaFile = join(temp, "cta.txt");
 
     try {
       await rest("video_jobs?id=eq." + encodeURIComponent(job.id), {
@@ -89,15 +91,27 @@ async function main() {
       const discount = Number(dados.desconto || 0);
 
       writeFileSync(titleFile, title);
-      writeFileSync(priceFile, "R$ " + price.toFixed(2).replace(".", ",") + (discount > 0 ? "   " + discount + "% OFF" : ""));
+      writeFileSync(priceFile, "R$ " + price.toFixed(2).replace(".", ","));
+      writeFileSync(discountFile, discount > 0 ? discount + "% OFF" : "OFERTA ESPECIAL");
+      writeFileSync(ctaFile, "CLIQUE NO LINK E APROVEITE");
 
+      // Vídeo vertical mais dinâmico: movimento de câmera + blocos de informação
+      // que entram em momentos diferentes, sem alterar o restante do fluxo.
       const vf = [
         "scale=1080:1920:force_original_aspect_ratio=decrease",
         "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black",
-        "fade=t=in:st=0:d=0.4",
-        "fade=t=out:st=9.4:d=0.6",
-        "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=" + titleFile + ":fontcolor=white:fontsize=42:line_spacing=8:x=(w-text_w)/2:y=145:box=1:boxcolor=black@0.55:boxborderw=22",
-        "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=" + priceFile + ":fontcolor=white:fontsize=52:x=(w-text_w)/2:y=h-250:box=1:boxcolor=black@0.65:boxborderw=24"
+        "zoompan=z='min(zoom+0.0012,1.12)':d=300:s=1080x1920:fps=30",
+        "fade=t=in:st=0:d=0.35",
+        "fade=t=out:st=9.35:d=0.65",
+        "drawbox=x=35:y=35:w=1010:h=180:color=black@0.58:t=fill:enable='between(t\\,0\\,2.2)'",
+        "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='ACHADO DO DIA':fontcolor=white:fontsize=62:x=(w-text_w)/2:y=88:alpha='if(lt(t,0.35),t/0.35,1)':enable='between(t\\,0\\,2.2)'",
+        "drawbox=x=45:y=h-570:w=990:h=250:color=black@0.64:t=fill:enable='between(t\\,3\\,7.8)'",
+        "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=" + titleFile + ":fontcolor=white:fontsize=38:line_spacing=8:x=(w-text_w)/2:y=h-535:box=0:alpha='if(lt(t,3.35),(t-3)/0.35,1)':enable='between(t\\,3\\,7.8)'",
+        "drawbox=x=70:y=1220:w=940:h=250:color=black@0.78:t=fill:enable='between(t\\,5.2\\,8.6)'",
+        "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=" + priceFile + ":fontcolor=white:fontsize=72:x=(w-text_w)/2:y=1265:alpha='if(lt(t,5.5),(t-5.2)/0.3,1)':enable='between(t\\,5.2\\,8.6)'",
+        "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=" + discountFile + ":fontcolor=white:fontsize=58:x=(w-text_w)/2:y=1360:alpha='if(lt(t,5.6),(t-5.2)/0.4,1)':enable='between(t\\,5.2\\,8.6)'",
+        "drawbox=x=55:y=1600:w=970:h=190:color=black@0.72:t=fill:enable='between(t\\,7.8\\,10)'",
+        "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=" + ctaFile + ":fontcolor=white:fontsize=42:x=(w-text_w)/2:y=1665:alpha='if(lt(t,8.1),(t-7.8)/0.3,1)':enable='between(t\\,7.8\\,10)'"
       ].join(",");
 
       execFileSync("ffmpeg", [
