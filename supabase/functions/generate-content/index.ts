@@ -47,7 +47,9 @@ Deno.serve(async (req) => {
     const cfg = settings?.configuracao || {};
     const approval = cfg.aprovacao_antes_publicar === true;
     const status = approval ? "aguardando_revisao" : "pronto";
-    const gerarVideo = settings?.gerar_video === true;
+    const modoConteudo = ["video","post","automatico"].includes(String(cfg.modo_conteudo || ""))
+      ? String(cfg.modo_conteudo)
+      : (settings?.gerar_video === true ? "video" : "post");
 
     const selectedOfferIds = Array.isArray(body?.offer_ids)
       ? body.offer_ids.map(String).filter(Boolean).slice(0, 50)
@@ -111,20 +113,22 @@ Deno.serve(async (req) => {
         ? offer.video_url.trim()
         : null;
 
-      const videoSource = originalVideo
-        ? (offer.video_source || "original")
-        : (gerarVideo ? "gerado" : null);
+      const usarVideo = modoConteudo === "video" || (modoConteudo === "automatico" && !!originalVideo);
 
-      const videoStatus = originalVideo
-        ? "original_disponivel"
-        : (gerarVideo ? "aguardando_geracao" : "nao_solicitado");
+      const videoSource = usarVideo
+        ? (originalVideo ? (offer.video_source || "original") : "gerado")
+        : null;
+
+      const videoStatus = usarVideo
+        ? (originalVideo ? "original_disponivel" : "aguardando_geracao")
+        : "nao_solicitado";
 
       const { data: content, error: ce } = await db
         .from("contents")
         .insert({
           user_id: userId,
           offer_id: offer.id,
-          tipo: gerarVideo ? "video_oferta" : "oferta_rapida",
+          tipo: usarVideo ? "video_oferta" : "oferta_rapida",
           formato: "9:16",
           titulo: title,
           legenda,
@@ -138,7 +142,8 @@ Deno.serve(async (req) => {
             affiliate_url: link,
             gerar_texto: settings?.gerar_texto !== false,
             gerar_imagem: settings?.gerar_imagem !== false,
-            gerar_video: gerarVideo,
+            gerar_video: usarVideo,
+            modo_conteudo: modoConteudo,
             video_source: videoSource
           },
           status
@@ -148,7 +153,7 @@ Deno.serve(async (req) => {
 
       if (ce) throw ce;
 
-      if (gerarVideo && content) {
+      if (usarVideo && content) {
         const { error: jobError } = await db.from("video_jobs").insert({
           user_id: userId,
           offer_id: offer.id,
