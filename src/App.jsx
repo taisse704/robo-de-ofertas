@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-05-gestao-publicacoes-v6";
+const FRONTEND_BUILD_VERSION = "2026-10-05-gestao-publicacoes-v7";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
@@ -201,34 +201,63 @@ export default function App() {
   }
 
   async function alterarStatusConteudo(id, status) {
-    setProcessandoConteudo(id); setMensagemConteudo("");
+    setProcessandoConteudo(id);
+    setMensagemConteudo("");
     try {
-      const { error } = await supabase.from("contents").update({ status, updated_at: new Date().toISOString() }).eq("id", id).eq("user_id", usuario.id);
+      if (!usuario?.id) throw new Error("Usuário não identificado.");
+      const { data, error } = await supabase
+        .from("contents")
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .eq("user_id", usuario.id)
+        .select("id,status")
+        .single();
       if (error) throw error;
+      if (!data) throw new Error("O conteúdo não foi alterado. Verifique as permissões da tabela contents.");
       setMensagemConteudo(status === "descartado" ? "Conteúdo descartado." : "Conteúdo colocado na fila de publicação.");
       await carregarConteudos();
     } catch (error) {
-      console.error(error); setMensagemConteudo(error?.message || "Não foi possível alterar o conteúdo.");
-    } finally { setProcessandoConteudo(null); }
+      console.error("ALTERAR CONTEUDO:", error);
+      setMensagemConteudo(error?.message || "Não foi possível alterar o conteúdo.");
+    } finally {
+      setProcessandoConteudo(null);
+    }
   }
 
   async function publicarAgora(id) {
-    setProcessandoConteudo(id); setMensagemConteudo("");
+    setProcessandoConteudo(id);
+    setMensagemConteudo("");
     try {
       if (!usuario?.id) throw new Error("Usuário não identificado.");
-      const { data, error } = await supabase.functions.invoke("publish-content", {
-        body: { user_id: usuario.id, content_id: id }
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      if (!session?.access_token) throw new Error("Sessão expirada. Faça login novamente.");
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/publish-content`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: SUPABASE_ANON_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ content_id: id })
       });
-      if (error) throw error;
-      if (!data?.ok) throw new Error(data?.error || data?.message || "A publicação não foi concluída.");
-      const resumo = data.publicadas ? `Publicado no Instagram: ${data.publicadas}` : (data.message || "Solicitação processada.");
-      setMensagemConteudo(resumo);
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.ok) {
+        const detalhes = data?.error || data?.message || data?.resultados?.find?.(r => r.error)?.error;
+        throw new Error(detalhes || `Erro HTTP ${response.status}`);
+      }
+
+      setMensagemConteudo(data?.message || "Publicação concluída.");
       await carregarConteudos();
     } catch (error) {
       console.error("PUBLICAR AGORA:", error);
       setMensagemConteudo(error?.message || "Não foi possível publicar agora.");
       await carregarConteudos();
-    } finally { setProcessandoConteudo(null); }
+    } finally {
+      setProcessandoConteudo(null);
+    }
   }
 
   async function carregarPlataformas() {
