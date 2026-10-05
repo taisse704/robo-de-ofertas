@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-01-frontend-publicacao-v5";
+const FRONTEND_BUILD_VERSION = "2026-10-05-gestao-publicacoes-v6";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
@@ -55,6 +55,8 @@ export default function App() {
   const [abaOfertas, setAbaOfertas] = useState("cadastradas");
   const [ofertasPublicadas, setOfertasPublicadas] = useState(new Set());
   const [shopeeNovasIds, setShopeeNovasIds] = useState(new Set());
+  const [abaConteudo, setAbaConteudo] = useState("fila");
+  const [processandoConteudo, setProcessandoConteudo] = useState(null);
 
   useEffect(() => {
     verificarSessao();
@@ -188,6 +190,34 @@ export default function App() {
 
   async function carregarDados() {
     await Promise.all([carregarPlataformas(), carregarOfertas(), carregarOfertasPublicadas(), carregarContasAfiliadas(), carregarConfiguracao(), carregarConteudos()]);
+  }
+
+  async function alterarStatusConteudo(id, status) {
+    setProcessandoConteudo(id); setMensagemConteudo("");
+    try {
+      const { error } = await supabase.from("contents").update({ status, updated_at: new Date().toISOString() }).eq("id", id).eq("user_id", usuario.id);
+      if (error) throw error;
+      setMensagemConteudo(status === "descartado" ? "Conteúdo descartado." : "Conteúdo colocado na fila de publicação.");
+      await carregarConteudos();
+    } catch (error) {
+      console.error(error); setMensagemConteudo(error?.message || "Não foi possível alterar o conteúdo.");
+    } finally { setProcessandoConteudo(null); }
+  }
+
+  async function publicarAgora(id) {
+    setProcessandoConteudo(id); setMensagemConteudo("");
+    try {
+      const { error } = await supabase.from("contents").update({ status: "pronto", updated_at: new Date().toISOString() }).eq("id", id).eq("user_id", usuario.id);
+      if (error) throw error;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Sessão expirada.");
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/publish-content`, { method:"POST", headers:{ Authorization:`Bearer ${session.access_token}`, apikey:SUPABASE_ANON_KEY, "Content-Type":"application/json" }, body:JSON.stringify({ user_id:usuario.id, content_id:id }) });
+      const result = await response.json().catch(()=>({}));
+      if (!response.ok || result.ok === false) throw new Error(result.error || `Erro HTTP ${response.status}`);
+      setMensagemConteudo("Conteúdo enviado para publicação.");
+      await carregarConteudos();
+    } catch (error) { console.error(error); setMensagemConteudo(error?.message || "Não foi possível publicar agora."); }
+    finally { setProcessandoConteudo(null); }
   }
 
   async function carregarPlataformas() {
@@ -879,18 +909,41 @@ export default function App() {
 
         {pagina === "conteudo" && (
           <>
-            <h2>Conteudo</h2>
+            <h2>Gestão de Conteúdo</h2>
             {mensagemConteudo && <div className="panel"><p>{mensagemConteudo}</p></div>}
+            <div className="content-tabs">
+              <button className={abaConteudo === "fila" ? "tab-ativo" : ""} onClick={() => setAbaConteudo("fila")}>📥 Fila <span>{conteudos.filter(c => ["pronto","aguardando_revisao","publicando"].includes(c.status)).length}</span></button>
+              <button className={abaConteudo === "publicados" ? "tab-ativo" : ""} onClick={() => setAbaConteudo("publicados")}>📢 Publicados <span>{conteudos.filter(c => ["publicado","publicada"].includes(c.status)).length}</span></button>
+              <button className={abaConteudo === "descartados" ? "tab-ativo" : ""} onClick={() => setAbaConteudo("descartados")}>🗑️ Descartados <span>{conteudos.filter(c => c.status === "descartado").length}</span></button>
+              <button className={abaConteudo === "todos" ? "tab-ativo" : ""} onClick={() => setAbaConteudo("todos")}>Todos</button>
+            </div>
             <div className="panel">
-              <h3>Conteúdos gerados pelo robô</h3>
-              {conteudos.length === 0 && <p>Nenhum conteúdo gerado ainda.</p>}
-              {conteudos.map((c) => (
-                <div className="offer" key={c.id}>
+              <h3>Controle das publicações</h3>
+              <p>O robô continua automático. Aqui você pode colocar um conteúdo na fila, publicar imediatamente ou descartar antes da publicação.</p>
+              {conteudos.filter(c => {
+                if (abaConteudo === "fila") return ["pronto","aguardando_revisao","publicando"].includes(c.status);
+                if (abaConteudo === "publicados") return ["publicado","publicada"].includes(c.status);
+                if (abaConteudo === "descartados") return c.status === "descartado";
+                return true;
+              }).length === 0 && <p>Nenhum conteúdo nesta categoria.</p>}
+              {conteudos.filter(c => {
+                if (abaConteudo === "fila") return ["pronto","aguardando_revisao","publicando"].includes(c.status);
+                if (abaConteudo === "publicados") return ["publicado","publicada"].includes(c.status);
+                if (abaConteudo === "descartados") return c.status === "descartado";
+                return true;
+              }).map((c) => (
+                <div className="content-card" key={c.id}>
+                  <div className="content-preview">{c.thumbnail_url ? <img src={c.thumbnail_url} alt="" loading="lazy" /> : <span>🎬</span>}</div>
                   <div className="offer-info">
                     <h3>{c.titulo || "Conteúdo de oferta"}</h3>
-                    <p>Status: {c.status || "rascunho"}</p>
+                    <p>Status: <strong>{c.status || "rascunho"}</strong></p>
                     <small>{c.legenda || c.texto || ""}</small>
-                    {c.status === "aguardando_revisao" && <button className="primary" style={{ marginTop: "10px" }} disabled={aprovandoConteudo === c.id} onClick={() => aprovarConteudo(c.id)}>{aprovandoConteudo === c.id ? "APROVANDO..." : "APROVAR E PUBLICAR"}</button>}
+                    {c.status === "aguardando_revisao" && <button className="primary" style={{ marginTop: "10px" }} disabled={aprovandoConteudo === c.id} onClick={() => aprovarConteudo(c.id)}>{aprovandoConteudo === c.id ? "APROVANDO..." : "APROVAR E COLOCAR NA FILA"}</button>}
+                    {["pronto","aguardando_revisao"].includes(c.status) && <div className="content-actions">
+                      <button className="primary action-button" disabled={processandoConteudo === c.id} onClick={() => publicarAgora(c.id)}>🚀 PUBLICAR AGORA</button>
+                      <button className="secondary action-button" disabled={processandoConteudo === c.id} onClick={() => alterarStatusConteudo(c.id,"pronto")}>📥 COLOCAR NA FILA</button>
+                      <button className="secondary action-button danger" disabled={processandoConteudo === c.id} onClick={() => alterarStatusConteudo(c.id,"descartado")}>🗑️ DESCARTAR</button>
+                    </div>}
                   </div>
                 </div>
               ))}
