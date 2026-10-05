@@ -10,7 +10,7 @@ Deno.serve(async(req)=>{
 
   const db=createClient(url,key);
   const {data:users,error}=await db.from("robot_settings")
-    .select("user_id,intervalo_minutos")
+    .select("user_id,intervalo_minutos,publicar_automaticamente")
     .eq("ativo",true)
     .eq("busca_automatica",true);
   if(error)throw error;
@@ -21,6 +21,10 @@ Deno.serve(async(req)=>{
 
   for(const u of users||[]){
    const intervalo=Math.max(5,Number(u.intervalo_minutos||30));
+   if(u.publicar_automaticamente===false){
+    resultados.push({user_id:u.user_id,fila:"publicacao_automatica_desativada",intervalo_minutos:intervalo});
+    continue;
+   }
 
    const sh=await fetch(base+"/shopee-offers",{method:"POST",headers:h,body:JSON.stringify({user_id:u.user_id,limit:20})});
    const sd=await sh.json().catch(()=>({ok:false,error:"Resposta inválida"}));
@@ -30,6 +34,24 @@ Deno.serve(async(req)=>{
 
    const g=await fetch(base+"/generate-content",{method:"POST",headers:h,body:JSON.stringify({user_id:u.user_id})});
    const gd=await g.json().catch(()=>({ok:false,error:"Resposta inválida"}));
+
+   // Recupera reservas antigas que ficaram presas em "publicando" sem publicação concluída.
+   // Isso evita que uma falha antiga congele a fila inteira.
+   const staleBefore=new Date(Date.now()-15*60*1000).toISOString();
+   const {data:stale,error:staleError}=await db.from("contents")
+     .select("id")
+     .eq("user_id",u.user_id)
+     .eq("status","publicando")
+     .lt("updated_at",staleBefore);
+   if(staleError)throw staleError;
+   for(const item of stale||[]){
+    const {data:done}=await db.from("offer_publications").select("id")
+      .eq("user_id",u.user_id).eq("content_id",item.id).eq("status","publicada").limit(1).maybeSingle();
+    if(!done){
+      await db.from("contents").update({status:"pronto",updated_at:new Date().toISOString()})
+        .eq("id",item.id).eq("user_id",u.user_id).eq("status","publicando");
+    }
+   }
 
    // Fila automática: no máximo 1 publicação por intervalo configurado.
    const {data:last,error:lastError}=await db.from("offer_publications")
