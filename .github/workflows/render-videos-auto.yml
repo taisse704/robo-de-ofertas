@@ -1,4 +1,5 @@
 name: Renderizar videos automaticamente
+# Renderizador automático de vídeos — dispara também a cada push na main.
 
 on:
   schedule:
