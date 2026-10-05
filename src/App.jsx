@@ -74,7 +74,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (usuario) carregarDados();
+    if (!usuario) return;
+    carregarDados();
+    const params = new URLSearchParams(window.location.search);
+    const tiktok = params.get("tiktok");
+    const message = params.get("message");
+    if (tiktok === "success") {
+      setMensagemConfig("TikTok conectado com sucesso.");
+      window.history.replaceState({}, document.title, window.location.pathname);
+      carregarConfiguracao();
+    } else if (tiktok === "error") {
+      setMensagemConfig(message || "Não foi possível conectar o TikTok.");
+      window.history.replaceState({}, document.title, window.location.pathname);
+      carregarConfiguracao();
+    }
   }, [usuario]);
 
   useEffect(() => {
@@ -458,15 +471,15 @@ export default function App() {
   async function prepararConexaoSocial(rede) {
     setMensagemConfig("");
     try {
-      if (rede.key === "instagram") {
+      if (rede.key === "instagram" || rede.key === "tiktok") {
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         if (sessionError || !session?.access_token) {
           setMensagemConfig("Sua sessao expirou. Faca login novamente.");
           return;
         }
-
+        const oauthFunction = rede.key === "instagram" ? "instagram-oauth" : "tiktok-oauth";
         const response = await fetch(
-          `${SUPABASE_URL}/functions/v1/instagram-oauth?action=start`,
+          `${SUPABASE_URL}/functions/v1/${oauthFunction}?action=start`,
           {
             method: "GET",
             headers: {
@@ -475,19 +488,16 @@ export default function App() {
             }
           }
         );
-
         const resultado = await response.json().catch(() => ({}));
         if (!response.ok || !resultado.ok) {
-          console.error("Erro OAuth Instagram:", resultado);
-          setMensagemConfig(resultado?.error || `Nao foi possivel iniciar a conexao com o Instagram (HTTP ${response.status}).`);
+          console.error(`Erro OAuth ${rede.name}:`, resultado);
+          setMensagemConfig(resultado?.error || `Nao foi possivel iniciar a conexao com o ${rede.name} (HTTP ${response.status}).`);
           return;
         }
-
         if (!resultado.authorization_url) {
-          setMensagemConfig("O Instagram nao retornou a URL de autorizacao.");
+          setMensagemConfig(`O ${rede.name} nao retornou a URL de autorizacao.`);
           return;
         }
-
         window.location.href = resultado.authorization_url;
         return;
       }
