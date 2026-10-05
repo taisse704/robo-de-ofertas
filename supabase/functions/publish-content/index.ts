@@ -85,7 +85,7 @@ async function publishInstagram(args: {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
-          message: args.affiliateUrl,
+          message: `🔗 Clique no link abaixo para comprar 👇\n${args.affiliateUrl}`,
           access_token: args.accessToken,
         }),
       });
