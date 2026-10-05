@@ -20,12 +20,7 @@ Deno.serve(async(req)=>{
   for(const offer of offers){
    const {data:exists}=await db.from("contents").select("id").eq("user_id",userId).eq("offer_id",offer.id).in("status",["rascunho","aguardando_revisao","pronto","publicando","publicado"]).limit(1).maybeSingle();if(exists)continue;
    const price=Number(offer.preco_atual||0),old=Number(offer.preco_anterior||0),discount=Number(offer.desconto_percentual||0),title=offer.titulo||"Oferta especial",link=offer.affiliate_url||offer.url_produto||"";
-   let legenda="🔥 "+title+"
-
-💰 Por R$ "+price.toFixed(2).replace(".",",");if(old>price)legenda+=" (antes R$ "+old.toFixed(2).replace(".",",")+")";if(discount>0)legenda+="
-🏷️ "+discount+"% OFF";legenda+="
-
-🛒 Aproveite: "+link;
+   let legenda="🔥 "+title+"\n\n💰 Por R$ "+price.toFixed(2).replace(".",",");if(old>price)legenda+=" (antes R$ "+old.toFixed(2).replace(".",",")+")";if(discount>0)legenda+="\n🏷️ "+discount+"% OFF";legenda+="\n\n🛒 Aproveite: "+link;
    const {data:content,error:ce}=await db.from("contents").insert({user_id:userId,offer_id:offer.id,tipo:settings?.gerar_video?"video_oferta":"oferta_rapida",formato:"9:16",titulo:title,legenda,cta:"Aproveite a oferta",thumbnail_url:offer.imagem_url,status,dados_geracao:{fonte:"generate-content",affiliate_url:link,gerar_texto:settings?.gerar_texto!==false,gerar_imagem:settings?.gerar_imagem!==false,gerar_video:settings?.gerar_video===true}}).select().single();if(ce)throw ce;conteudos.push(content);count++;
   }
   return out({ok:true,count,conteudos});
