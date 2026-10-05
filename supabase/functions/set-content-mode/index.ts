@@ -19,6 +19,7 @@ Deno.serve(async (req) => {
     const url = Deno.env.get("SUPABASE_URL") || "";
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
     const auth = req.headers.get("Authorization") || "";
+    const body = await req.json().catch(() => ({}));
     if (!url || !serviceKey) return out({ ok: false, error: "Configuração do Supabase incompleta." }, 500);
     if (!auth.startsWith("Bearer ")) return out({ ok: false, error: "Autorização obrigatória." }, 401);
 
@@ -27,7 +28,6 @@ Deno.serve(async (req) => {
     let userId = "";
 
     if (bearer === serviceKey) {
-      const body = await req.json().catch(() => ({}));
       userId = String(body?.user_id || "");
     } else {
       const { data, error } = await db.auth.getUser(bearer);
@@ -35,7 +35,6 @@ Deno.serve(async (req) => {
       userId = data.user.id;
     }
 
-    const body = await req.json().catch(() => ({}));
     const contentId = String(body?.content_id || "");
     const mode = String(body?.modo || "").toLowerCase();
 
