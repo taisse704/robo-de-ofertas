@@ -4,6 +4,7 @@ import { supabase } from "./supabase";
 const FRONTEND_BUILD_VERSION = "2026-10-05-gestao-publicacoes-v7";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
 
 const emptyOffer = {
   titulo: "",
@@ -57,6 +58,9 @@ export default function App() {
   const [shopeeNovasIds, setShopeeNovasIds] = useState(new Set());
   const [abaConteudo, setAbaConteudo] = useState("fila");
   const [processandoConteudo, setProcessandoConteudo] = useState(null);
+  const [cupons, setCupons] = useState([]);
+  const [carregandoCupons, setCarregandoCupons] = useState(false);
+  const [mensagemCupons, setMensagemCupons] = useState("");
 
   useEffect(() => {
     verificarSessao();
@@ -79,6 +83,11 @@ export default function App() {
     }, 5 * 60 * 1000);
     return () => clearInterval(timer);
   }, [usuario]);
+
+  useEffect(() => {
+    if (!usuario || pagina !== "cupons") return;
+    carregarCupons();
+  }, [usuario, pagina]);
 
   useEffect(() => {
     if (!usuario || pagina !== "conteudo") return;
@@ -167,6 +176,40 @@ export default function App() {
       setMensagemConfig("Não foi possível salvar as configurações.");
     } finally {
       setSalvandoConfig(false);
+    }
+  }
+
+  async function carregarCupons() {
+    if (!usuario?.id) return;
+    setCarregandoCupons(true);
+    setMensagemCupons("");
+    try {
+      const { data, error } = await supabase
+        .from("coupons")
+        .select("*, offers(id,titulo,imagem_url,affiliate_url,url_produto)")
+        .eq("user_id", usuario.id)
+        .eq("ativo", true)
+        .eq("verificado", true)
+        .order("prioridade", { ascending: false })
+        .order("validade_fim", { ascending: true, nullsFirst: false });
+      if (error) throw error;
+      setCupons(data || []);
+    } catch (error) {
+      console.error("CARREGAR CUPONS:", error);
+      setMensagemCupons("Não foi possível carregar os cupons.");
+      setCupons([]);
+    } finally {
+      setCarregandoCupons(false);
+    }
+  }
+
+  async function copiarPaginaCupons() {
+    const url = `${window.location.origin}${import.meta.env.BASE_URL}cupons/`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setMensagemCupons("Link da página de cupons copiado.");
+    } catch {
+      setMensagemCupons(url);
     }
   }
 
@@ -797,6 +840,7 @@ export default function App() {
     ["inicio", "Inicio"],
     ["ofertas-ml", "Ofertas Mercado Livre"],
     ["ofertas-shopee", "Ofertas Shopee"],
+    ["cupons", "Cupons"],
     ["conteudo", "Conteudo"],
     ["resultados", "Resultados"],
     ["config", "Config"]
@@ -947,6 +991,44 @@ export default function App() {
           </>
         )}
 
+        {pagina === "cupons" && (
+          <>
+            <h2>Cupons Shopee</h2>
+            <div className="panel coupon-admin-hero">
+              <h3>🎟️ Página pública de cupons</h3>
+              <p>Os cupons verificados aparecem aqui e podem ser divulgados em uma única página. A página pública só mostra cupons ativos, dentro da validade e marcados como verificados.</p>
+              <div className="coupon-public-link">
+                <code>{window.location.origin}{import.meta.env.BASE_URL}cupons/</code>
+                <button className="secondary" onClick={copiarPaginaCupons}>COPIAR LINK</button>
+              </div>
+              {mensagemCupons && <p className="status">{mensagemCupons}</p>}
+            </div>
+            <div className="panel">
+              <h3>Cupons disponíveis</h3>
+              {carregandoCupons && <p>Carregando cupons...</p>}
+              {!carregandoCupons && cupons.length === 0 && (
+                <div className="coupon-empty">
+                  <strong>Nenhum cupom verificado ainda.</strong>
+                  <p>A estrutura já está pronta. O próximo passo é alimentar esta lista somente com cupons oficiais/verificados da sua conta Shopee.</p>
+                </div>
+              )}
+              {!carregandoCupons && cupons.map((c) => (
+                <div className="coupon-card" key={c.id}>
+                  <div className="coupon-badge">🎟️</div>
+                  <div className="offer-info">
+                    <h3>{c.codigo || "Cupom"}</h3>
+                    <p>{c.descricao || "Cupom Shopee"}</p>
+                    {c.percentual != null && <strong>{Number(c.percentual)}% OFF</strong>}
+                    {c.valor != null && <strong>{moeda(c.valor)} OFF</strong>}
+                    {c.compra_minima != null && <small>Compra mínima: {moeda(c.compra_minima)}</small>}
+                    {c.validade_fim && <small>Válido até: {new Date(c.validade_fim).toLocaleString("pt-BR")}</small>}
+                    <small>{c.offer_id ? "Vinculado a uma oferta" : "Cupom geral"}</small>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
         {pagina === "conteudo" && (
           <>
             <h2>Gestão de Conteúdo</h2>
