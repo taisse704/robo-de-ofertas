@@ -76,13 +76,13 @@ Deno.serve(async(req)=>{
    // Prioridade da fila: maior comissão estimada em R$ primeiro.
    // Em empate, maior desconto; depois, o conteúdo mais antigo.
    const {data:conteudosProntos,error:ce}=await db.from("contents")
-     .select("id,titulo,status,created_at,offer_id,offers(comissao_estimada,comissao_percentual,desconto_percentual,preco_atual)")
+     .select("id,titulo,status,created_at,offer_id,tipo,video_url,video_source,video_status,offers(comissao_estimada,comissao_percentual,desconto_percentual,preco_atual)")
      .eq("user_id",u.user_id)
      .eq("status","pronto")
      .limit(50);
    if(ce)throw ce;
 
-   const conteudo=(conteudosProntos||[]).sort((a,b)=>{
+   const conteudosComVideoPronto=(conteudosProntos||[]).filter((c:any)=>c?.tipo!=="video_oferta" || (c?.video_url && ["pronto","original_disponivel"].includes(String(c?.video_status||""))));\n\n   const conteudo=conteudosComVideoPronto.sort((a,b)=>{
     const oa=Array.isArray(a.offers)?a.offers[0]:a.offers;
     const ob=Array.isArray(b.offers)?b.offers[0]:b.offers;
     const ca=oa?.comissao_estimada != null ? Number(oa.comissao_estimada) : Number(oa?.preco_atual||0)*Number(oa?.comissao_percentual||0);
