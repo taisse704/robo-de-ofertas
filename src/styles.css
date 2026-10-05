@@ -318,3 +318,16 @@ nav button small {
   margin-left: 5px;
   font-weight: bold;
 }
+
+
+.content-tabs { display:flex; gap:8px; margin-top:16px; overflow-x:auto; padding-bottom:2px; }
+.content-tabs button { border:1px solid #33343a; background:#151519; color:#aaa; border-radius:10px; padding:10px 12px; white-space:nowrap; cursor:pointer; }
+.content-tabs button.tab-ativo { background:#fff; color:#111; border-color:#fff; }
+.content-tabs button span { display:inline-block; margin-left:5px; font-weight:bold; }
+.content-card { display:flex; align-items:flex-start; gap:16px; margin-bottom:14px; padding:14px; background:#101014; border:1px solid #29292e; border-radius:14px; }
+.content-preview { width:150px; min-width:150px; height:190px; border-radius:12px; overflow:hidden; background:#222229; display:flex; align-items:center; justify-content:center; font-size:42px; }
+.content-preview img { width:100%; height:100%; object-fit:contain; image-rendering:auto; }
+.content-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.content-actions .action-button { width:auto; margin-top:0; }
+.content-actions .danger { background:#5a2020; color:#fff; }
+@media (max-width:600px) { .content-card { flex-direction:column; } .content-preview { width:100%; height:300px; } .content-actions .action-button { width:100%; } }
