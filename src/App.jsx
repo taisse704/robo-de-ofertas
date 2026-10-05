@@ -215,17 +215,20 @@ export default function App() {
   async function publicarAgora(id) {
     setProcessandoConteudo(id); setMensagemConteudo("");
     try {
-      const { error } = await supabase.from("contents").update({ status: "pronto", updated_at: new Date().toISOString() }).eq("id", id).eq("user_id", usuario.id);
+      if (!usuario?.id) throw new Error("Usuário não identificado.");
+      const { data, error } = await supabase.functions.invoke("publish-content", {
+        body: { user_id: usuario.id, content_id: id }
+      });
       if (error) throw error;
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Sessão expirada.");
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/publish-content`, { method:"POST", headers:{ Authorization:`Bearer ${session.access_token}`, apikey:SUPABASE_ANON_KEY, "Content-Type":"application/json" }, body:JSON.stringify({ user_id:usuario.id, content_id:id }) });
-      const result = await response.json().catch(()=>({}));
-      if (!response.ok || result.ok === false) throw new Error(result.error || `Erro HTTP ${response.status}`);
-      setMensagemConteudo("Conteúdo enviado para publicação.");
+      if (!data?.ok) throw new Error(data?.error || data?.message || "A publicação não foi concluída.");
+      const resumo = data.publicadas ? `Publicado no Instagram: ${data.publicadas}` : (data.message || "Solicitação processada.");
+      setMensagemConteudo(resumo);
       await carregarConteudos();
-    } catch (error) { console.error(error); setMensagemConteudo(error?.message || "Não foi possível publicar agora."); }
-    finally { setProcessandoConteudo(null); }
+    } catch (error) {
+      console.error("PUBLICAR AGORA:", error);
+      setMensagemConteudo(error?.message || "Não foi possível publicar agora.");
+      await carregarConteudos();
+    } finally { setProcessandoConteudo(null); }
   }
 
   async function carregarPlataformas() {
@@ -948,9 +951,9 @@ export default function App() {
                     <small>{c.legenda || c.texto || ""}</small>
                     {c.status === "aguardando_revisao" && <button className="primary" style={{ marginTop: "10px" }} disabled={aprovandoConteudo === c.id} onClick={() => aprovarConteudo(c.id)}>{aprovandoConteudo === c.id ? "APROVANDO..." : "APROVAR E COLOCAR NA FILA"}</button>}
                     {["pronto","aguardando_revisao","publicando"].includes(c.status) && <div className="content-actions">
-                      <button className="primary action-button" disabled={processandoConteudo === c.id} onClick={() => publicarAgora(c.id)}>{c.status === "publicando" ? "🔄 TENTAR PUBLICAR" : "🚀 PUBLICAR AGORA"}</button>
-                      {c.status !== "publicando" && <button className="secondary action-button" disabled={processandoConteudo === c.id} onClick={() => alterarStatusConteudo(c.id,"pronto")}>📥 COLOCAR NA FILA</button>}
-                      <button className="secondary action-button danger" disabled={processandoConteudo === c.id} onClick={() => alterarStatusConteudo(c.id,"descartado")}>🗑️ DESCARTAR</button>
+                      <button type="button" className="primary action-button" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); publicarAgora(c.id); }}>{c.status === "publicando" ? "🔄 TENTAR PUBLICAR" : "🚀 PUBLICAR AGORA"}</button>
+                      {c.status !== "publicando" && <button type="button" className="secondary action-button" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); alterarStatusConteudo(c.id,"pronto"); }}>📥 COLOCAR NA FILA</button>}
+                      <button type="button" className="secondary action-button danger" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); alterarStatusConteudo(c.id,"descartado"); }}>🗑️ DESCARTAR</button>
                     </div>}
                   </div>
                 </div>
