@@ -331,3 +331,8 @@ nav button small {
 .content-actions .action-button { width:auto; margin-top:0; }
 .content-actions .danger { background:#5a2020; color:#fff; }
 @media (max-width:600px) { .content-card { flex-direction:column; } .content-preview { width:100%; height:300px; } .content-actions .action-button { width:100%; } }
+
+
+.content-actions { position:relative; z-index:20; }
+.content-actions .action-button { position:relative; z-index:21; pointer-events:auto; touch-action:manipulation; }
+.content-card { position:relative; }
