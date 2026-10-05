@@ -44,5 +44,5 @@ jobs:
           test -f scripts/render-videos.mjs
           test -f /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
 
-      - name: Renderizar pendentes
+      # Teste de renderização automática\n      - name: Renderizar pendentes
         run: node scripts/render-videos.mjs
