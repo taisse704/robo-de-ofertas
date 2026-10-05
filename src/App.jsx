@@ -269,6 +269,44 @@ export default function App() {
     }
   }
 
+  async function alterarModoConteudo(id, modo) {
+    setProcessandoConteudo(id);
+    setMensagemConteudo("");
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.access_token) throw new Error("Sessão expirada. Faça login novamente.");
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/set-content-mode`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: SUPABASE_ANON_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ content_id: id, modo })
+      });
+
+      const resultado = await response.json().catch(() => ({}));
+      if (!response.ok || !resultado.ok) {
+        throw new Error(resultado?.error || `Erro HTTP ${response.status}`);
+      }
+
+      setMensagemConteudo(
+        modo === "video"
+          ? (resultado.video_status === "original_disponivel"
+              ? "Vídeo original selecionado e pronto para publicação."
+              : "Vídeo solicitado. O gerador vai criar o vídeo automaticamente.")
+          : "Conteúdo alterado para post com imagem, sem vídeo."
+      );
+      await carregarConteudos();
+    } catch (error) {
+      console.error("ALTERAR MODO CONTEUDO:", error);
+      setMensagemConteudo(error?.message || "Não foi possível alterar o formato do conteúdo.");
+    } finally {
+      setProcessandoConteudo(null);
+    }
+  }
+
   async function publicarAgora(id) {
     setProcessandoConteudo(id);
     setMensagemConteudo("");
@@ -1134,6 +1172,8 @@ export default function App() {
                     {["pronto","aguardando_revisao","publicando"].includes(c.status) && <div className="content-actions">
                       <button type="button" className="primary action-button" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); publicarAgora(c.id); }}>{c.status === "publicando" ? "🔄 TENTAR PUBLICAR" : "🚀 PUBLICAR AGORA"}</button>
                       {c.status !== "publicando" && <button type="button" className="secondary action-button" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); alterarStatusConteudo(c.id,"pronto"); }}>📥 COLOCAR NA FILA</button>}
+                      {c.status !== "publicando" && <button type="button" className="secondary action-button" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); alterarModoConteudo(c.id,"video"); }}>🎬 GERAR VÍDEO</button>}
+                      {c.status !== "publicando" && <button type="button" className="secondary action-button" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); alterarModoConteudo(c.id,"post"); }}>🖼️ USAR APENAS POST</button>}
                       <button type="button" className="secondary action-button danger" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); alterarStatusConteudo(c.id,"descartado"); }}>🗑️ DESCARTAR</button>
                     </div>}
                   </div>
