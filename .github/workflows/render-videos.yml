@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/render-videos.yml"
+      - "scripts/render-videos.mjs"
 
 concurrency:
   group: robo-render-videos
@@ -25,8 +31,18 @@ jobs:
         with:
           node-version: 24
 
-      - name: Verificar FFmpeg
-        run: ffmpeg -version | head -1
+      - name: Instalar e verificar FFmpeg
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+          ffmpeg -version | head -1
+
+      - name: Verificar fonte de vídeo
+        run: |
+          test -f scripts/render-videos.mjs
+          test -f /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
 
       - name: Renderizar pendentes
         run: node scripts/render-videos.mjs
