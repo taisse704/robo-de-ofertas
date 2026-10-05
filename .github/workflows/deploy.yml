@@ -32,6 +32,11 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
         run: npm run build
+      - name: Copiar arquivos públicos
+        run: |
+          cp termos-de-servico.html dist/termos-de-servico.html
+          cp politica-de-privacidade.html dist/politica-de-privacidade.html
+          cp tiktokKyy4LndrKYE3YNKZjWyOZ2uSDD3gHbdy.txt dist/tiktokKyy4LndrKYE3YNKZjWyOZ2uSDD3gHbdy.txt
       - name: Configurar Pages
         uses: actions/configure-pages@v5
       - name: Preparar arquivos
