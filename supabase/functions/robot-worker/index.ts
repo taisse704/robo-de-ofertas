@@ -85,8 +85,8 @@ Deno.serve(async(req)=>{
    const conteudo=(conteudosProntos||[]).sort((a,b)=>{
     const oa=Array.isArray(a.offers)?a.offers[0]:a.offers;
     const ob=Array.isArray(b.offers)?b.offers[0]:b.offers;
-    const ca=Number(oa?.comissao_estimada ?? (Number(oa?.preco_atual||0)*Number(oa?.comissao_percentual||0)) || 0);
-    const cb=Number(ob?.comissao_estimada ?? (Number(ob?.preco_atual||0)*Number(ob?.comissao_percentual||0)) || 0);
+    const ca=oa?.comissao_estimada != null ? Number(oa.comissao_estimada) : Number(oa?.preco_atual||0)*Number(oa?.comissao_percentual||0);
+    const cb=ob?.comissao_estimada != null ? Number(ob.comissao_estimada) : Number(ob?.preco_atual||0)*Number(ob?.comissao_percentual||0);
     if(cb!==ca)return cb-ca;
     const da=Number(oa?.desconto_percentual||0),dbv=Number(ob?.desconto_percentual||0);
     if(dbv!==da)return dbv-da;
