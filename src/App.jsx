@@ -45,7 +45,7 @@ export default function App() {
   const [mensagemShopee, setMensagemShopee] = useState("");
   const [carregandoShopee, setCarregandoShopee] = useState(false);
   const [mensagemAfiliadas, setMensagemAfiliadas] = useState("");
-  const [config, setConfig] = useState({ativo:true,busca_automatica:true,publicar_automaticamente:true,aprovacao_antes_publicar:false,instagram:false,youtube:false,whatsapp:false,tiktok:false,kwai:false,facebook:false,pinterest:false,intervalo_minutos:30});
+  const [config, setConfig] = useState({ativo:true,busca_automatica:true,publicar_automaticamente:true,aprovacao_antes_publicar:false,instagram:false,youtube:false,whatsapp:false,tiktok:false,kwai:false,facebook:false,pinterest:false,intervalo_minutos:30,modo_conteudo:"post"});
   const [salvandoConfig, setSalvandoConfig] = useState(false);
   const [mensagemConfig, setMensagemConfig] = useState("");
   const [conteudos, setConteudos] = useState([]);
@@ -132,7 +132,7 @@ export default function App() {
       if (ch.tipo === "pinterest") mapa.pinterest = !!ch.ativo;
     }
     if (data) {
-      setConfig(prev => ({ ...prev, ...(data.configuracao || {}), ...mapa, ativo: data.ativo, busca_automatica: data.busca_automatica, publicar_automaticamente: data.publicar_automaticamente, intervalo_minutos: data.intervalo_minutos, gerar_texto:data.gerar_texto, gerar_imagem:data.gerar_imagem, gerar_video:data.gerar_video }));
+      setConfig(prev => ({ ...prev, ...(data.configuracao || {}), ...mapa, ativo: data.ativo, busca_automatica: data.busca_automatica, publicar_automaticamente: data.publicar_automaticamente, intervalo_minutos: data.intervalo_minutos, gerar_texto:data.gerar_texto, gerar_imagem:data.gerar_imagem, gerar_video:data.gerar_video, modo_conteudo:(data.configuracao || {}).modo_conteudo || (data.gerar_video ? "video" : "post") }));
     } else {
       setConfig(prev => ({ ...prev, ...mapa }));
     }
@@ -167,7 +167,8 @@ export default function App() {
 
   async function salvarConfiguracao(next) {
     const c={...config,...next}; setConfig(c); setSalvandoConfig(true); setMensagemConfig("");
-    const payload={ativo:!!c.ativo,busca_automatica:!!c.busca_automatica,publicar_automaticamente:!!c.publicar_automaticamente,intervalo_minutos:Number(c.intervalo_minutos||30),gerar_texto:c.gerar_texto!==false,gerar_imagem:c.gerar_imagem!==false,gerar_video:!!c.gerar_video,configuracao:{aprovacao_antes_publicar:!!c.aprovacao_antes_publicar,modo:c.busca_automatica?"automatico":"manual",instagram:!!c.instagram,youtube:!!c.youtube,whatsapp:!!c.whatsapp,tiktok:!!c.tiktok,kwai:!!c.kwai,facebook:!!c.facebook,pinterest:!!c.pinterest}};
+    const modoConteudo=["video","post","automatico"].includes(c.modo_conteudo)?c.modo_conteudo:"post";
+    const payload={ativo:!!c.ativo,busca_automatica:!!c.busca_automatica,publicar_automaticamente:!!c.publicar_automaticamente,intervalo_minutos:Number(c.intervalo_minutos||30),gerar_texto:c.gerar_texto!==false,gerar_imagem:c.gerar_imagem!==false,gerar_video:modoConteudo==="video",configuracao:{aprovacao_antes_publicar:!!c.aprovacao_antes_publicar,modo:c.busca_automatica?"automatico":"manual",modo_conteudo:modoConteudo,instagram:!!c.instagram,youtube:!!c.youtube,whatsapp:!!c.whatsapp,tiktok:!!c.tiktok,kwai:!!c.kwai,facebook:!!c.facebook,pinterest:!!c.pinterest}};
     try {
       const {error}=await supabase.from("robot_settings").upsert({user_id:usuario.id,...payload},{onConflict:"user_id"});
       if (error) throw error;
@@ -1256,7 +1257,13 @@ export default function App() {
               <label><span>Intervalo (minutos)</span><input type="number" min="5" step="5" value={Number(config.intervalo_minutos||30)} onChange={e=>salvarConfiguracao({intervalo_minutos:Number(e.target.value||30)})} /></label>
               <label><span>Gerar texto</span><input type="checkbox" checked={config.gerar_texto !== false} onChange={e=>salvarConfiguracao({gerar_texto:e.target.checked})} /></label>
               <label><span>Gerar imagem</span><input type="checkbox" checked={config.gerar_imagem !== false} onChange={e=>salvarConfiguracao({gerar_imagem:e.target.checked})} /></label>
-              <label><span>Gerar video</span><input type="checkbox" checked={!!config.gerar_video} onChange={e=>salvarConfiguracao({gerar_video:e.target.checked})} /></label>
+              <label><span>Formato padrão dos conteúdos</span>
+                <select value={config.modo_conteudo || "post"} onChange={e=>salvarConfiguracao({modo_conteudo:e.target.value})}>
+                  <option value="post">🖼️ Post com imagem</option>
+                  <option value="video">🎬 Vídeo</option>
+                  <option value="automatico">🤖 Automático (vídeo original; senão post)</option>
+                </select>
+              </label>
               <h4>Canais de divulgacao</h4>
               <label><span>Instagram</span><input type="checkbox" checked={!!config.instagram} onChange={e=>salvarConfiguracao({instagram:e.target.checked})} /></label>
               <label><span>YouTube Shorts</span><input type="checkbox" checked={!!config.youtube} onChange={e=>salvarConfiguracao({youtube:e.target.checked})} /></label>
