@@ -1166,49 +1166,25 @@ export default function App() {
           </>
         )}
 
-        {pagina === "ofertas-shopee" && (
+        {pagina === "ofertas-tiktok-shop" && (
           <>
-            <h2>Ofertas</h2>
+            <h2>Ofertas TikTok Shop</h2>
             <div className="offer-tabs">
-              <button className={abaLojaOfertas === "shopee" ? "tab-ativo" : ""} onClick={() => setAbaLojaOfertas("shopee")}>🛍️ Shopee</button>
-              <button className={abaLojaOfertas === "tiktok_shop" ? "tab-ativo" : ""} onClick={() => setAbaLojaOfertas("tiktok_shop")}>🎵 TikTok Shop</button>
-            </div>
-            {abaLojaOfertas === "shopee" && (
-              <>
-                <h3>Ofertas Shopee</h3>
-                <div className="panel"><button className="primary" onClick={buscarOfertasShopee} disabled={carregandoShopee}>{carregandoShopee ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DA SHOPEE"}</button></div>
-                {mensagemShopee && <div className="panel"><p>{mensagemShopee}</p></div>}
-              </>
-            )}
-            {abaLojaOfertas === "tiktok_shop" && (
-              <div className="panel">
-                <h3>🎵 Ofertas TikTok Shop</h3>
-                <p>Esta é a aba exclusiva das ofertas da TikTok Shop. A estrutura está separada da Shopee e pronta para receber a busca oficial da TikTok Shop quando o acesso à API de afiliados estiver autorizado.</p>
-                <div style={{display:"flex",gap:"8px",flexWrap:"wrap",marginTop:"12px"}}>
-                  <button className="primary" disabled title="A busca depende da autorização oficial da API de Afiliados da TikTok Shop.">🔎 BUSCAR OFERTAS DA TIKTOK SHOP</button>
-                </div>
-              </div>
-            )}
-            <div className="offer-tabs">
-              <button className={abaOfertas === "novas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("novas")}>🆕 Novas <span>{ofertasDaAba("shopee").length}</span></button>
+              <button className={abaOfertas === "novas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("novas")}>🆕 Novas <span>0</span></button>
               <button className={abaOfertas === "cadastradas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("cadastradas")}>📦 Cadastradas</button>
               <button className={abaOfertas === "publicadas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("publicadas")}>📢 Publicadas</button>
             </div>
-            <div className="panel" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px",flexWrap:"wrap"}}><div><strong>{ofertasSelecionadas.size}</strong> oferta(s) selecionada(s)</div><div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}><button className="primary" disabled={!ofertasSelecionadas.size || enfileirandoOfertas} onClick={colocarOfertasSelecionadasNaFila}>📥 COLOCAR SELECIONADAS NA FILA</button><button className="secondary" disabled={!ofertasSelecionadas.size || enfileirandoOfertas} onClick={limparSelecaoOfertas}>LIMPAR SELEÇÃO</button></div></div>
-            <div className="panel">
-              <h3>{abaOfertas === "novas" ? "Novas ofertas — Shopee" : abaOfertas === "publicadas" ? "Ofertas já publicadas — Shopee" : "Ofertas já cadastradas — Shopee"}</h3>
-              {carregandoShopee && <p>Carregando ofertas...</p>}
-              {!carregandoShopee && ofertasDaAba("shopee").length === 0 && <p>{abaOfertas === "novas" ? "Nenhuma oferta nova nesta busca." : abaOfertas === "publicadas" ? "Nenhuma oferta publicada ainda." : "Nenhuma oferta cadastrada nesta aba."}</p>}
-              {ofertasDaAba("shopee").map((o) => (
-                <div className="offer" key={o.id}>
-                  <div className="offer-image">{o.imagem_url ? <img src={o.imagem_url} alt="" /> : "Oferta"}</div>
-                  <div className="offer-info"><label style={{display:"flex",alignItems:"center",gap:"8px",fontWeight:700}}><input type="checkbox" checked={ofertasSelecionadas.has(o.id)} onChange={() => alternarOfertaSelecionada(o.id)} /> Selecionar para publicação</label><h3>{o.titulo}</h3><p>Shopee</p><strong>{o.preco_atual == null ? "Preço não informado" : moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{Number(o.desconto_percentual || 0)}% de desconto</span>}<small>Comissao estimada: {moeda(o.comissao_estimada)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="primary" disabled={enfileirandoOfertas} onClick={() => colocarOfertaNaFila(o.id)}>📥 COLOCAR NA FILA</button><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
-                </div>
-              ))}
+            <div className="panel" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px",flexWrap:"wrap"}}>
+              <div><strong>0</strong> oferta(s) selecionada(s)</div>
+              <div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}>
+                <button className="primary" disabled>📥 COLOCAR SELECIONADAS NA FILA</button>
+                <button className="secondary" disabled>LIMPAR SELEÇÃO</button>
+              </div>
             </div>
-
-              </>
-            )}
+            <div className="panel">
+              <h3>{abaOfertas === "novas" ? "Novas ofertas — TikTok Shop" : abaOfertas === "publicadas" ? "Ofertas já publicadas — TikTok Shop" : "Ofertas já cadastradas — TikTok Shop"}</h3>
+              <p>Nenhuma oferta encontrada ainda.</p>
+            </div>
           </>
         )}
 
