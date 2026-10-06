@@ -128,7 +128,7 @@ Deno.serve(async (req) => {
 
     const { data: content, error: contentError } = await db
       .from("contents")
-      .select("id,user_id,offer_id,titulo,legenda,thumbnail_url,imagem_1080_url,video_url,status")
+      .select("id,user_id,offer_id,titulo,legenda,thumbnail_url,imagem_1080_url,video_url,video_status,status")
       .eq("id", contentId)
       .eq("user_id", userId)
       .maybeSingle();
@@ -138,6 +138,14 @@ Deno.serve(async (req) => {
 
     if (!["pronto", "aguardando_revisao", "aprovado", "publicando"].includes(content.status)) {
       return response({ ok: false, error: `Conteúdo com status "${content.status}" não pode ser publicado agora.` }, 409);
+    }
+
+    // Conteúdos marcados como vídeo só podem ser publicados quando o arquivo estiver realmente pronto.
+    if (content.video_status === "aguardando_geracao" || (content.video_status && content.video_status !== "pendente" && !content.video_url)) {
+      return response({ ok: false, error: "O vídeo ainda está sendo gerado. Aguarde o vídeo ficar pronto antes de publicar." }, 409);
+    }
+    if (content.video_status && content.video_status !== "pendente" && !content.video_url) {
+      return response({ ok: false, error: "O conteúdo é um vídeo, mas o arquivo ainda não está disponível." }, 409);
     }
 
     const { data: offer, error: offerError } = await db
