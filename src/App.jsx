@@ -1424,10 +1424,10 @@ export default function App() {
                     <div className="offer" key={provider.key}>
                       <div className="offer-info">
                         <h3>{provider.name}</h3>
-                        <p>Status: {conta?.status || "Nao conectada"}</p>
+                        <p>Status: {provider.key === "shopee" && conta ? "conectada" : (conta?.status || "Nao conectada")}</p>
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                           <button className="primary" onClick={() => prepararConexao(provider)}>
-                            {conta?.status === "conectada" ? "CONFIGURAR" : "CONECTAR"}
+                            {(provider.key === "shopee" && conta) || conta?.status === "conectada" ? "CONFIGURAR" : "CONECTAR"}
                           </button>
                           <button className="secondary" disabled={!conta || desconectandoAfiliada === provider.key} onClick={() => desconectarAfiliada(provider)}>
                             {desconectandoAfiliada === provider.key ? "DESCONECTANDO..." : "DESCONECTAR"}
