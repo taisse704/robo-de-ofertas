@@ -1186,7 +1186,7 @@ export default function App() {
             <div className="panel"><button className="primary" onClick={buscarOfertasShopee} disabled={carregandoShopee}>{carregandoShopee ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DA SHOPEE"}</button></div>
             {mensagemShopee && <div className="panel"><p>{mensagemShopee}</p></div>}
             <div className="offer-tabs">
-              <button className={abaOfertas === "novas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("novas")}>🆕 Novas <span>{ofertasDaAba("shopee").length}</span></button>
+              <button className={abaOfertas === "novas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("novas")}>🆕 Novas <span>{listaOfertas.filter((o) => (o.store_provider === "shopee" || o.platforms?.nome === "Shopee") && ofertaEhNova(o)).length}</span></button>
               <button className={abaOfertas === "cadastradas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("cadastradas")}>📦 Cadastradas</button>
               <button className={abaOfertas === "publicadas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("publicadas")}>📢 Publicadas</button>
             </div>
