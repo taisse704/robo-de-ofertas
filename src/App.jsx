@@ -354,7 +354,7 @@ export default function App() {
     }
   }
 
-  async function publicarAgora(id) {
+  async function publicarAgora(id, rede) {
     setProcessandoConteudo(id);
     setMensagemConteudo("");
     try {
@@ -363,6 +363,18 @@ export default function App() {
       if (sessionError) throw sessionError;
       if (!session?.access_token) throw new Error("Sessão expirada. Faça login novamente.");
 
+      const tipo = rede === "youtube" ? "youtube_shorts" : rede;
+      const { data: canal, error: canalError } = await supabase
+        .from("publication_channels")
+        .select("id,ativo,nome")
+        .eq("user_id", usuario.id)
+        .eq("tipo", tipo)
+        .eq("ativo", true)
+        .maybeSingle();
+
+      if (canalError) throw canalError;
+      if (!canal) throw new Error(`O canal ${rede === "youtube" ? "YouTube Shorts" : rede} não está ativo.`);
+
       const response = await fetch(`${SUPABASE_URL}/functions/v1/publish-content`, {
         method: "POST",
         headers: {
@@ -370,16 +382,25 @@ export default function App() {
           apikey: SUPABASE_ANON_KEY,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ content_id: id })
+        body: JSON.stringify({ content_id: id, channel_ids: [canal.id], modo: "manual" })
       });
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data?.ok) {
-        const detalhes = data?.error || data?.message || data?.resultados?.find?.(r => r.error)?.error;
-        throw new Error(detalhes || `Erro HTTP ${response.status}`);
+        const detalhes =
+          data?.error ||
+          data?.message ||
+          data?.resultados?.find?.(r => r.error)?.error ||
+          `Erro HTTP ${response.status}`;
+        throw new Error(detalhes);
       }
 
-      setMensagemConteudo(data?.message || "Publicação concluída.");
+      const resultadoRede = data?.resultados?.find?.(r => r.channel === tipo);
+      setMensagemConteudo(
+        resultadoRede?.status === "publicando"
+          ? `Publicação enviada para o ${rede === "youtube" ? "YouTube Shorts" : rede}. A plataforma está processando o vídeo.`
+          : data?.message || `Publicado no ${rede === "youtube" ? "YouTube Shorts" : rede}.`
+      );
       await carregarConteudos();
     } catch (error) {
       console.error("PUBLICAR AGORA:", error);
@@ -1374,54 +1395,34 @@ export default function App() {
 
                     {conteudoNaFila(c) && (
                       <div className="content-actions">
-                        <button
-                          type="button"
-                          className="primary action-button"
-                          disabled={processandoConteudo === c.id}
-                          onClick={(e) => { e.preventDefault(); publicarAgora(c.id); }}
-                        >
-                          {c.status === "publicando" ? "🔄 TENTAR PUBLICAR" : "🚀 PUBLICAR AGORA"}
-                        </button>
+                        <div style={{width:"100%",padding:"10px 0 4px",borderTop:"1px solid #eee",marginTop:"8px"}}>
+                          <strong style={{display:"block",marginBottom:"8px"}}>📢 PUBLICAÇÕES</strong>
+                          <div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}>
+                            <button type="button" className="primary action-button" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); publicarAgora(c.id,"instagram"); }}>📸 PUBLICAR INSTAGRAM</button>
+                            <button type="button" className="primary action-button" disabled={processandoConteudo === c.id || !conteudoEhVideo(c)} title={!conteudoEhVideo(c) ? "TikTok exige vídeo." : ""} onClick={(e) => { e.preventDefault(); publicarAgora(c.id,"tiktok"); }}>🎵 PUBLICAR TIKTOK</button>
+                            <button type="button" className="primary action-button" disabled={processandoConteudo === c.id || !conteudoEhVideo(c)} title={!conteudoEhVideo(c) ? "YouTube Shorts exige vídeo." : ""} onClick={(e) => { e.preventDefault(); publicarAgora(c.id,"youtube"); }}>▶️ PUBLICAR YOUTUBE</button>
+                          </div>
+                        </div>
 
                         {c.status !== "publicando" && (
-                          <button
-                            type="button"
-                            className="secondary action-button"
-                            disabled={processandoConteudo === c.id}
-                            onClick={(e) => { e.preventDefault(); alterarStatusConteudo(c.id,"pronto"); }}
-                          >
+                          <button type="button" className="secondary action-button" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); alterarStatusConteudo(c.id,"pronto"); }}>
                             📥 COLOCAR NA FILA
                           </button>
                         )}
 
                         {c.status !== "publicando" && !conteudoEhVideo(c) && (
-                          <button
-                            type="button"
-                            className="secondary action-button"
-                            disabled={processandoConteudo === c.id}
-                            onClick={(e) => { e.preventDefault(); alterarModoConteudo(c.id,"video"); }}
-                          >
+                          <button type="button" className="secondary action-button" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); alterarModoConteudo(c.id,"video"); }}>
                             🎬 GERAR VÍDEO
                           </button>
                         )}
 
                         {c.status !== "publicando" && conteudoEhVideo(c) && (
-                          <button
-                            type="button"
-                            className="secondary action-button"
-                            disabled={processandoConteudo === c.id}
-                            onClick={(e) => { e.preventDefault(); alterarModoConteudo(c.id,"post"); }}
-                          >
+                          <button type="button" className="secondary action-button" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); alterarModoConteudo(c.id,"post"); }}>
                             🖼️ USAR APENAS POST
                           </button>
                         )}
 
-                        <button
-                          type="button"
-                          className="secondary action-button danger"
-                          disabled={processandoConteudo === c.id}
-                          onClick={(e) => { e.preventDefault(); alterarStatusConteudo(c.id,"descartado"); }}
-                        >
+                        <button type="button" className="secondary action-button danger" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); alterarStatusConteudo(c.id,"descartado"); }}>
                           🗑️ DESCARTAR
                         </button>
                       </div>
