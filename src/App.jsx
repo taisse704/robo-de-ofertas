@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-05-gestao-conteudo-v9";
+const FRONTEND_BUILD_VERSION = "2026-10-05-gestao-conteudo-v10-redes";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -49,6 +49,7 @@ export default function App() {
   const [salvandoConfig, setSalvandoConfig] = useState(false);
   const [mensagemConfig, setMensagemConfig] = useState("");
   const [conteudos, setConteudos] = useState([]);
+  const [publicacoes, setPublicacoes] = useState([]);
   const [mensagemConteudo, setMensagemConteudo] = useState("");
   const [aprovandoConteudo, setAprovandoConteudo] = useState(null);
   const [instagramConectado, setInstagramConectado] = useState(false);
@@ -230,9 +231,14 @@ export default function App() {
   }
 
   async function carregarConteudos() {
-    const { data, error } = await supabase.from("contents").select("*").eq("user_id", usuario.id).order("created_at", { ascending: false }).limit(500);
+    const [{ data, error }, { data: pubs, error: pubsError }] = await Promise.all([
+      supabase.from("contents").select("*").eq("user_id", usuario.id).order("created_at", { ascending: false }).limit(500),
+      supabase.from("offer_publications").select("id,content_id,offer_id,status,published_at,created_at,external_post_id,erro,channel_id,publication_channels(tipo,nome)").eq("user_id", usuario.id).order("created_at", { ascending: false }).limit(1000)
+    ]);
     if (error) { console.error(error); setMensagemConteudo("Nao foi possivel carregar os conteudos."); return; }
+    if (pubsError) console.error("CARREGAR PUBLICACOES:", pubsError);
     setConteudos(data || []);
+    setPublicacoes(pubs || []);
   }
 
   async function aprovarConteudo(id) {
@@ -996,12 +1002,37 @@ export default function App() {
     return ["pronto", "aguardando_revisao", "publicando"].includes(c.status);
   }
 
+  const redesPublicacao = [
+    { key: "instagram", label: "Instagram", tipo: "instagram", emoji: "📸" },
+    { key: "tiktok", label: "TikTok", tipo: "tiktok", emoji: "🎵" },
+    { key: "youtube", label: "YouTube Shorts", tipo: "youtube_shorts", emoji: "▶️" },
+    { key: "whatsapp", label: "WhatsApp", tipo: "whatsapp", emoji: "💬" },
+    { key: "kwai", label: "Kwai", tipo: "kwai", emoji: "🎬" },
+    { key: "facebook", label: "Facebook", tipo: "facebook", emoji: "🔵" },
+    { key: "pinterest", label: "Pinterest", tipo: "pinterest", emoji: "📌" }
+  ];
+
+  function publicacaoFoiConcluida(p) {
+    return !!p?.published_at || ["publicado", "publicada", "published", "sucesso"].includes(String(p?.status || "").toLowerCase());
+  }
+
+  function conteudosPublicadosNaRede(lista, tipo) {
+    const ids = new Set(
+      publicacoes
+        .filter((p) => publicacaoFoiConcluida(p) && p?.publication_channels?.tipo === tipo && p?.content_id)
+        .map((p) => String(p.content_id))
+    );
+    return lista.filter((c) => ids.has(String(c.id)));
+  }
+
   function filtrarConteudosGestao(lista, aba) {
     if (aba === "controle") return lista;
     if (aba === "posts") return lista.filter((c) => conteudoNaFila(c) && !conteudoEhVideo(c));
     if (aba === "videos") return lista.filter((c) => conteudoNaFila(c) && conteudoEhVideo(c));
     if (aba === "publicados") return lista.filter((c) => ["publicado", "publicada"].includes(c.status));
     if (aba === "descartados") return lista.filter((c) => c.status === "descartado");
+    const rede = redesPublicacao.find((r) => r.key === aba);
+    if (rede) return conteudosPublicadosNaRede(lista, rede.tipo);
     return lista;
   }
 
@@ -1186,6 +1217,14 @@ export default function App() {
               <button className={abaConteudo === "descartados" ? "tab-ativo" : ""} onClick={() => setAbaConteudo("descartados")}>
                 🗑️ Descartados <span>{conteudos.filter((c) => c.status === "descartado").length}</span>
               </button>
+              {redesPublicacao.map((rede) => {
+                const publicadosNaRede = conteudosPublicadosNaRede(conteudos, rede.tipo);
+                return (
+                  <button key={rede.key} className={abaConteudo === rede.key ? "tab-ativo" : ""} onClick={() => setAbaConteudo(rede.key)}>
+                    {rede.emoji} {rede.label} <span>{publicadosNaRede.length}</span>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="panel">
@@ -1195,7 +1234,9 @@ export default function App() {
                     {abaConteudo === "controle" ? "Controle geral" :
                      abaConteudo === "posts" ? "Fila de Posts" :
                      abaConteudo === "videos" ? "Fila de Vídeos" :
-                     abaConteudo === "publicados" ? "Conteúdos publicados" : "Conteúdos descartados"}
+                     abaConteudo === "publicados" ? "Conteúdos publicados" :
+                     abaConteudo === "descartados" ? "Conteúdos descartados" :
+                     (redesPublicacao.find((r) => r.key === abaConteudo)?.label || "Publicações")}
                   </h3>
                   <p style={{marginTop:0}}>
                     {abaConteudo === "controle"
@@ -1205,8 +1246,10 @@ export default function App() {
                       : abaConteudo === "videos"
                       ? "Somente conteúdos em fila que serão publicados como vídeo/Reels."
                       : abaConteudo === "publicados"
-                      ? "Histórico dos conteúdos que já foram publicados."
-                      : "Histórico dos conteúdos que você descartou."}
+                      ? "Histórico geral dos conteúdos que já foram publicados."
+                      : abaConteudo === "descartados"
+                      ? "Histórico dos conteúdos que você descartou."
+                      : "Somente conteúdos publicados na rede selecionada."}
                   </p>
                 </div>
                 <button className="secondary" onClick={carregarConteudos}>🔄 ATUALIZAR</button>
