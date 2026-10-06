@@ -1169,6 +1169,7 @@ export default function App() {
         {pagina === "ofertas-tiktok-shop" && (
           <>
             <h2>Ofertas TikTok Shop</h2>
+            <div className="panel"><button className="primary" disabled title="A busca depende da autorização oficial da API de Afiliados da TikTok Shop.">🔎 BUSCAR OFERTAS DA TIKTOK SHOP</button></div>
             <div className="offer-tabs">
               <button className={abaOfertas === "novas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("novas")}>🆕 Novas <span>0</span></button>
               <button className={abaOfertas === "cadastradas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("cadastradas")}>📦 Cadastradas</button>
