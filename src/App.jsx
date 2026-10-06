@@ -1018,7 +1018,9 @@ export default function App() {
 
   function ofertaEhNova(o) {
     const criado = new Date(o.created_at || o.encontrada_em || 0).getTime();
-    return !ofertaEhPublicada(o) && criado >= Date.now() - 60 * 60 * 1000;
+    // "Novas" fica disponível por 24 horas e é calculado pelo banco (created_at),
+    // não por estado temporário do navegador. Assim, dar F5 não faz as ofertas sumirem.
+    return !ofertaEhPublicada(o) && criado >= Date.now() - 24 * 60 * 60 * 1000;
   }
 
   function ofertasDaAba(provider) {
@@ -1026,14 +1028,7 @@ export default function App() {
       .filter((o) => o.store_provider === provider || o.platforms?.nome === (provider === "shopee" ? "Shopee" : "Mercado Livre"))
       .filter((o) => provider !== "mercadolivre" || Number(o.preco_atual) > 0);
     if (abaOfertas === "publicadas") return base.filter(ofertaEhPublicada);
-    if (abaOfertas === "novas") {
-      if (provider === "shopee") {
-        return base.filter((o) =>
-          shopeeNovasIds.has(String(o.product_external_id || ""))
-        );
-      }
-      return base.filter(ofertaEhNova);
-    }
+    if (abaOfertas === "novas") return base.filter(ofertaEhNova);
     return base.filter((o) => !ofertaEhPublicada(o) && !ofertaEhNova(o));
   }
 
