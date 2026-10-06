@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-06-ofertas-tiktok-shop-tab-v1";
+const FRONTEND_BUILD_VERSION = "2026-10-06-conteudo-redes-v2";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -50,6 +50,7 @@ export default function App() {
   const [mensagemConfig, setMensagemConfig] = useState("");
   const [conteudos, setConteudos] = useState([]);
   const [publicacoes, setPublicacoes] = useState([]);
+  const [canaisPublicacao, setCanaisPublicacao] = useState([]);
   const [mensagemConteudo, setMensagemConteudo] = useState("");
   const [aprovandoConteudo, setAprovandoConteudo] = useState(null);
   const [instagramConectado, setInstagramConectado] = useState(false);
@@ -232,14 +233,17 @@ export default function App() {
   }
 
   async function carregarConteudos() {
-    const [{ data, error }, { data: pubs, error: pubsError }] = await Promise.all([
+    const [{ data, error }, { data: pubs, error: pubsError }, { data: canais, error: canaisError }] = await Promise.all([
       supabase.from("contents").select("*").eq("user_id", usuario.id).order("created_at", { ascending: false }).limit(500),
-      supabase.from("offer_publications").select("id,content_id,offer_id,status,published_at,created_at,external_post_id,erro,channel_id,publication_channels(tipo,nome)").eq("user_id", usuario.id).order("created_at", { ascending: false }).limit(1000)
+      supabase.from("offer_publications").select("id,content_id,offer_id,status,published_at,created_at,external_post_id,erro,channel_id,publication_channels(tipo,nome)").eq("user_id", usuario.id).order("created_at", { ascending: false }).limit(1000),
+      supabase.from("publication_channels").select("id,tipo,nome").eq("user_id", usuario.id)
     ]);
     if (error) { console.error(error); setMensagemConteudo("Nao foi possivel carregar os conteudos."); return; }
     if (pubsError) console.error("CARREGAR PUBLICACOES:", pubsError);
+    if (canaisError) console.error("CARREGAR CANAIS:", canaisError);
     setConteudos(data || []);
     setPublicacoes(pubs || []);
+    setCanaisPublicacao(canais || []);
   }
 
   async function aprovarConteudo(id) {
@@ -1020,7 +1024,16 @@ export default function App() {
   function conteudosPublicadosNaRede(lista, tipo) {
     const ids = new Set(
       publicacoes
-        .filter((p) => publicacaoFoiConcluida(p) && p?.publication_channels?.tipo === tipo && p?.content_id)
+        .filter((p) => {
+          if (!publicacaoFoiConcluida(p) || !p?.content_id) return false;
+          const canal = p?.publication_channels?.tipo
+            || canaisPublicacao.find((ch) => String(ch.id) === String(p.channel_id))?.tipo
+            || p?.canal
+            || p?.channel
+            || p?.rede
+            || p?.network;
+          return canal === tipo;
+        })
         .map((p) => String(p.content_id))
     );
     return lista.filter((c) => ids.has(String(c.id)));
@@ -1241,12 +1254,12 @@ export default function App() {
             </div>
 
             <div className="content-network-section">
-              <div className="content-network-title">📢 Publicados por rede</div>
+              <div className="content-network-title">📢 Publicações por rede social</div>
               <div className="content-network-tabs">
                 {redesPublicacao.map((rede) => {
                   const publicadosNaRede = conteudosPublicadosNaRede(conteudos, rede.tipo);
                   return (
-                    <button key={rede.key} className={abaConteudo === rede.key ? "tab-ativo" : ""} onClick={() => setAbaConteudo(rede.key)}>
+                    <button type="button" key={rede.key} className={abaConteudo === rede.key ? "tab-ativo" : ""} onClick={() => setAbaConteudo(rede.key)}>
                       {rede.emoji} {rede.label} <span>{publicadosNaRede.length}</span>
                     </button>
                   );
