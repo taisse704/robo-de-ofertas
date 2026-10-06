@@ -57,6 +57,7 @@ export default function App() {
   const [abaOfertas, setAbaOfertas] = useState("cadastradas");
   const [ofertasPublicadas, setOfertasPublicadas] = useState(new Set());
   const [ofertasSelecionadas, setOfertasSelecionadas] = useState(new Set());
+  const [novasShopeeIds, setNovasShopeeIds] = useState(new Set());
   const [enfileirandoOfertas, setEnfileirandoOfertas] = useState(false);
   const [abaConteudo, setAbaConteudo] = useState("fila");
   const [processandoConteudo, setProcessandoConteudo] = useState(null);
@@ -824,16 +825,25 @@ export default function App() {
         .order("created_at", { ascending: false });
 
       if (ofertasError) throw ofertasError;
-      setListaOfertas(ofertasAtualizadas || []);
+      const listaDepois = ofertasAtualizadas || [];
+      setListaOfertas(listaDepois);
       await carregarOfertasPublicadas();
 
+      // Descobre as ofertas realmente novas comparando o banco antes/depois.
+      // Não dependemos do formato variável de resultado.ofertas.
       const novasIds = new Set(
-        (Array.isArray(resultado.ofertas) ? resultado.ofertas : [])
-          .map((o) => String(o.product_external_id || ""))
-          .filter((id) => id && !idsAntes.has(id))
+        listaDepois
+          .filter((o) => (o.store_provider === "shopee" || o.platforms?.nome === "Shopee"))
+          .filter((o) => !idsAntes.has(String(o.product_external_id || "")))
+          .map((o) => String(o.id))
+          .filter(Boolean)
       );
 
-      const novas = Number(resultado.novas_ofertas ?? resultado.novas ?? novasIds.size ?? 0);
+      if (novasIds.size) {
+        setNovasShopeeIds((atual) => new Set([...atual, ...novasIds]));
+      }
+
+      const novas = novasIds.size || Number(resultado.novas_ofertas ?? resultado.novas ?? 0);
       const atualizadas = Number(resultado.atualizadas ?? 0);
       const diagnostico = Array.isArray(resultado.diagnostico)
         ? resultado.diagnostico.map((d) => `${d.keyword || d.tipo || "(geral)"}: HTTP ${d.status ?? "—"}, ${d.resultados || 0} resultados${d.erro ? ` | erro: ${d.erro}` : ""}`).join(" | ")
@@ -1017,9 +1027,10 @@ export default function App() {
   }
 
   function ofertaEhNova(o) {
-    // "Novas" é controlado pelo backend: somente o último lote inserido
-    // recebe nova=true. Atualizações de ofertas antigas permanecem em Cadastradas.
-    return !ofertaEhPublicada(o) && o?.nova === true;
+    // A aba Novas considera tanto a marca persistida pelo backend quanto
+    // as ofertas realmente inseridas nesta busca. Isso evita perder as novas
+    // quando a busca atualiza ofertas antigas e o backend devolve nova=false.
+    return !ofertaEhPublicada(o) && (o?.nova === true || novasShopeeIds.has(String(o?.id)));
   }
 
   function ordenarOfertasParaExibicao(lista) {
