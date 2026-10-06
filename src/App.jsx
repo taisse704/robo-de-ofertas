@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-06-conteudo-redes-v2";
+const FRONTEND_BUILD_VERSION = "2026-10-06-tiktok-shop-tab-v2";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -1165,8 +1165,11 @@ export default function App() {
             )}
             {abaLojaOfertas === "tiktok_shop" && (
               <div className="panel">
-                <h3>🎵 TikTok Shop</h3>
-                <p>Aba TikTok Shop criada. A busca de produtos será ligada ao conector da TikTok Shop nesta área.</p>
+                <h3>🎵 Ofertas TikTok Shop</h3>
+                <p>Esta é a aba exclusiva das ofertas da TikTok Shop. A estrutura está separada da Shopee e pronta para receber a busca oficial da TikTok Shop quando o acesso à API de afiliados estiver autorizado.</p>
+                <div style={{display:"flex",gap:"8px",flexWrap:"wrap",marginTop:"12px"}}>
+                  <button className="primary" disabled title="A busca depende da autorização oficial da API de Afiliados da TikTok Shop.">🔎 BUSCAR OFERTAS DA TIKTOK SHOP</button>
+                </div>
               </div>
             )}
             <div className="offer-tabs">
