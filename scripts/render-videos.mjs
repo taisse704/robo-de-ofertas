@@ -57,7 +57,7 @@ async function upload(path, file) {
 }
 
 async function main() {
-  const jobs = await rest("video_jobs?status=eq.pendente&order=created_at.asc&limit=3&select=*");
+  const jobs = await rest("video_jobs?status=eq.pendente&order=created_at.asc&limit=6&select=*");
   if (!Array.isArray(jobs) || !jobs.length) {
     console.log("Nenhum vídeo pendente.");
     return;
