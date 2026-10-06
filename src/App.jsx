@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-06-tiktok-shop-tab-v2";
+const FRONTEND_BUILD_VERSION = "2026-10-05-gestao-conteudo-v10-redes";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -50,13 +50,11 @@ export default function App() {
   const [mensagemConfig, setMensagemConfig] = useState("");
   const [conteudos, setConteudos] = useState([]);
   const [publicacoes, setPublicacoes] = useState([]);
-  const [canaisPublicacao, setCanaisPublicacao] = useState([]);
   const [mensagemConteudo, setMensagemConteudo] = useState("");
   const [aprovandoConteudo, setAprovandoConteudo] = useState(null);
   const [instagramConectado, setInstagramConectado] = useState(false);
   const [desconectandoAfiliada, setDesconectandoAfiliada] = useState(null);
   const [abaOfertas, setAbaOfertas] = useState("cadastradas");
-  const [abaLojaOfertas, setAbaLojaOfertas] = useState("shopee");
   const [ofertasPublicadas, setOfertasPublicadas] = useState(new Set());
   const [shopeeNovasIds, setShopeeNovasIds] = useState(new Set());
   const [ofertasSelecionadas, setOfertasSelecionadas] = useState(new Set());
@@ -233,17 +231,14 @@ export default function App() {
   }
 
   async function carregarConteudos() {
-    const [{ data, error }, { data: pubs, error: pubsError }, { data: canais, error: canaisError }] = await Promise.all([
+    const [{ data, error }, { data: pubs, error: pubsError }] = await Promise.all([
       supabase.from("contents").select("*").eq("user_id", usuario.id).order("created_at", { ascending: false }).limit(500),
-      supabase.from("offer_publications").select("id,content_id,offer_id,status,published_at,created_at,external_post_id,erro,channel_id,publication_channels(tipo,nome)").eq("user_id", usuario.id).order("created_at", { ascending: false }).limit(1000),
-      supabase.from("publication_channels").select("id,tipo,nome").eq("user_id", usuario.id)
+      supabase.from("offer_publications").select("id,content_id,offer_id,status,published_at,created_at,external_post_id,erro,channel_id,publication_channels(tipo,nome)").eq("user_id", usuario.id).order("created_at", { ascending: false }).limit(1000)
     ]);
     if (error) { console.error(error); setMensagemConteudo("Nao foi possivel carregar os conteudos."); return; }
     if (pubsError) console.error("CARREGAR PUBLICACOES:", pubsError);
-    if (canaisError) console.error("CARREGAR CANAIS:", canaisError);
     setConteudos(data || []);
     setPublicacoes(pubs || []);
-    setCanaisPublicacao(canais || []);
   }
 
   async function aprovarConteudo(id) {
@@ -968,7 +963,6 @@ export default function App() {
     ["inicio", "Inicio"],
     ["ofertas-ml", "Ofertas Mercado Livre"],
     ["ofertas-shopee", "Ofertas Shopee"],
-    ["ofertas-tiktok-shop", "Ofertas TikTok Shop"],
     ["cupons", "Cupons"],
     ["conteudo", "Conteudo"],
     ["resultados", "Resultados"],
@@ -1025,16 +1019,7 @@ export default function App() {
   function conteudosPublicadosNaRede(lista, tipo) {
     const ids = new Set(
       publicacoes
-        .filter((p) => {
-          if (!publicacaoFoiConcluida(p) || !p?.content_id) return false;
-          const canal = p?.publication_channels?.tipo
-            || canaisPublicacao.find((ch) => String(ch.id) === String(p.channel_id))?.tipo
-            || p?.canal
-            || p?.channel
-            || p?.rede
-            || p?.network;
-          return canal === tipo;
-        })
+        .filter((p) => publicacaoFoiConcluida(p) && p?.publication_channels?.tipo === tipo && p?.content_id)
         .map((p) => String(p.content_id))
     );
     return lista.filter((c) => ids.has(String(c.id)));
@@ -1173,29 +1158,6 @@ export default function App() {
           </>
         )}
 
-        {pagina === "ofertas-tiktok-shop" && (
-          <>
-            <h2>🎵 Ofertas TikTok Shop</h2>
-            <div className="panel"><button className="primary" disabled title="A busca depende da autorização oficial da API de Afiliados da TikTok Shop.">🔎 BUSCAR OFERTAS DA TIKTOK SHOP</button></div>
-            <div className="offer-tabs">
-              <button className={abaOfertas === "novas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("novas")}>🆕 Novas <span>0</span></button>
-              <button className={abaOfertas === "cadastradas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("cadastradas")}>📦 Cadastradas</button>
-              <button className={abaOfertas === "publicadas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("publicadas")}>📢 Publicadas</button>
-            </div>
-            <div className="panel" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px",flexWrap:"wrap"}}>
-              <div><strong>0</strong> oferta(s) selecionada(s)</div>
-              <div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}>
-                <button className="primary" disabled>📥 COLOCAR SELECIONADAS NA FILA</button>
-                <button className="secondary" disabled>LIMPAR SELEÇÃO</button>
-              </div>
-            </div>
-            <div className="panel">
-              <h3>{abaOfertas === "novas" ? "Novas ofertas — TikTok Shop" : abaOfertas === "publicadas" ? "Ofertas já publicadas — TikTok Shop" : "Ofertas já cadastradas — TikTok Shop"}</h3>
-              <p>Nenhuma oferta encontrada ainda.</p>
-            </div>
-          </>
-        )}
-
         {pagina === "cupons" && (
           <>
             <h2>Cupons Shopee</h2>
@@ -1255,20 +1217,14 @@ export default function App() {
               <button className={abaConteudo === "descartados" ? "tab-ativo" : ""} onClick={() => setAbaConteudo("descartados")}>
                 🗑️ Descartados <span>{conteudos.filter((c) => c.status === "descartado").length}</span>
               </button>
-            </div>
-
-            <div className="content-network-section">
-              <div className="content-network-title">📢 Publicações por rede social</div>
-              <div className="content-network-tabs">
-                {redesPublicacao.map((rede) => {
-                  const publicadosNaRede = conteudosPublicadosNaRede(conteudos, rede.tipo);
-                  return (
-                    <button type="button" key={rede.key} className={abaConteudo === rede.key ? "tab-ativo" : ""} onClick={() => setAbaConteudo(rede.key)}>
-                      {rede.emoji} {rede.label} <span>{publicadosNaRede.length}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              {redesPublicacao.map((rede) => {
+                const publicadosNaRede = conteudosPublicadosNaRede(conteudos, rede.tipo);
+                return (
+                  <button key={rede.key} className={abaConteudo === rede.key ? "tab-ativo" : ""} onClick={() => setAbaConteudo(rede.key)}>
+                    {rede.emoji} {rede.label} <span>{publicadosNaRede.length}</span>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="panel">
@@ -1348,12 +1304,10 @@ export default function App() {
                         <button
                           type="button"
                           className="primary action-button"
-                          disabled={processandoConteudo === c.id || (conteudoEhVideo(c) && !c.video_url)}
+                          disabled={processandoConteudo === c.id}
                           onClick={(e) => { e.preventDefault(); publicarAgora(c.id); }}
                         >
-                          {conteudoEhVideo(c) && !c.video_url
-                            ? "⏳ VÍDEO SENDO GERADO..."
-                            : (c.status === "publicando" ? "🔄 TENTAR PUBLICAR" : "🚀 PUBLICAR AGORA")}
+                          {c.status === "publicando" ? "🔄 TENTAR PUBLICAR" : "🚀 PUBLICAR AGORA"}
                         </button>
 
                         {c.status !== "publicando" && (
@@ -1502,7 +1456,7 @@ export default function App() {
       </main>
 
       <nav>
-        {menu.map(([id, nome]) => <button key={id} className={pagina === id ? "ativo" : ""} onClick={() => setPagina(id)}><span>{id === "inicio" && "🏠"}{id === "ofertas-ml" && "🔎"}{id === "ofertas-shopee" && "🔎"}{id === "ofertas-tiktok-shop" && "🎵"}{id === "conteudo" && "🎬"}{id === "resultados" && "📊"}{id === "config" && "⚙️"}</span><small>{nome}</small></button>)}
+        {menu.map(([id, nome]) => <button key={id} className={pagina === id ? "ativo" : ""} onClick={() => setPagina(id)}><span>{id === "inicio" && "🏠"}{id === "ofertas-ml" && "🔎"}{id === "ofertas-shopee" && "🔎"}{id === "conteudo" && "🎬"}{id === "resultados" && "📊"}{id === "config" && "⚙️"}</span><small>{nome}</small></button>)}
       </nav>
     </div>
   );
