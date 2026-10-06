@@ -69,7 +69,10 @@ async function youtube(a:{db:any;userId:string;videoUrl:string;title:string;desc
   if(!Number.isFinite(size)||size<=0) throw new Error("Tamanho de vídeo inválido.");
 
   const title=(a.title||"Oferta").replace(/\\s+/g," ").trim().slice(0,100)||"Oferta";
-  const description=(a.description||"").slice(0,5000);
+  const baseDescription=(a.description||"").trim();
+  const description=affiliateUrl&& !baseDescription.includes(affiliateUrl)
+    ? `${baseDescription}${baseDescription?"\\n\\n":""}🛒 COMPRE AQUI:\\n${affiliateUrl}`.slice(0,5000)
+    : baseDescription.slice(0,5000);
   const metadata={
     snippet:{
       title,
