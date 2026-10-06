@@ -3,7 +3,7 @@ name: Renderizar videos automaticamente
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "2,17,32,47 * * * *"
   workflow_dispatch:
   push:
     branches: [main]
