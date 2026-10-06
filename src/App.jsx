@@ -146,6 +146,7 @@ export default function App() {
     }
     if (data) {
       setConfig(prev => ({ ...prev, ...(data.configuracao || {}), ...mapa, ativo: data.ativo, busca_automatica: data.busca_automatica, publicar_automaticamente: data.publicar_automaticamente, intervalo_minutos: data.intervalo_minutos, gerar_texto:data.gerar_texto, gerar_imagem:data.gerar_imagem, gerar_video:data.gerar_video, modo_conteudo:(data.configuracao || {}).modo_conteudo || (data.gerar_video ? "video" : "post") }));
+      setPausado(!data.ativo);
     } else {
       setConfig(prev => ({ ...prev, ...mapa }));
     }
@@ -1119,7 +1120,7 @@ export default function App() {
           <h1>ROBO DE OFERTAS</h1>
           <p className={pausado ? "status pausado" : "status"}>{pausado ? "Robo pausado" : "Robo ativo"}</p>
         </div>
-        <button className="pause" onClick={() => setPausado(!pausado)}>{pausado ? "CONTINUAR" : "PAUSAR ROBO"}</button>
+        <button className="pause" onClick={() => salvarConfiguracao({ ativo: pausado })} disabled={salvandoConfig}>{pausado ? "CONTINUAR" : "PAUSAR ROBO"}</button>
       </header>
 
       <main>
