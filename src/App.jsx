@@ -825,6 +825,7 @@ export default function App() {
 
       if (ofertasError) throw ofertasError;
       setListaOfertas(ofertasAtualizadas || []);
+      await carregarOfertasPublicadas();
 
       const novasIds = new Set(
         (Array.isArray(resultado.ofertas) ? resultado.ofertas : [])
@@ -1188,8 +1189,8 @@ export default function App() {
             {mensagemShopee && <div className="panel"><p>{mensagemShopee}</p></div>}
             <div className="offer-tabs">
               <button className={abaOfertas === "novas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("novas")}>🆕 Novas <span>{listaOfertas.filter((o) => (o.store_provider === "shopee" || o.platforms?.nome === "Shopee") && ofertaEhNova(o)).length}</span></button>
-              <button className={abaOfertas === "cadastradas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("cadastradas")}>📦 Cadastradas</button>
-              <button className={abaOfertas === "publicadas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("publicadas")}>📢 Publicadas</button>
+              <button className={abaOfertas === "cadastradas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("cadastradas")}>📦 Cadastradas <span>{listaOfertas.filter((o) => (o.store_provider === "shopee" || o.platforms?.nome === "Shopee") && !ofertaEhPublicada(o) && !ofertaEhNova(o)).length}</span></button>
+              <button className={abaOfertas === "publicadas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("publicadas")}>📢 Publicadas <span>{listaOfertas.filter((o) => (o.store_provider === "shopee" || o.platforms?.nome === "Shopee") && ofertaEhPublicada(o)).length}</span></button>
             </div>
             <div className="panel" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px",flexWrap:"wrap"}}><div><strong>{ofertasSelecionadas.size}</strong> oferta(s) selecionada(s)</div><div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}><button className="primary" disabled={!ofertasSelecionadas.size || enfileirandoOfertas} onClick={colocarOfertasSelecionadasNaFila}>📥 COLOCAR SELECIONADAS NA FILA</button><button className="secondary" disabled={!ofertasSelecionadas.size || enfileirandoOfertas} onClick={limparSelecaoOfertas}>LIMPAR SELEÇÃO</button></div></div>
             <div className="panel">
