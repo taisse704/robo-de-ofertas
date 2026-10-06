@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-05-gestao-conteudo-v12-divisao-redes";
+const FRONTEND_BUILD_VERSION = "2026-10-06-ofertas-tiktok-shop-tab-v1";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -55,6 +55,7 @@ export default function App() {
   const [instagramConectado, setInstagramConectado] = useState(false);
   const [desconectandoAfiliada, setDesconectandoAfiliada] = useState(null);
   const [abaOfertas, setAbaOfertas] = useState("cadastradas");
+  const [abaLojaOfertas, setAbaLojaOfertas] = useState("shopee");
   const [ofertasPublicadas, setOfertasPublicadas] = useState(new Set());
   const [shopeeNovasIds, setShopeeNovasIds] = useState(new Set());
   const [ofertasSelecionadas, setOfertasSelecionadas] = useState(new Set());
@@ -1113,6 +1114,8 @@ export default function App() {
             <h2>Ofertas Mercado Livre</h2>
             <div className="panel"><button className="primary" onClick={buscarOfertasMercadoLivre} disabled={carregandoOfertas}>{carregandoOfertas ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DO MERCADO LIVRE"}</button></div>
             {mensagemOferta && <div className="panel"><p>{mensagemOferta}</p></div>}
+            {abaLojaOfertas === "shopee" && (
+              <>
             <div className="offer-tabs">
               <button className={abaOfertas === "novas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("novas")}>🆕 Novas <span>{ofertasDaAba("mercadolivre").length}</span></button>
               <button className={abaOfertas === "cadastradas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("cadastradas")}>📦 Cadastradas</button>
@@ -1135,9 +1138,24 @@ export default function App() {
 
         {pagina === "ofertas-shopee" && (
           <>
-            <h2>Ofertas Shopee</h2>
-            <div className="panel"><button className="primary" onClick={buscarOfertasShopee} disabled={carregandoShopee}>{carregandoShopee ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DA SHOPEE"}</button></div>
-            {mensagemShopee && <div className="panel"><p>{mensagemShopee}</p></div>}
+            <h2>Ofertas</h2>
+            <div className="offer-tabs">
+              <button className={abaLojaOfertas === "shopee" ? "tab-ativo" : ""} onClick={() => setAbaLojaOfertas("shopee")}>🛍️ Shopee</button>
+              <button className={abaLojaOfertas === "tiktok_shop" ? "tab-ativo" : ""} onClick={() => setAbaLojaOfertas("tiktok_shop")}>🎵 TikTok Shop</button>
+            </div>
+            {abaLojaOfertas === "shopee" && (
+              <>
+                <h3>Ofertas Shopee</h3>
+                <div className="panel"><button className="primary" onClick={buscarOfertasShopee} disabled={carregandoShopee}>{carregandoShopee ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DA SHOPEE"}</button></div>
+                {mensagemShopee && <div className="panel"><p>{mensagemShopee}</p></div>}
+              </>
+            )}
+            {abaLojaOfertas === "tiktok_shop" && (
+              <div className="panel">
+                <h3>🎵 TikTok Shop</h3>
+                <p>Aba TikTok Shop criada. A busca de produtos será ligada ao conector da TikTok Shop nesta área.</p>
+              </div>
+            )}
             <div className="offer-tabs">
               <button className={abaOfertas === "novas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("novas")}>🆕 Novas <span>{ofertasDaAba("shopee").length}</span></button>
               <button className={abaOfertas === "cadastradas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("cadastradas")}>📦 Cadastradas</button>
@@ -1155,6 +1173,9 @@ export default function App() {
                 </div>
               ))}
             </div>
+
+              </>
+            )}
           </>
         )}
 
