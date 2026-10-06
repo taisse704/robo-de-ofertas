@@ -56,7 +56,6 @@ export default function App() {
   const [desconectandoAfiliada, setDesconectandoAfiliada] = useState(null);
   const [abaOfertas, setAbaOfertas] = useState("cadastradas");
   const [ofertasPublicadas, setOfertasPublicadas] = useState(new Set());
-  const [shopeeNovasIds, setShopeeNovasIds] = useState(new Set());
   const [ofertasSelecionadas, setOfertasSelecionadas] = useState(new Set());
   const [enfileirandoOfertas, setEnfileirandoOfertas] = useState(false);
   const [abaConteudo, setAbaConteudo] = useState("fila");
@@ -831,7 +830,6 @@ export default function App() {
           .map((o) => String(o.product_external_id || ""))
           .filter((id) => id && !idsAntes.has(id))
       );
-      setShopeeNovasIds(novasIds);
 
       const novas = Number(resultado.novas_ofertas ?? resultado.novas ?? novasIds.size ?? 0);
       const atualizadas = Number(resultado.atualizadas ?? 0);
@@ -1017,10 +1015,9 @@ export default function App() {
   }
 
   function ofertaEhNova(o) {
-    const criado = new Date(o.created_at || o.encontrada_em || 0).getTime();
-    // "Novas" representa somente o lote recém-chegado nesta janela de busca.
-    // A oferta continua no banco e, depois de 1 hora, passa naturalmente para "Cadastradas".
-    return !ofertaEhPublicada(o) && criado >= Date.now() - 60 * 60 * 1000;
+    // "Novas" é controlado pelo backend: somente o último lote inserido
+    // recebe nova=true. Atualizações de ofertas antigas permanecem em Cadastradas.
+    return !ofertaEhPublicada(o) && o?.nova === true;
   }
 
   function ordenarOfertasParaExibicao(lista) {
