@@ -346,3 +346,43 @@ nav button small {
 .coupon-badge { width:48px; height:48px; border-radius:12px; background:#222229; display:flex; align-items:center; justify-content:center; font-size:23px; flex-shrink:0; }
 .coupon-empty { padding:16px; border:1px dashed #33343a; border-radius:12px; color:#aaa; }
 @media(max-width:600px){ .coupon-public-link { flex-direction:column; align-items:stretch; } .coupon-public-link button { width:100%; } }
+
+
+.content-network-section {
+  margin-top: 14px;
+  padding: 12px;
+  background: #111114;
+  border: 1px solid #29292e;
+  border-radius: 14px;
+}
+.content-network-title {
+  font-size: 13px;
+  font-weight: bold;
+  color: #aaa;
+  margin-bottom: 9px;
+}
+.content-network-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.content-network-tabs button {
+  border: 1px solid #33343a;
+  background: #151519;
+  color: #aaa;
+  border-radius: 10px;
+  padding: 10px 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.content-network-tabs button.tab-ativo {
+  background: #fff;
+  color: #111;
+  border-color: #fff;
+}
+.content-network-tabs button span {
+  display: inline-block;
+  margin-left: 5px;
+  font-weight: bold;
+}
