@@ -79,6 +79,7 @@ export default function App() {
     carregarDados();
     const params = new URLSearchParams(window.location.search);
     const tiktok = params.get("tiktok");
+    const youtube = params.get("youtube");
     const message = params.get("message");
     if (tiktok === "success") {
       setMensagemConfig("TikTok conectado com sucesso.");
@@ -86,6 +87,14 @@ export default function App() {
       carregarConfiguracao();
     } else if (tiktok === "error") {
       setMensagemConfig(message || "Não foi possível conectar o TikTok.");
+      window.history.replaceState({}, document.title, window.location.pathname);
+      carregarConfiguracao();
+    } else if (youtube === "success") {
+      setMensagemConfig("YouTube conectado com sucesso.");
+      window.history.replaceState({}, document.title, window.location.pathname);
+      carregarConfiguracao();
+    } else if (youtube === "error") {
+      setMensagemConfig(message || "Não foi possível conectar o YouTube.");
       window.history.replaceState({}, document.title, window.location.pathname);
       carregarConfiguracao();
     }
@@ -495,13 +504,17 @@ export default function App() {
   async function prepararConexaoSocial(rede) {
     setMensagemConfig("");
     try {
-      if (rede.key === "instagram" || rede.key === "tiktok") {
+      if (rede.key === "instagram" || rede.key === "tiktok" || rede.key === "youtube") {
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         if (sessionError || !session?.access_token) {
           setMensagemConfig("Sua sessao expirou. Faca login novamente.");
           return;
         }
-        const oauthFunction = rede.key === "instagram" ? "instagram-oauth" : "tiktok-oauth";
+        const oauthFunction = rede.key === "instagram"
+          ? "instagram-oauth"
+          : rede.key === "tiktok"
+            ? "tiktok-oauth"
+            : "youtube-oauth";
         const response = await fetch(
           `${SUPABASE_URL}/functions/v1/${oauthFunction}?action=start`,
           {
