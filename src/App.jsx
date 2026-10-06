@@ -968,6 +968,7 @@ export default function App() {
     ["inicio", "Inicio"],
     ["ofertas-ml", "Ofertas Mercado Livre"],
     ["ofertas-shopee", "Ofertas Shopee"],
+    ["ofertas-tiktok-shop", "Ofertas TikTok Shop"],
     ["cupons", "Cupons"],
     ["conteudo", "Conteudo"],
     ["resultados", "Resultados"],
@@ -1145,6 +1146,22 @@ export default function App() {
                   <div className="offer-info"><label style={{display:"flex",alignItems:"center",gap:"8px",fontWeight:700}}><input type="checkbox" checked={ofertasSelecionadas.has(o.id)} onChange={() => alternarOfertaSelecionada(o.id)} /> Selecionar para publicação</label><h3>{o.titulo}</h3><p>Mercado Livre</p><strong>{o.preco_atual == null ? "Preço não informado" : moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{Number(o.desconto_percentual || 0)}% de desconto</span>}<small>Comissao estimada: {moeda(o.comissao_estimada)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="primary" disabled={enfileirandoOfertas} onClick={() => colocarOfertaNaFila(o.id)}>📥 COLOCAR NA FILA</button><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
                 </div>
               ))}
+            </div>
+          </>
+        )}
+
+        {pagina === "ofertas-tiktok-shop" && (
+          <>
+            <h2>🎵 Ofertas TikTok Shop</h2>
+            <div className="panel">
+              <h3>Ofertas TikTok Shop</h3>
+              <p>Aba exclusiva da TikTok Shop, separada das ofertas da Shopee.</p>
+              <p>A estrutura está pronta para receber a busca oficial da TikTok Shop quando a API de afiliados estiver autorizada.</p>
+              <div style={{display:"flex",gap:"8px",flexWrap:"wrap",marginTop:"12px"}}>
+                <button className="primary" disabled title="A busca depende da autorização oficial da API de Afiliados da TikTok Shop.">
+                  🔎 BUSCAR OFERTAS DA TIKTOK SHOP
+                </button>
+              </div>
             </div>
           </>
         )}
@@ -1501,7 +1518,7 @@ export default function App() {
       </main>
 
       <nav>
-        {menu.map(([id, nome]) => <button key={id} className={pagina === id ? "ativo" : ""} onClick={() => setPagina(id)}><span>{id === "inicio" && "🏠"}{id === "ofertas-ml" && "🔎"}{id === "ofertas-shopee" && "🔎"}{id === "conteudo" && "🎬"}{id === "resultados" && "📊"}{id === "config" && "⚙️"}</span><small>{nome}</small></button>)}
+        {menu.map(([id, nome]) => <button key={id} className={pagina === id ? "ativo" : ""} onClick={() => setPagina(id)}><span>{id === "inicio" && "🏠"}{id === "ofertas-ml" && "🔎"}{id === "ofertas-shopee" && "🔎"}{id === "ofertas-tiktok-shop" && "🎵"}{id === "conteudo" && "🎬"}{id === "resultados" && "📊"}{id === "config" && "⚙️"}</span><small>{nome}</small></button>)}
       </nav>
     </div>
   );
