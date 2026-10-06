@@ -812,7 +812,7 @@ export default function App() {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/shopee-offers`, {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ limit: 20 })
+        body: JSON.stringify({ limit: 50 })
       });
       const resultado = await response.json().catch(() => ({}));
       if (!response.ok || !resultado.ok) throw new Error(resultado?.error || resultado?.message || `Erro ${response.status}`);
@@ -1018,18 +1018,30 @@ export default function App() {
 
   function ofertaEhNova(o) {
     const criado = new Date(o.created_at || o.encontrada_em || 0).getTime();
-    // "Novas" fica disponível por 24 horas e é calculado pelo banco (created_at),
-    // não por estado temporário do navegador. Assim, dar F5 não faz as ofertas sumirem.
-    return !ofertaEhPublicada(o) && criado >= Date.now() - 24 * 60 * 60 * 1000;
+    // "Novas" representa somente o lote recém-chegado nesta janela de busca.
+    // A oferta continua no banco e, depois de 1 hora, passa naturalmente para "Cadastradas".
+    return !ofertaEhPublicada(o) && criado >= Date.now() - 60 * 60 * 1000;
+  }
+
+  function ordenarOfertasParaExibicao(lista) {
+    return [...lista].sort((a, b) => {
+      const ca = Number(a.comissao_estimada || 0);
+      const cb = Number(b.comissao_estimada || 0);
+      if (cb !== ca) return cb - ca;
+      const da = Number(a.desconto_percentual || 0);
+      const db = Number(b.desconto_percentual || 0);
+      if (db !== da) return db - da;
+      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    });
   }
 
   function ofertasDaAba(provider) {
     const base = listaOfertas
       .filter((o) => o.store_provider === provider || o.platforms?.nome === (provider === "shopee" ? "Shopee" : "Mercado Livre"))
       .filter((o) => provider !== "mercadolivre" || Number(o.preco_atual) > 0);
-    if (abaOfertas === "publicadas") return base.filter(ofertaEhPublicada);
-    if (abaOfertas === "novas") return base.filter(ofertaEhNova);
-    return base.filter((o) => !ofertaEhPublicada(o) && !ofertaEhNova(o));
+    if (abaOfertas === "publicadas") return ordenarOfertasParaExibicao(base.filter(ofertaEhPublicada)).slice(0, 50);
+    if (abaOfertas === "novas") return ordenarOfertasParaExibicao(base.filter(ofertaEhNova)).slice(0, 10);
+    return ordenarOfertasParaExibicao(base.filter((o) => !ofertaEhPublicada(o) && !ofertaEhNova(o))).slice(0, 50);
   }
 
   function conteudoEhVideo(c) {
