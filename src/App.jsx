@@ -79,6 +79,7 @@ export default function App() {
     carregarDados();
     const params = new URLSearchParams(window.location.search);
     const tiktok = params.get("tiktok");
+    const kwai = params.get("kwai");
     const youtube = params.get("youtube");
     const message = params.get("message");
     if (tiktok === "success") {
@@ -89,6 +90,12 @@ export default function App() {
       setMensagemConfig(message || "Não foi possível conectar o TikTok.");
       window.history.replaceState({}, document.title, window.location.pathname);
       carregarConfiguracao();
+    } else if (kwai === "success") {
+      setMensagemConfig("Kwai conectado com sucesso.");
+      window.history.replaceState({}, "", window.location.pathname + window.location.hash);
+    } else if (kwai === "error") {
+      setMensagemConfig(message || "Não foi possível conectar o Kwai.");
+      window.history.replaceState({}, "", window.location.pathname + window.location.hash);
     } else if (youtube === "success") {
       setMensagemConfig("YouTube conectado com sucesso.");
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -525,7 +532,7 @@ export default function App() {
   async function prepararConexaoSocial(rede) {
     setMensagemConfig("");
     try {
-      if (rede.key === "instagram" || rede.key === "tiktok" || rede.key === "youtube") {
+      if (rede.key === "instagram" || rede.key === "tiktok" || rede.key === "kwai" || rede.key === "youtube") {
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         if (sessionError || !session?.access_token) {
           setMensagemConfig("Sua sessao expirou. Faca login novamente.");
@@ -535,7 +542,9 @@ export default function App() {
           ? "instagram-oauth"
           : rede.key === "tiktok"
             ? "tiktok-oauth"
-            : "youtube-oauth";
+            : rede.key === "kwai"
+              ? "kwai-oauth"
+              : "youtube-oauth";
         const response = await fetch(
           `${SUPABASE_URL}/functions/v1/${oauthFunction}?action=start`,
           {
