@@ -1,9 +1,9 @@
 name: Renderizar videos automaticamente
-# Renderizador automático de vídeos — dispara também a cada push na main.
+# Renderizador automático de vídeos — processa pendentes rapidamente e também no push/manual.
 
 on:
   schedule:
-    - cron: "2,17,32,47 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
   push:
     branches: [main]
