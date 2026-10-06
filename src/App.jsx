@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-05-gestao-conteudo-v10-redes";
+const FRONTEND_BUILD_VERSION = "2026-10-05-gestao-conteudo-v11-video-gate";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -1304,10 +1304,12 @@ export default function App() {
                         <button
                           type="button"
                           className="primary action-button"
-                          disabled={processandoConteudo === c.id}
+                          disabled={processandoConteudo === c.id || (conteudoEhVideo(c) && !c.video_url)}
                           onClick={(e) => { e.preventDefault(); publicarAgora(c.id); }}
                         >
-                          {c.status === "publicando" ? "🔄 TENTAR PUBLICAR" : "🚀 PUBLICAR AGORA"}
+                          {conteudoEhVideo(c) && !c.video_url
+                            ? "⏳ VÍDEO SENDO GERADO..."
+                            : (c.status === "publicando" ? "🔄 TENTAR PUBLICAR" : "🚀 PUBLICAR AGORA")}
                         </button>
 
                         {c.status !== "publicando" && (
