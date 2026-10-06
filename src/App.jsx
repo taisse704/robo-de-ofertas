@@ -615,7 +615,33 @@ export default function App() {
     const existente = contasAfiliadas.find((a) => a.platform_id === platform.id);
 
     if (existente) {
-      setMensagemAfiliadas(`${provider.name}: conta ja cadastrada. A autorizacao oficial ainda precisa ser configurada.`);
+      if (provider.key === "shopee") {
+        if (existente.status === "conectada" && existente.ativo) {
+          setMensagemAfiliadas("Shopee conectada pela API oficial. A conta está pronta para buscar ofertas.");
+        } else {
+          const { data: atualizada, error: updateError } = await supabase
+            .from("affiliate_accounts")
+            .update({
+              ativo: true,
+              status: "conectada",
+              connected_at: existente.connected_at || new Date().toISOString(),
+              configuracao: {
+                ...(existente.configuracao || {}),
+                provider: "shopee",
+                modo: "api_oficial",
+                conectado: true
+              }
+            })
+            .eq("id", existente.id)
+            .select("*, platforms(id, nome)")
+            .single();
+          if (updateError) throw updateError;
+          setContasAfiliadas((atual) => atual.map((a) => a.id === atualizada.id ? atualizada : a));
+          setMensagemAfiliadas("Shopee conectada pela API oficial. A conta está pronta para buscar ofertas.");
+        }
+        return;
+      }
+      setMensagemAfiliadas(`${provider.name}: conta ja cadastrada e pronta para configuracao.`);
       return;
     }
 
