@@ -368,42 +368,149 @@ Deno.serve(async (req) => {
       // Não usamos /products/{id}/items: essa rota foi descontinuada.
       // Também não usamos /items/{id} de terceiros com o OAuth do afiliado.
       if (type === "PRODUCT") {
-        // O ranking retorna PRODUCT (produto de catálogo). A rota
-        // /products/{id} está retornando 403 para o token de afiliado.
-        // A documentação atual do Mercado Livre disponibiliza a busca
-        // /products/search por Product ID e essa resposta já pode trazer
-        // o buy_box_winner.item_id, que é a publicação real a ser usada.
-        const params = new URLSearchParams({
-          status: "active",
-          site_id: SITE_ID,
-          q: id,
-          limit: "10"
-        });
+        // PRODUCT do ranking é catálogo. O caminho confiável é:
+        // 1) detalhe do catálogo -> Buy Box;
+        // 2) filhos do produto-pai -> Buy Box;
+        // 3) busca pública do marketplace pelo nome, validando o
+        //    catalog_product_id quando a API o devolver.
+        // Não dependemos de /products/search?q=PRODUCT_ID, porque essa
+        // busca pode retornar o produto sem a publicação vencedora.
 
-        let search = await getJson(
-          ML + "/products/search?" + params.toString(),
-          true
+        const product = await getCatalogJson(
+          ML + "/products/" + encodeURIComponent(id)
         );
 
-        // Se o token do afiliado receber 403, tentamos novamente com
-        // o token da aplicação. A tentativa anterior sem Authorization
-        // não é suficiente para recursos protegidos do catálogo.
-        if (search.status === 403) {
-          const appToken = await getApplicationAccessToken();
-          if (appToken) {
-            search = await getJson(
-              ML + "/products/search?" + params.toString(),
-              false,
-              {
-                Authorization: "Bearer " + appToken,
-                Accept: "application/json"
-              }
-            );
+        if (!product.ok || !product.data) {
+          return {
+            error: true,
+            sourceId: id,
+            sourceType: type,
+            status: product.status,
+            message: product.error || "Produto de catálogo não disponível."
+          };
+        }
+
+        const data = product.data;
+        const winner = data?.buy_box_winner;
+
+        if (typeof winner?.item_id === "string" && winner.item_id.startsWith("MLB")) {
+          return {
+            itemId: String(winner.item_id),
+            sourceId: id,
+            sourceType: type,
+            product: data,
+            publicItem: winner,
+            fromBuyBox: true
+          };
+        }
+
+        const children = Array.isArray(data?.children_ids)
+          ? data.children_ids.slice(0, 12)
+          : [];
+
+        if (children.length) {
+          const childResults = await runWithConcurrency(
+            children,
+            async (childId) => {
+              const child = await getCatalogJson(
+                ML + "/products/" + encodeURIComponent(String(childId))
+              );
+              return child.ok && child.data?.id ? child.data : null;
+            },
+            3
+          );
+
+          const childWithWinner = childResults.find(
+            (child: any) =>
+              typeof child?.buy_box_winner?.item_id === "string" &&
+              child.buy_box_winner.item_id.startsWith("MLB")
+          );
+
+          if (childWithWinner?.buy_box_winner?.item_id) {
+            return {
+              itemId: String(childWithWinner.buy_box_winner.item_id),
+              sourceId: id,
+              sourceType: type,
+              product: childWithWinner,
+              parentProduct: data,
+              publicItem: childWithWinner.buy_box_winner,
+              fromBuyBox: true,
+              fromChildProduct: true
+            };
           }
         }
 
-        if (!search.ok || !Array.isArray(search.data?.results)) {
-          return {
+        const productName = String(data?.name || data?.family_name || "").trim();
+
+        if (productName) {
+          const params = new URLSearchParams({
+            q: productName,
+            limit: "50",
+            sort: "relevance"
+          });
+
+          const publicSearch = await getJson(
+            ML + "/sites/" + SITE_ID + "/search?" + params.toString(),
+            false
+          );
+
+          if (publicSearch.ok && Array.isArray(publicSearch.data?.results)) {
+            const results = publicSearch.data.results as any[];
+
+            // Primeiro: publicação que aponta explicitamente para o
+            // mesmo produto de catálogo.
+            let candidates = results.filter(
+              (item: any) =>
+                item?.id &&
+                String(item.id).startsWith("MLB") &&
+                String(item?.catalog_product_id || "") === id
+            );
+
+            // Fallback histórico que já funcionava no robô: algumas
+            // respostas públicas não trazem catalog_product_id.
+            // Nesse caso aceitamos somente correspondência forte de título.
+            if (!candidates.length) {
+              candidates = results.filter((item: any) => {
+                if (!item?.id || !String(item.id).startsWith("MLB")) return false;
+                const similarity = titleSimilarity(productName, item.title);
+                return similarity >= 0.78;
+              });
+            }
+
+            candidates.sort((a: any, b: any) => {
+              const aPrice = Number(a?.price);
+              const bPrice = Number(b?.price);
+              const aValid = Number.isFinite(aPrice) && aPrice > 0 ? 0 : 1;
+              const bValid = Number.isFinite(bPrice) && bPrice > 0 ? 0 : 1;
+              if (aValid !== bValid) return aValid - bValid;
+              return aPrice - bPrice;
+            });
+
+            const selected = candidates[0];
+
+            if (selected?.id) {
+              return {
+                itemId: String(selected.id),
+                sourceId: id,
+                sourceType: type,
+                product: data,
+                publicItem: selected,
+                fromBuyBox: false
+              };
+            }
+          }
+        }
+
+        return {
+          error: true,
+          sourceId: id,
+          sourceType: type,
+          status: 200,
+          message: "Produto encontrado, mas não foi possível localizar uma publicação pública correspondente."
+        };
+      }
+
+      return {
             error: true,
             sourceId: id,
             sourceType: type,
