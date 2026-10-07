@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-06-gestao-conteudo-v13-redes-real";
+const FRONTEND_BUILD_VERSION = "2026-10-07-ofertas-20-por-atualizacao";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -869,7 +869,7 @@ export default function App() {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/shopee-offers`, {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ limit: 50 })
+        body: JSON.stringify({ limit: 20 })
       });
       const resultado = await response.json().catch(() => ({}));
       if (!response.ok || !resultado.ok) throw new Error(resultado?.error || resultado?.message || `Erro ${response.status}`);
@@ -1117,8 +1117,16 @@ export default function App() {
     return !ofertaEhPublicada(o) && (o?.nova === true || novasShopeeIds.has(String(o?.id)));
   }
 
-  function ordenarOfertasParaExibicao(lista) {
+  function ordenarOfertasParaExibicao(lista, provider = null) {
     return [...lista].sort((a, b) => {
+      if (provider === "shopee") {
+        const vendasA = Number(a?.dados_origem?.ranking?.sales ?? a?.dados_origem?.sales ?? a?.vendas ?? 0);
+        const vendasB = Number(b?.dados_origem?.ranking?.sales ?? b?.dados_origem?.sales ?? b?.vendas ?? 0);
+        if (vendasB !== vendasA) return vendasB - vendasA;
+        const ca = Number(a.comissao_estimada || 0);
+        const cb = Number(b.comissao_estimada || 0);
+        if (cb !== ca) return cb - ca;
+      }
       const ca = Number(a.comissao_estimada || 0);
       const cb = Number(b.comissao_estimada || 0);
       if (cb !== ca) return cb - ca;
@@ -1135,7 +1143,7 @@ export default function App() {
       .filter((o) => provider !== "mercadolivre" || Number(o.preco_atual) > 0);
     if (abaOfertas === "publicadas") return ordenarOfertasParaExibicao(base.filter(ofertaEhPublicada)).slice(0, 50);
     if (abaOfertas === "novas") return ordenarOfertasParaExibicao(base.filter(ofertaEhNova)).slice(0, 10);
-    return ordenarOfertasParaExibicao(base.filter((o) => !ofertaEhPublicada(o) && !ofertaEhNova(o))).slice(0, 50);
+    return ordenarOfertasParaExibicao(base.filter((o) => !ofertaEhPublicada(o) && !ofertaEhNova(o)), provider).slice(0, 50);
   }
 
   function conteudoEhVideo(c) {
