@@ -335,8 +335,6 @@ Deno.serve(async (req) => {
       const type = String(entry?.type || "");
       if (!id) return null;
 
-      // ITEM já representa uma publicação. Leitura pública é tentada sem
-      // OAuth para não transformar o token do afiliado em acesso de vendedor.
       if (type === "ITEM") {
         const item = await getJson(
           ML + "/items/" + encodeURIComponent(id),
@@ -361,21 +359,10 @@ Deno.serve(async (req) => {
         };
       }
 
-      // PRODUCT é catálogo. O produto NÃO é uma oferta por si só.
-      // Primeiro lemos seus metadados; depois procuramos uma publicação
-      // ativa no marketplace pela busca pública /sites/MLB/search.
-      //
-      // Não usamos /products/{id}/items: essa rota foi descontinuada.
-      // Também não usamos /items/{id} de terceiros com o OAuth do afiliado.
       if (type === "PRODUCT") {
-        // PRODUCT do ranking é catálogo. O caminho confiável é:
-        // 1) detalhe do catálogo -> Buy Box;
-        // 2) filhos do produto-pai -> Buy Box;
-        // 3) busca pública do marketplace pelo nome, validando o
-        //    catalog_product_id quando a API o devolver.
-        // Não dependemos de /products/search?q=PRODUCT_ID, porque essa
-        // busca pode retornar o produto sem a publicação vencedora.
-
+        // O ranking retorna PRODUCT (catálogo). A publicação precisa ser
+        // resolvida pelo detalhe do produto, por seus filhos ou pela busca
+        // pública do marketplace. Esse é o caminho que já funcionava antes.
         const product = await getCatalogJson(
           ML + "/products/" + encodeURIComponent(id)
         );
@@ -457,8 +444,6 @@ Deno.serve(async (req) => {
           if (publicSearch.ok && Array.isArray(publicSearch.data?.results)) {
             const results = publicSearch.data.results as any[];
 
-            // Primeiro: publicação que aponta explicitamente para o
-            // mesmo produto de catálogo.
             let candidates = results.filter(
               (item: any) =>
                 item?.id &&
@@ -466,14 +451,13 @@ Deno.serve(async (req) => {
                 String(item?.catalog_product_id || "") === id
             );
 
-            // Fallback histórico que já funcionava no robô: algumas
-            // respostas públicas não trazem catalog_product_id.
-            // Nesse caso aceitamos somente correspondência forte de título.
+            // Fallback do fluxo que funcionava: quando a busca pública
+            // não informa catalog_product_id, aceita somente título muito
+            // semelhante, evitando trocar o produto do ranking.
             if (!candidates.length) {
               candidates = results.filter((item: any) => {
                 if (!item?.id || !String(item.id).startsWith("MLB")) return false;
-                const similarity = titleSimilarity(productName, item.title);
-                return similarity >= 0.78;
+                return titleSimilarity(productName, item.title) >= 0.78;
               });
             }
 
@@ -510,150 +494,59 @@ Deno.serve(async (req) => {
         };
       }
 
-      return {
-            error: true,
-            sourceId: id,
-            sourceType: type,
-            status: search.status,
-            message: search.error || "Busca do produto no catálogo indisponível."
-          };
-        }
-
-        let exact = search.data.results.find(
-          (product: any) =>
-            String(product?.id || product?.catalog_product_id || "") === id
+      if (type === "USER_PRODUCT") {
+        const up = await getJson(
+          ML + "/user-products/" + encodeURIComponent(id),
+          true
         );
 
-        if (!exact) {
+        if (!up.ok || !up.data) {
           return {
             error: true,
             sourceId: id,
             sourceType: type,
-            status: 200,
-            message: "Produto de catálogo não encontrado na busca por Product ID."
+            status: up.status,
+            message: up.error || "User Product não disponível."
           };
         }
 
-        // O /products/{id} traz o estado atual do catálogo e,
-        // quando disponível, o buy_box_winner com o item público.
-        // Consultamos este detalhe antes da busca por nome porque o ranking
-        // fornece o Product ID exato.
-        if (!exact?.buy_box_winner?.item_id) {
-          const detail = await getCatalogJson(
-            ML + "/products/" + encodeURIComponent(id)
-          );
+        const directItemId =
+          up.data?.item_id ||
+          up.data?.itemId ||
+          up.data?.item?.id ||
+          up.data?.buy_box_winner?.item_id;
 
-          if (detail.ok && detail.data?.id) {
-            const detailedProduct = detail.data;
-            if (detailedProduct?.buy_box_winner?.item_id) {
-              return {
-                itemId: String(detailedProduct.buy_box_winner.item_id),
-                sourceId: id,
-                sourceType: type,
-                product: detailedProduct,
-                publicItem: detailedProduct.buy_box_winner,
-                fromBuyBox: true
-              };
-            }
-
-            // Mantém os dados mais completos do detalhe para a tentativa
-            // de busca pública abaixo.
-            exact = detailedProduct;
-          }
-        }
-
-        const winner = exact?.buy_box_winner;
-        if (winner?.item_id) {
+        if (typeof directItemId === "string" && directItemId.startsWith("MLB")) {
           return {
-            itemId: String(winner.item_id),
+            itemId: String(directItemId),
             sourceId: id,
             sourceType: type,
-            product: exact,
-            publicItem: winner,
-            fromBuyBox: true
+            userProduct: up.data
           };
         }
 
-        // Alguns Product IDs do ranking são produtos-pai/famílias.
-        // Neles o buy_box_winner pode ser null mesmo quando existem
-        // produtos-filhos ativos com publicação vencedora. A documentação
-        // do Mercado Livre orienta consultar os children_ids nesse caso.
-        const childrenIds = Array.isArray(exact?.children_ids)
-          ? exact.children_ids.map((x: any) => String(x || "")).filter(Boolean)
-          : [];
-
-        if (childrenIds.length) {
-          const childResults = await runWithConcurrency(
-            childrenIds.slice(0, 10),
-            async (childId) => {
-              const child = await getCatalogJson(
-                ML + "/products/" + encodeURIComponent(childId)
-              );
-              return child.ok && child.data?.id ? child.data : null;
-            },
-            3
+        const sellerId = up.data?.user_id;
+        if (sellerId) {
+          const items = await getJson(
+            ML + "/users/" + encodeURIComponent(String(sellerId)) +
+            "/items/search?user_product_id=" + encodeURIComponent(id) +
+            "&limit=10",
+            true
           );
 
-          const childWithWinner = childResults.find(
-            (child: any) => child?.buy_box_winner?.item_id
-          );
-
-          if (childWithWinner?.buy_box_winner?.item_id) {
-            return {
-              itemId: String(childWithWinner.buy_box_winner.item_id),
-              sourceId: id,
-              sourceType: type,
-              product: childWithWinner,
-              publicItem: childWithWinner.buy_box_winner,
-              fromBuyBox: true,
-              fromChildProduct: true
-            };
-          }
-        }
-
-        // Se não houver buy_box_winner, tentamos uma busca pública pelo
-        // nome exato retornado pelo product search, mantendo a validação
-        // por catalog_product_id para não pegar outro produto.
-        const productName = String(exact?.name || "").trim();
-        if (productName) {
-          const publicParams = new URLSearchParams({
-            q: productName,
-            limit: "50",
-            sort: "relevance"
-          });
-
-          const publicSearch = await getJson(
-            ML + "/sites/" + SITE_ID + "/search?" + publicParams.toString(),
-            false
-          );
-
-          if (publicSearch.ok && Array.isArray(publicSearch.data?.results)) {
-            const exactCatalog = publicSearch.data.results.filter(
-              (item: any) =>
-                String(item?.catalog_product_id || "") === id
+          if (items.ok && Array.isArray(items.data?.results)) {
+            const itemId = items.data.results.find(
+              (value: any) =>
+                typeof value === "string" && value.startsWith("MLB")
             );
 
-            if (exactCatalog.length) {
-              exactCatalog.sort((a: any, b: any) => {
-                const aPrice = Number(a?.price);
-                const bPrice = Number(b?.price);
-                const aValid = Number.isFinite(aPrice) && aPrice > 0 ? 0 : 1;
-                const bValid = Number.isFinite(bPrice) && bPrice > 0 ? 0 : 1;
-                if (aValid !== bValid) return aValid - bValid;
-                return aPrice - bPrice;
-              });
-
-              const selected = exactCatalog[0];
-              if (selected?.id) {
-                return {
-                  itemId: String(selected.id),
-                  sourceId: id,
-                  sourceType: type,
-                  product: exact,
-                  publicItem: selected,
-                  fromBuyBox: false
-                };
-              }
+            if (itemId) {
+              return {
+                itemId: String(itemId),
+                sourceId: id,
+                sourceType: type,
+                userProduct: up.data
+              };
             }
           }
         }
@@ -662,8 +555,8 @@ Deno.serve(async (req) => {
           error: true,
           sourceId: id,
           sourceType: type,
-          status: 200,
-          message: "Produto encontrado, mas não possui publicação vencedora nem publicação pública associada."
+          status: up.status,
+          message: "User Product sem item associado."
         };
       }
 
@@ -675,6 +568,7 @@ Deno.serve(async (req) => {
         message: "Tipo de destaque não reconhecido."
       };
     }
+
     async function runWithConcurrency<T>(
       values: any[],
       worker: (value: any) => Promise<T>,
