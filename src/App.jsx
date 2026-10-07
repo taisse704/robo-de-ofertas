@@ -1141,8 +1141,8 @@ export default function App() {
     const base = listaOfertas
       .filter((o) => o.store_provider === provider || o.platforms?.nome === (provider === "shopee" ? "Shopee" : "Mercado Livre"))
       .filter((o) => provider !== "mercadolivre" || Number(o.preco_atual) > 0);
-    if (abaOfertas === "publicadas") return ordenarOfertasParaExibicao(base.filter(ofertaEhPublicada)).slice(0, 50);
-    if (abaOfertas === "novas") return ordenarOfertasParaExibicao(base.filter(ofertaEhNova)).slice(0, 10);
+    if (abaOfertas === "publicadas") return ordenarOfertasParaExibicao(base.filter(ofertaEhPublicada), provider).slice(0, 50);
+    if (abaOfertas === "novas") return ordenarOfertasParaExibicao(base.filter(ofertaEhNova), provider).slice(0, 20);
     return ordenarOfertasParaExibicao(base.filter((o) => !ofertaEhPublicada(o) && !ofertaEhNova(o)), provider).slice(0, 50);
   }
 
