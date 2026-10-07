@@ -779,7 +779,9 @@ export default function App() {
         0
       );
 
-      const novas = Number(
+      // "novas" vem somente da resposta da função; usamos um nome explícito
+      // para evitar qualquer conflito de escopo no frontend.
+      const novasEncontradas = Number(
         resultado?.inserted ??
         resultado?.novas ??
         resultado?.new_offers ??
@@ -824,7 +826,7 @@ export default function App() {
         .join(" | ");
 
       let mensagem =
-        `Busca concluida: ${encontrados} produtos encontrados e ${novas} nova(s) oferta(s) adicionada(s).`;
+        `Busca concluida: ${encontrados} produtos encontrados e ${novasEncontradas} nova(s) oferta(s) adicionada(s).`;
 
       if (atualizadas > 0) {
         mensagem += ` ${atualizadas} oferta(s) atualizada(s).`;
@@ -927,6 +929,27 @@ export default function App() {
     setOfertasSelecionadas(new Set());
   }
 
+  async function marcarOfertasComoCadastradas(ids) {
+    const idsValidos = [...new Set((ids || []).filter(Boolean))];
+    if (!idsValidos.length) return;
+
+    const { error } = await supabase
+      .from("offers")
+      .update({ nova: false, atualizada_em: new Date().toISOString() })
+      .eq("user_id", usuario.id)
+      .in("id", idsValidos);
+
+    if (error) throw error;
+
+    setListaOfertas((atual) =>
+      atual.map((item) =>
+        idsValidos.includes(item.id)
+          ? { ...item, nova: false, atualizada_em: new Date().toISOString() }
+          : item
+      )
+    );
+  }
+
   async function colocarOfertasSelecionadasNaFila() {
     const ids = Array.from(ofertasSelecionadas);
     if (!ids.length) {
@@ -946,7 +969,10 @@ export default function App() {
       const resultado = await response.json().catch(() => ({}));
       if (!response.ok || resultado?.ok === false) throw new Error(resultado?.error || resultado?.message || ("Erro HTTP " + response.status));
       const count = Number(resultado.count || 0);
-      setMensagemOferta(count > 0 ? count + " oferta(s) colocada(s) na fila de publicação." : (resultado.message || "Nenhuma oferta nova foi colocada na fila."));
+      if (count > 0) {
+        await marcarOfertasComoCadastradas(ids);
+      }
+      setMensagemOferta(count > 0 ? count + " oferta(s) colocada(s) na fila de publicação e transferida(s) para Cadastradas." : (resultado.message || "Nenhuma oferta nova foi colocada na fila."));
       limparSelecaoOfertas();
       await carregarConteudos();
     } catch (error) {
@@ -970,7 +996,11 @@ export default function App() {
       });
       const resultado = await response.json().catch(() => ({}));
       if (!response.ok || resultado?.ok === false) throw new Error(resultado?.error || resultado?.message || ("Erro HTTP " + response.status));
-      setMensagemOferta(Number(resultado.count || 0) > 0 ? "Oferta colocada na fila de publicação." : (resultado.message || "Esta oferta já possui conteúdo na fila ou foi descartada."));
+      const quantidadeCriada = Number(resultado.count || 0);
+      if (quantidadeCriada > 0) {
+        await marcarOfertasComoCadastradas([id]);
+      }
+      setMensagemOferta(quantidadeCriada > 0 ? "Oferta colocada na fila de publicação e transferida para Cadastradas." : (resultado.message || "Esta oferta já possui conteúdo na fila ou foi descartada."));
       await carregarConteudos();
     } catch (error) {
       console.error("ENFILEIRAR OFERTA:", error);
