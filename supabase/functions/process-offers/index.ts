@@ -467,6 +467,43 @@ Deno.serve(async (req) => {
           };
         }
 
+        // Alguns Product IDs do ranking são produtos-pai/famílias.
+        // Neles o buy_box_winner pode ser null mesmo quando existem
+        // produtos-filhos ativos com publicação vencedora. A documentação
+        // do Mercado Livre orienta consultar os children_ids nesse caso.
+        const childrenIds = Array.isArray(exact?.children_ids)
+          ? exact.children_ids.map((x: any) => String(x || "")).filter(Boolean)
+          : [];
+
+        if (childrenIds.length) {
+          const childResults = await runWithConcurrency(
+            childrenIds.slice(0, 10),
+            async (childId) => {
+              const child = await getCatalogJson(
+                ML + "/products/" + encodeURIComponent(childId)
+              );
+              return child.ok && child.data?.id ? child.data : null;
+            },
+            3
+          );
+
+          const childWithWinner = childResults.find(
+            (child: any) => child?.buy_box_winner?.item_id
+          );
+
+          if (childWithWinner?.buy_box_winner?.item_id) {
+            return {
+              itemId: String(childWithWinner.buy_box_winner.item_id),
+              sourceId: id,
+              sourceType: type,
+              product: childWithWinner,
+              publicItem: childWithWinner.buy_box_winner,
+              fromBuyBox: true,
+              fromChildProduct: true
+            };
+          }
+        }
+
         // Se não houver buy_box_winner, tentamos uma busca pública pelo
         // nome exato retornado pelo product search, mantendo a validação
         // por catalog_product_id para não pegar outro produto.
