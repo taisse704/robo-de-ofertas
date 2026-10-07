@@ -1069,7 +1069,7 @@ Deno.serve(async (req) => {
       } else {
         const { data: inserted, error } = await db
           .from("offers")
-          .insert({ ...values, encontrada_em: now })
+          .insert({ ...values, encontrada_em: now, nova: true })
           .select("id")
           .single();
 
