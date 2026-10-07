@@ -9,8 +9,9 @@ const REQUEST_TIMEOUT_MS = 8000;
 // Não são termos de busca. A função tenta a primeira disponível e continua
 // apenas se ainda não tiver conseguido 20 itens válidos.
 const CATEGORY_GROUPS = [
-  // TESTE: buscar somente Moda.
-  { id: "MLB1430", nome: "Moda" }
+  { id: "MLB1430", nome: "Moda" },
+  { id: "MLB1055", nome: "Casa e Jardim" },
+  { id: "MLB5726", nome: "Acessórios" }
 ];
 
 Deno.serve(async (req) => {
@@ -411,7 +412,7 @@ Deno.serve(async (req) => {
           };
         }
 
-        const exact = search.data.results.find(
+        let exact = search.data.results.find(
           (product: any) =>
             String(product?.id || product?.catalog_product_id || "") === id
         );
@@ -993,12 +994,77 @@ Deno.serve(async (req) => {
         a.position - b.position
     );
 
+    const { data: existingOffers, error: existingOffersError } = await db
+      .from("offers")
+      .select("id,product_external_id,titulo")
+      .eq("user_id", userId)
+      .eq("platform_id", platform.id);
+
+    if (existingOffersError) throw existingOffersError;
+
+    const existingProductIds = new Set(
+      (existingOffers || [])
+        .map((item: any) => String(item?.product_external_id || ""))
+        .filter(Boolean)
+    );
+
+    const existingTitles = (existingOffers || [])
+      .map((item: any) => String(item?.titulo || ""))
+      .filter(Boolean);
+
+    function titulosRepresentamMesmoProduto(a: unknown, b: unknown) {
+      const aa = normalizeText(a);
+      const bb = normalizeText(b);
+      if (!aa || !bb) return false;
+      if (aa === bb) return true;
+
+      if (titleSimilarity(aa, bb) >= 0.90) return true;
+
+      const aTokens = new Set(aa.split(" ").filter((x) => x.length >= 3));
+      const bTokens = new Set(bb.split(" ").filter((x) => x.length >= 3));
+      const menor = aTokens.size <= bTokens.size ? aTokens : bTokens;
+      const maior = aTokens.size <= bTokens.size ? bTokens : aTokens;
+
+      if (menor.size >= 4) {
+        let comuns = 0;
+        for (const token of menor) if (maior.has(token)) comuns++;
+        if (comuns / menor.size >= 0.95) return true;
+      }
+
+      return false;
+    }
+
     const unique: any[] = [];
     const seenProducts = new Set<string>();
+    let duplicadosIgnorados = 0;
 
     for (const item of candidates) {
-      if (seenProducts.has(item.product_external_id)) continue;
-      seenProducts.add(item.product_external_id);
+      const productId = String(item.product_external_id || "");
+      if (!productId || seenProducts.has(productId)) continue;
+
+      const mesmoProductIdJaCadastrado = existingProductIds.has(productId);
+
+      if (!mesmoProductIdJaCadastrado) {
+        const existeTituloSemelhante = existingTitles.some((titulo) =>
+          titulosRepresentamMesmoProduto(item.title, titulo)
+        );
+
+        if (existeTituloSemelhante) {
+          duplicadosIgnorados++;
+          continue;
+        }
+      }
+
+      const repetidoNaBusca = unique.some((anterior) =>
+        titulosRepresentamMesmoProduto(item.title, anterior.title)
+      );
+
+      if (repetidoNaBusca) {
+        duplicadosIgnorados++;
+        continue;
+      }
+
+      seenProducts.add(productId);
       unique.push(item);
       if (unique.length >= limit) break;
     }
@@ -1114,6 +1180,7 @@ Deno.serve(async (req) => {
         itens_com_detalhes: itemMap.size,
         produtos_catalogo_processados: resolved.filter((r) => Boolean(r.product?.buy_box_winner)).length,
         candidatos_com_preco: candidates.length,
+        duplicados_ignorados: duplicadosIgnorados,
         em_promocao: candidates.filter((x) => x.discount > 0 || x.promotion_id).length,
         sem_preco: Math.max(0, resolved.length - itemMap.size),
         erros_resolucao: resolutionErrors.slice(0, 25),
