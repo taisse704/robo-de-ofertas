@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
 import PublicationCenter from "./PublicationCenter.jsx";
+import MercadoLivreAffiliateBridge from "./MercadoLivreAffiliateBridge.jsx";
 import "./styles.css";
 
 function OfferDedupGuard() {
@@ -21,5 +22,5 @@ function OfferDedupGuard() {
   }, []);
   return null;
 }
-function Root() { return <React.StrictMode><App /><PublicationCenter /><OfferDedupGuard /></React.StrictMode>; }
+function Root() { return <React.StrictMode><App /><PublicationCenter /><MercadoLivreAffiliateBridge /><OfferDedupGuard /></React.StrictMode>; }
 createRoot(document.getElementById("root")).render(<Root />);
