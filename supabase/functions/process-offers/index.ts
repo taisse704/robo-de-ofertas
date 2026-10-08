@@ -8,11 +8,15 @@ const REQUEST_TIMEOUT_MS = 8000;
 // Categorias usadas somente como fonte de ranking "Mais vendidos".
 // Não são termos de busca. A função tenta a primeira disponível e continua
 // apenas se ainda não tiver conseguido 20 itens válidos.
-const CATEGORY_GROUPS = [
-  { id: "MLB1430", nome: "Calçados, Roupas e Bolsas" },
-  { id: "MLB1574", nome: "Casa, Móveis e Decoração" },
-  { id: "MLB5726", nome: "Eletrodomésticos" }
-];
+const CATEGORY_EXCLUDE = new Set([
+  "Imóveis",
+  "Serviços",
+  "Ingressos",
+  "Indústria e Comércio",
+  "Veículos",
+  "Autos, Motos e Outros",
+  "Mais Categorias"
+]);
 
 Deno.serve(async (req) => {
   const cors = {
@@ -315,19 +319,11 @@ Deno.serve(async (req) => {
     }
 
     async function getCatalogJson(url: string) {
-      let result = await getJson(url, true);
-
-      if (result.status === 403) {
-        const appToken = await getApplicationAccessToken();
-        if (appToken) {
-          result = await getJson(url, false, {
-            Authorization: "Bearer " + appToken,
-            Accept: "application/json"
-          });
-        }
-      }
-
-      return result;
+      // Catálogo é consultado primeiro sem autenticação do usuário.
+      // Isso evita depender de escopos do token de afiliado para dados públicos.
+      let result = await getJson(url, false);
+      if (!result.ok && result.status !== 401 && result.status !== 403) return result;
+      return await getJson(url, true);
     }
 
     async function resolveHighlightEntry(entry: any) {
@@ -360,9 +356,8 @@ Deno.serve(async (req) => {
       }
 
       if (type === "PRODUCT") {
-        // O ranking retorna PRODUCT (catálogo). A publicação precisa ser
-        // resolvida pelo detalhe do produto, por seus filhos ou pela busca
-        // pública do marketplace. Esse é o caminho que já funcionava antes.
+        // PRODUCT é uma página de catálogo. O item público correto é,
+        // preferencialmente, o buy_box_winner do próprio produto.
         const product = await getCatalogJson(
           ML + "/products/" + encodeURIComponent(id)
         );
@@ -378,8 +373,48 @@ Deno.serve(async (req) => {
         }
 
         const data = product.data;
-        const winner = data?.buy_box_winner;
 
+        // Alguns PRODUCTs do ranking existem no catálogo, mas não expõem
+        // buy_box_winner no detalhe. Nesses casos, consultamos explicitamente
+        // as publicações relacionadas ao produto antes de desistir.
+        if (!data?.buy_box_winner) {
+          const publicItems = await getCatalogJson(
+            ML + "/products/" + encodeURIComponent(id) + "/items?limit=20"
+          );
+
+          const rows = Array.isArray(publicItems?.data?.results)
+            ? publicItems.data.results
+            : Array.isArray(publicItems?.data)
+              ? publicItems.data
+              : [];
+
+          const validRows = rows.filter((row: any) => {
+            const itemId = String(row?.id || row?.item_id || row?.itemId || "");
+            const status = String(row?.status || "").toLowerCase();
+            const price = Number(row?.price);
+            return itemId.startsWith("MLB") &&
+              (status === "" || status === "active") &&
+              Number.isFinite(price) && price > 0;
+          });
+
+          if (validRows.length) {
+            validRows.sort((a: any, b: any) =>
+              Number(a?.price || 0) - Number(b?.price || 0)
+            );
+            const row = validRows[0];
+            const publicItemId = String(row.id || row.item_id || row.itemId || "");
+            return {
+              itemId: publicItemId,
+              sourceId: id,
+              sourceType: type,
+              product: data,
+              publicItem: row,
+              fromProductItems: true
+            };
+          }
+        }
+
+        const winner = data?.buy_box_winner;
         if (typeof winner?.item_id === "string" && winner.item_id.startsWith("MLB")) {
           return {
             itemId: String(winner.item_id),
@@ -391,44 +426,102 @@ Deno.serve(async (req) => {
           };
         }
 
-        const children = Array.isArray(data?.children_ids)
-          ? data.children_ids.slice(0, 12)
-          : [];
+        // Alguns rankings apontam para um produto pai ou para uma página
+        // sem vendedor vencedor. Nesses casos, o próprio catálogo informa
+        // os produtos filhos específicos e compráveis.
+        const relatedIds = new Set<string>();
+        for (const childId of Array.isArray(data?.children_ids) ? data.children_ids : []) {
+          if (typeof childId === "string" && childId.startsWith("MLB")) relatedIds.add(childId);
+        }
 
-        if (children.length) {
-          const childResults = await runWithConcurrency(
-            children,
-            async (childId) => {
-              const child = await getCatalogJson(
-                ML + "/products/" + encodeURIComponent(String(childId))
-              );
-              return child.ok && child.data?.id ? child.data : null;
-            },
-            3
-          );
-
-          const childWithWinner = childResults.find(
-            (child: any) =>
-              typeof child?.buy_box_winner?.item_id === "string" &&
-              child.buy_box_winner.item_id.startsWith("MLB")
-          );
-
-          if (childWithWinner?.buy_box_winner?.item_id) {
-            return {
-              itemId: String(childWithWinner.buy_box_winner.item_id),
-              sourceId: id,
-              sourceType: type,
-              product: childWithWinner,
-              parentProduct: data,
-              publicItem: childWithWinner.buy_box_winner,
-              fromBuyBox: true,
-              fromChildProduct: true
-            };
+        // Pickers também podem apontar diretamente para filhos específicos.
+        for (const picker of Array.isArray(data?.pickers) ? data.pickers : []) {
+          for (const p of Array.isArray(picker?.products) ? picker.products : []) {
+            const childId = String(p?.product_id || "");
+            if (childId.startsWith("MLB")) relatedIds.add(childId);
           }
         }
 
-        const productName = String(data?.name || data?.family_name || "").trim();
+        const related = Array.from(relatedIds).slice(0, 20);
+        if (related.length) {
+          const childResults = await runWithConcurrency(
+            related,
+            async (childId) => {
+              const child = await getCatalogJson(
+                ML + "/products/" + encodeURIComponent(childId)
+              );
+              if (!child.ok || !child.data) return null;
+              const childWinner = child.data?.buy_box_winner;
+              if (
+                typeof childWinner?.item_id === "string" &&
+                childWinner.item_id.startsWith("MLB")
+              ) {
+                return {
+                  itemId: String(childWinner.item_id),
+                  sourceId: id,
+                  sourceType: type,
+                  product: child.data,
+                  publicItem: childWinner,
+                  fromBuyBox: true,
+                  fromChildProduct: true
+                };
+              }
+              return null;
+            },
+            4
+          );
 
+          const childMatch = childResults.find(Boolean);
+          if (childMatch) return childMatch;
+        }
+
+        // Se o ranking trouxe um PRODUCT que não possui vencedor no detalhe,
+        // procuramos novamente o produto pelo Product ID no buscador oficial.
+        // Isso pode encontrar a versão ativa/específica do catálogo.
+        const productName = String(data?.name || data?.family_name || "").trim();
+        if (productName) {
+          const productSearchUrl =
+            ML + "/products/search?status=active&site_id=" + SITE_ID +
+            "&q=" + encodeURIComponent(productName) + "&limit=20";
+
+          const productSearch = await getCatalogJson(productSearchUrl);
+          if (productSearch.ok && Array.isArray(productSearch.data?.results)) {
+            const results = productSearch.data.results as any[];
+            const exact = results.find((p: any) => String(p?.id || "") === id);
+            const ordered = exact
+              ? [exact, ...results.filter((p: any) => String(p?.id || "") !== id)]
+              : results;
+
+            for (const match of ordered.slice(0, 10)) {
+              const matchId = String(match?.id || "");
+              if (!matchId.startsWith("MLB")) continue;
+
+              const detail = matchId === id
+                ? { ok: true, data }
+                : await getCatalogJson(ML + "/products/" + encodeURIComponent(matchId));
+
+              const matchWinner = detail.data?.buy_box_winner;
+              if (
+                detail.ok &&
+                typeof matchWinner?.item_id === "string" &&
+                matchWinner.item_id.startsWith("MLB")
+              ) {
+                return {
+                  itemId: String(matchWinner.item_id),
+                  sourceId: id,
+                  sourceType: type,
+                  product: detail.data,
+                  publicItem: matchWinner,
+                  fromBuyBox: true,
+                  fromProductSearch: true
+                };
+              }
+            }
+          }
+        }
+
+        // Último fallback: busca pública de anúncios pelo nome, aceitando
+        // somente títulos realmente próximos do produto do ranking.
         if (productName) {
           const params = new URLSearchParams({
             q: productName,
@@ -443,23 +536,21 @@ Deno.serve(async (req) => {
 
           if (publicSearch.ok && Array.isArray(publicSearch.data?.results)) {
             const results = publicSearch.data.results as any[];
-
-            let candidates = results.filter(
+            const catalogMatches = results.filter(
               (item: any) =>
                 item?.id &&
                 String(item.id).startsWith("MLB") &&
                 String(item?.catalog_product_id || "") === id
             );
 
-            // Fallback do fluxo que funcionava: quando a busca pública
-            // não informa catalog_product_id, aceita somente título muito
-            // semelhante, evitando trocar o produto do ranking.
-            if (!candidates.length) {
-              candidates = results.filter((item: any) => {
-                if (!item?.id || !String(item.id).startsWith("MLB")) return false;
-                return titleSimilarity(productName, item.title) >= 0.78;
-              });
-            }
+            const titleMatches = results.filter((item: any) => {
+              if (!item?.id || !String(item.id).startsWith("MLB")) return false;
+              return titleSimilarity(productName, item.title) >= 0.88;
+            });
+
+            const candidates = [...catalogMatches, ...titleMatches.filter(
+              (item: any) => !catalogMatches.some((m: any) => m.id === item.id)
+            )];
 
             candidates.sort((a: any, b: any) => {
               const aPrice = Number(a?.price);
@@ -471,7 +562,6 @@ Deno.serve(async (req) => {
             });
 
             const selected = candidates[0];
-
             if (selected?.id) {
               return {
                 itemId: String(selected.id),
@@ -479,7 +569,7 @@ Deno.serve(async (req) => {
                 sourceType: type,
                 product: data,
                 publicItem: selected,
-                fromBuyBox: false
+                fromPublicSearch: true
               };
             }
           }
@@ -610,7 +700,7 @@ Deno.serve(async (req) => {
       ];
       const seen = new Set<string>();
 
-      while (queue.length && leaves.length < 18) {
+      while (queue.length && leaves.length < 16) {
         const current = queue.shift()!;
         if (seen.has(current.id)) continue;
         seen.add(current.id);
@@ -636,9 +726,9 @@ Deno.serve(async (req) => {
         }
 
         // Limitamos a profundidade para evitar uma explosão de chamadas.
-        if (current.depth >= 2) continue;
+        if (current.depth >= 5) continue;
 
-        for (const child of children.slice(0, 12)) {
+        for (const child of children.slice(0, 16)) {
           if (child?.id) {
             queue.push({
               id: String(child.id),
@@ -657,8 +747,34 @@ Deno.serve(async (req) => {
       return leaves;
     }
 
+    // Descobre dinamicamente as categorias de primeiro nível do MLB.
+    // Mantemos exclusões apenas para evitar imóveis, veículos e serviços.
+    const rootCategories: Array<{ id: string; nome: string }> = [];
+    const rootsResult = await getJson(
+      ML + "/sites/" + SITE_ID + "/categories",
+      false
+    );
+
+    if (rootsResult.ok && Array.isArray(rootsResult.data)) {
+      for (const root of rootsResult.data) {
+        const id = String(root?.id || "");
+        const nome = String(root?.name || "").trim();
+        if (id && nome && !CATEGORY_EXCLUDE.has(nome)) {
+          rootCategories.push({ id, nome });
+        }
+      }
+    }
+
+    const roots = rootCategories.length
+      ? rootCategories
+      : [
+          { id: "MLB1430", nome: "Calçados, Roupas e Bolsas" },
+          { id: "MLB1574", nome: "Casa, Móveis e Decoração" },
+          { id: "MLB5726", nome: "Eletrodomésticos" }
+        ];
+
     const highlightCategories: any[] = [];
-    for (const root of CATEGORY_GROUPS) {
+    for (const root of roots) {
       const leaves = await discoverLeafCategories(root);
       highlightCategories.push(...leaves);
     }
@@ -732,7 +848,7 @@ Deno.serve(async (req) => {
     // faltarem itens válidos. Isso evita que ITEM/USER_PRODUCT bloqueados
     // impeçam a coleta das ofertas de catálogo.
     const resolved: any[] = [];
-    const targetResolved = Math.min(limit + 5, MAX);
+    const targetResolved = Math.min(Math.max(limit * 12, 60), 120);
     const RESOLUTION_BATCH_SIZE = 10;
 
     for (
@@ -884,7 +1000,7 @@ Deno.serve(async (req) => {
         const productId = String(r.sourceId);
 
         candidates.push({
-          external_id: String(item.id),
+          external_id: String(item.id || item.item_id || item.itemId || ""),
           product_external_id: productId,
           title: item.title || r.product?.name || "Produto Mercado Livre",
           current,
@@ -931,7 +1047,7 @@ Deno.serve(async (req) => {
         if (somenteDescontos && discount <= 0 && !promotionId) continue;
 
         candidates.push({
-          external_id: String(winner.item_id || product.id),
+          external_id: String(winner.item_id || winner.id || product.id),
           product_external_id: String(product.id),
           title: product.name || product.family_name || r.highlight?.categoria_nome || "Produto Mercado Livre",
           current,
@@ -1001,8 +1117,8 @@ Deno.serve(async (req) => {
       const position = Number(r.highlight?.position) || 999;
 
       candidates.push({
-        external_id: String(item.id),
-        product_external_id: String(item.catalog_product_id || item.user_product_id || item.id),
+        external_id: String(item.id || item.item_id || item.itemId || ""),
+        product_external_id: String(item.catalog_product_id || item.user_product_id || item.id || item.item_id || item.itemId || ""),
         title: item.title || r.highlight?.categoria_nome || "Produto Mercado Livre",
         current,
         original,
@@ -1034,7 +1150,7 @@ Deno.serve(async (req) => {
 
     const { data: existingOffers, error: existingOffersError } = await db
       .from("offers")
-      .select("id,product_external_id,titulo")
+      .select("id,product_external_id,titulo,dados_origem")
       .eq("user_id", userId)
       .eq("platform_id", platform.id);
 
@@ -1046,64 +1162,48 @@ Deno.serve(async (req) => {
         .filter(Boolean)
     );
 
-    const existingTitles = (existingOffers || [])
-      .map((item: any) => String(item?.titulo || ""))
-      .filter(Boolean);
+    const existingItemIds = new Set(
+      (existingOffers || [])
+        .map((item: any) => String(item?.dados_origem?.item_id || ""))
+        .filter((id: string) => id.startsWith("MLB"))
+    );
 
-    function titulosRepresentamMesmoProduto(a: unknown, b: unknown) {
-      const aa = normalizeText(a);
-      const bb = normalizeText(b);
-      if (!aa || !bb) return false;
-      if (aa === bb) return true;
-
-      if (titleSimilarity(aa, bb) >= 0.90) return true;
-
-      const aTokens = new Set(aa.split(" ").filter((x) => x.length >= 3));
-      const bTokens = new Set(bb.split(" ").filter((x) => x.length >= 3));
-      const menor = aTokens.size <= bTokens.size ? aTokens : bTokens;
-      const maior = aTokens.size <= bTokens.size ? bTokens : aTokens;
-
-      if (menor.size >= 4) {
-        let comuns = 0;
-        for (const token of menor) if (maior.has(token)) comuns++;
-        if (comuns / menor.size >= 0.95) return true;
-      }
-
-      return false;
-    }
-
+    // Identidade exata é a regra principal. Título parecido não é suficiente:
+    // anúncios diferentes podem ter nomes muito semelhantes no Mercado Livre.
     const unique: any[] = [];
     const seenProducts = new Set<string>();
+    const seenItems = new Set<string>();
     let duplicadosIgnorados = 0;
+    let existentesIgnorados = 0;
 
     for (const item of candidates) {
       const productId = String(item.product_external_id || "");
-      if (!productId || seenProducts.has(productId)) continue;
+      const itemId = String(item.external_id || "");
 
-      const mesmoProductIdJaCadastrado = existingProductIds.has(productId);
-
-      if (!mesmoProductIdJaCadastrado) {
-        const existeTituloSemelhante = existingTitles.some((titulo) =>
-          titulosRepresentamMesmoProduto(item.title, titulo)
-        );
-
-        if (existeTituloSemelhante) {
-          duplicadosIgnorados++;
-          continue;
-        }
+      if (!productId && !itemId) continue;
+      if (productId && seenProducts.has(productId)) {
+        duplicadosIgnorados++;
+        continue;
       }
-
-      const repetidoNaBusca = unique.some((anterior) =>
-        titulosRepresentamMesmoProduto(item.title, anterior.title)
-      );
-
-      if (repetidoNaBusca) {
+      if (itemId && seenItems.has(itemId)) {
         duplicadosIgnorados++;
         continue;
       }
 
-      seenProducts.add(productId);
+      // Não deixa uma oferta já cadastrada ocupar uma das vagas de novidades.
+      // Assim a função continua percorrendo o ranking para encontrar produtos novos.
+      if (
+        (productId && existingProductIds.has(productId)) ||
+        (itemId && existingItemIds.has(itemId))
+      ) {
+        existentesIgnorados++;
+        continue;
+      }
+
+      if (productId) seenProducts.add(productId);
+      if (itemId) seenItems.add(itemId);
       unique.push(item);
+
       if (unique.length >= limit) break;
     }
 
@@ -1112,7 +1212,16 @@ Deno.serve(async (req) => {
     const ofertas: any[] = [];
 
     for (const o of unique) {
+      const canonicalItemId = String(o.external_id || "");
+      const canonicalProductId = String(o.product_external_id || "");
+      if (!canonicalItemId.startsWith("MLB") && !canonicalProductId.startsWith("MLB")) continue;
+
       const now = new Date().toISOString();
+
+      const canonicalProductUrl = String(o.permalink || "").trim() ||
+        (canonicalProductId.startsWith("MLB")
+          ? `https://www.mercadolivre.com.br/p/${canonicalProductId}`
+          : "");
 
       const values: any = {
         user_id: userId,
@@ -1120,17 +1229,17 @@ Deno.serve(async (req) => {
         product_id: null,
         product_external_id: o.product_external_id,
         titulo: o.title,
-        url_produto: o.permalink,
+        url_produto: canonicalProductUrl,
         store_provider: "mercadolivre",
-        store_product_url: o.permalink,
+        store_product_url: canonicalProductUrl,
         preco_atual: o.current,
         preco_anterior: o.original,
         desconto_percentual: o.discount,
         moeda: "BRL",
         disponibilidade: true,
         classificacao: o.discount >= 10 ? "interessante" : "verificar",
-        permitido_afiliado: true,
-        permitido_divulgacao: true,
+        permitido_afiliado: false,
+        permitido_divulgacao: false,
         imagem_url: o.image,
         dados_origem: {
           fonte: "mercadolivre-highlights",
@@ -1145,7 +1254,8 @@ Deno.serve(async (req) => {
         melhor_preco: o.discount > 0 || Boolean(o.promotion_id),
         score_oferta: o.score,
         atualizada_em: now,
-        coletada_em: now
+        coletada_em: now,
+        nova: false
       };
 
       const { data: existing, error: findError } = await db
@@ -1191,7 +1301,7 @@ Deno.serve(async (req) => {
         original: o.original,
         discount: o.discount,
         image: o.image,
-        permalink: o.permalink,
+        permalink: canonicalProductUrl,
         promotion_id: o.promotion_id,
         promotion_type: o.promotion_type,
         position: o.position,
@@ -1219,6 +1329,7 @@ Deno.serve(async (req) => {
         produtos_catalogo_processados: resolved.filter((r) => Boolean(r.product?.buy_box_winner)).length,
         candidatos_com_preco: candidates.length,
         duplicados_ignorados: duplicadosIgnorados,
+        existentes_ignorados: existentesIgnorados,
         em_promocao: candidates.filter((x) => x.discount > 0 || x.promotion_id).length,
         sem_preco: Math.max(0, resolved.length - itemMap.size),
         erros_resolucao: resolutionErrors.slice(0, 25),
