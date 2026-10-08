@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Robô de Ofertas — Links Mercado Livre",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Ponte automática entre o Robô de Ofertas e o Gerador de Links do Mercado Livre.",
   "permissions": [
     "tabs"
