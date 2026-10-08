@@ -81,16 +81,10 @@ async function enviarItemAtual() {
 
   try {
     const tabId = await encontrarOuCriarAbaMercadoLivre(destino);
-    const tab = await chrome.tabs.get(tabId);
-    const atual = String(tab.url || "").split("#")[0];
-    const alvo = destino.split("#")[0];
-
-    if (atual !== alvo) {
-      await chrome.tabs.update(tabId, { url: destino, active: false });
-      agendarTimeoutProcessamento();
-      return;
-    }
-
+    // A geração usa a sessão autenticada da aba do Mercado Livre e envia
+    // a URL do produto no payload. Não exigimos que a aba esteja exatamente
+    // na mesma URL, porque o Mercado Livre pode redirecionar /p/MLB... para
+    // uma URL canônica diferente.
     await chrome.tabs.sendMessage(tabId, {
       type: "ML_AFFILIATE_GENERATE_ON_TAB",
       offer: item.offer
