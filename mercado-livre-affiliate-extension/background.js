@@ -2,17 +2,16 @@ const APP_MATCH = "https://taisse704.github.io/robo-de-ofertas/";
 let mlTabId = null;
 let fila = [];
 let processando = false;
-let aguardandoNavegacao = false;
 let timeoutProcessamento = null;
 
 function enviarResultadoParaApp(message) {
-  chrome.tabs.query({
-    url: ["https://taisse704.github.io/robo-de-ofertas/*"]
-  }).then((tabs) => {
-    for (const tab of tabs) {
-      if (tab.id) chrome.tabs.sendMessage(tab.id, message).catch(() => {});
-    }
-  }).catch(() => {});
+  chrome.tabs.query({ url: ["https://taisse704.github.io/robo-de-ofertas/*"] })
+    .then((tabs) => {
+      for (const tab of tabs) {
+        if (tab.id) chrome.tabs.sendMessage(tab.id, message).catch(() => {});
+      }
+    })
+    .catch(() => {});
 }
 
 function limparTimeoutProcessamento() {
@@ -26,12 +25,11 @@ function agendarTimeoutProcessamento() {
   limparTimeoutProcessamento();
   timeoutProcessamento = setTimeout(() => {
     processando = false;
-    aguardandoNavegacao = false;
     enviarItemAtual().catch(() => {});
   }, 30000);
 }
 
-async function encontrarOuCriarAbaMercadoLivre() {
+async function encontrarOuCriarAbaMercadoLivre(destino) {
   if (mlTabId !== null) {
     try {
       const tab = await chrome.tabs.get(mlTabId);
@@ -42,10 +40,7 @@ async function encontrarOuCriarAbaMercadoLivre() {
   }
 
   const tabs = await chrome.tabs.query({
-    url: [
-      "https://www.mercadolivre.com.br/*",
-      "https://mercadolivre.com.br/*"
-    ]
+    url: ["https://www.mercadolivre.com.br/*", "https://mercadolivre.com.br/*"]
   });
 
   if (tabs.length && tabs[0]?.id) {
@@ -53,10 +48,11 @@ async function encontrarOuCriarAbaMercadoLivre() {
     return mlTabId;
   }
 
-  const tab = await chrome.tabs.create({
-    url: "https://www.mercadolivre.com.br/afiliados/hub?is_affiliate=true",
-    active: false
-  });
+  const urlProduto = String(destino || "").trim();
+  if (!urlProduto) throw new Error("Oferta sem URL do produto do Mercado Livre.");
+
+  const tab = await chrome.tabs.create({ url: urlProduto, active: false });
+  if (!tab?.id) throw new Error("Não foi possível abrir a página do produto do Mercado Livre.");
 
   mlTabId = tab.id;
   return tab.id;
@@ -74,26 +70,23 @@ async function enviarItemAtual() {
     enviarResultadoParaApp({
       type: "ML_AFFILIATE_RESULT",
       offer_id: offerId || null,
+      ok: false,
       error: "Oferta sem ID ou URL do produto."
     });
-    setTimeout(enviarItemAtual, 100);
+    setTimeout(() => enviarItemAtual().catch(() => {}), 100);
     return;
   }
 
   processando = true;
 
   try {
-    const tabId = await encontrarOuCriarAbaMercadoLivre();
+    const tabId = await encontrarOuCriarAbaMercadoLivre(destino);
     const tab = await chrome.tabs.get(tabId);
     const atual = String(tab.url || "").split("#")[0];
     const alvo = destino.split("#")[0];
 
     if (atual !== alvo) {
-      aguardandoNavegacao = true;
-      await chrome.tabs.update(tabId, {
-        url: destino,
-        active: false
-      });
+      await chrome.tabs.update(tabId, { url: destino, active: false });
       agendarTimeoutProcessamento();
       return;
     }
@@ -106,61 +99,47 @@ async function enviarItemAtual() {
     agendarTimeoutProcessamento();
   } catch (error) {
     processando = false;
-    aguardandoNavegacao = false;
-
-    setTimeout(() => {
-      enviarItemAtual().catch(() => {});
-    }, 1000);
+    enviarResultadoParaApp({
+      type: "ML_AFFILIATE_RESULT",
+      offer_id: offerId,
+      ok: false,
+      error: String(error?.message || error || "Não foi possível comunicar com a aba do Mercado Livre.")
+    });
+    fila.shift();
+    setTimeout(() => enviarItemAtual().catch(() => {}), 500);
   }
 }
 
 chrome.runtime.onMessage.addListener((message, sender) => {
   if (!message) return;
 
-  if (
-    sender.tab?.url?.startsWith(APP_MATCH) &&
-    message.type === "ML_AFFILIATE_GENERATE"
-  ) {
+  if (sender.tab?.url?.startsWith(APP_MATCH) && message.type === "ML_AFFILIATE_GENERATE") {
     const offerId = String(message.offer?.offer_id || "").trim();
-
-    if (
-      offerId &&
-      !fila.some((item) => String(item.offer?.offer_id || "") === offerId)
-    ) {
+    if (offerId && !fila.some((item) => String(item.offer?.offer_id || "") === offerId)) {
       fila.push(message);
     }
-
     enviarItemAtual().catch(() => {});
     return;
   }
 
   if (message.type === "ML_AFFILIATE_READY") {
-    if (sender.tab?.id) {
-      mlTabId = sender.tab.id;
-      aguardandoNavegacao = false;
-
-      if (fila.length) {
-        processando = false;
-        limparTimeoutProcessamento();
-        setTimeout(() => {
-          enviarItemAtual().catch(() => {});
-        }, 300);
-      }
+    if (!sender.tab?.id) return;
+    mlTabId = sender.tab.id;
+    if (fila.length) {
+      processando = false;
+      limparTimeoutProcessamento();
+      setTimeout(() => enviarItemAtual().catch(() => {}), 300);
     }
     return;
   }
 
   if (message.type === "ML_AFFILIATE_RESULT") {
     const resultOfferId = String(message.offer_id || "").trim();
-    const index = fila.findIndex(
-      (item) => String(item.offer?.offer_id || "") === resultOfferId
-    );
-
+    const index = fila.findIndex((item) => String(item.offer?.offer_id || "") === resultOfferId);
     if (index >= 0) fila.splice(index, 1);
 
     limparTimeoutProcessamento();
     processando = false;
-    aguardandoNavegacao = false;
 
     enviarResultadoParaApp({
       type: "ML_AFFILIATE_RESULT",
@@ -170,37 +149,23 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       ok: message.ok !== false
     });
 
-    setTimeout(() => {
-      enviarItemAtual().catch(() => {});
-    }, 250);
+    setTimeout(() => enviarItemAtual().catch(() => {}), 250);
   }
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (tabId !== mlTabId) return;
-
   if (changeInfo.status === "complete" && fila.length) {
-    aguardandoNavegacao = false;
     processando = false;
     limparTimeoutProcessamento();
-
-    setTimeout(() => {
-      enviarItemAtual().catch(() => {});
-    }, 700);
+    setTimeout(() => enviarItemAtual().catch(() => {}), 700);
   }
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (tabId === mlTabId) {
-    mlTabId = null;
-    processando = false;
-    aguardandoNavegacao = false;
-    limparTimeoutProcessamento();
-
-    if (fila.length) {
-      setTimeout(() => {
-        enviarItemAtual().catch(() => {});
-      }, 500);
-    }
-  }
+  if (tabId !== mlTabId) return;
+  mlTabId = null;
+  processando = false;
+  limparTimeoutProcessamento();
+  if (fila.length) setTimeout(() => enviarItemAtual().catch(() => {}), 500);
 });
