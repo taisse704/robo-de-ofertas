@@ -4,14 +4,28 @@ const TAGS_ENDPOINT = "/affiliate-program/api/v2/stripe/user/tags";
 const TAG_CACHE_MS = 5 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 12000;
 
-async function fetchComTimeout(url, options = {}) {
+async function requisicaoComTimeout(url, options = {}) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  let timer;
+
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    const operacao = (async () => {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      const text = await response.text();
+      return { response, text };
+    })();
+
+    const limite = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error("O Mercado Livre demorou mais de 12 segundos para responder, incluindo a leitura da resposta. Verifique se a conta está conectada e tente novamente."));
+      }, FETCH_TIMEOUT_MS);
+    });
+
+    return await Promise.race([operacao, limite]);
   } catch (error) {
-    if (controller.signal.aborted) {
-      throw new Error("O Mercado Livre demorou mais de 12 segundos para responder. Verifique se a conta está conectada e tente novamente.");
+    if (controller.signal.aborted && !String(error?.message || "").includes("12 segundos")) {
+      throw new Error("A solicitação ao Mercado Livre foi interrompida após o limite de 12 segundos.");
     }
     throw error;
   } finally {
@@ -43,8 +57,7 @@ function normalizarUrlProduto(value) {
   }
 }
 
-async function lerResposta(response) {
-  const text = await response.text();
+function interpretarResposta(text) {
   let json = {};
 
   try {
@@ -63,7 +76,7 @@ async function obterTagAtiva() {
     return tagCache;
   }
 
-  const tagResponse = await fetchComTimeout(TAGS_ENDPOINT, {
+  const tagRequest = await requisicaoComTimeout(TAGS_ENDPOINT, {
     method: "GET",
     headers: {
       Accept: "application/json, text/plain, */*"
@@ -72,7 +85,8 @@ async function obterTagAtiva() {
     cache: "no-store"
   });
 
-  const tagResult = await lerResposta(tagResponse);
+  const tagResponse = tagRequest.response;
+  const tagResult = interpretarResposta(tagRequest.text);
   const tagData = tagResult.json;
 
   if (!tagResponse.ok) {
@@ -147,7 +161,7 @@ chrome.runtime.onMessage.addListener((message) => {
       // então mantemos a mesma aba autenticada do Mercado Livre.
       const tag = await obterTagAtiva();
 
-      const linkResponse = await fetchComTimeout(LINKS_ENDPOINT, {
+      const linkRequest = await requisicaoComTimeout(LINKS_ENDPOINT, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -161,7 +175,8 @@ chrome.runtime.onMessage.addListener((message) => {
         })
       });
 
-      const linkResult = await lerResposta(linkResponse);
+      const linkResponse = linkRequest.response;
+      const linkResult = interpretarResposta(linkRequest.text);
       const linkData = linkResult.json;
 
       if (!linkResponse.ok) {
