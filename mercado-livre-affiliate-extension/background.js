@@ -63,7 +63,7 @@ async function encontrarOuCriarAbaMercadoLivre(destino) {
   }
 
   const tabs = await chrome.tabs.query({
-    url: ["https://www.mercadolivre.com.br/*", "https://mercadolivre.com.br/*"]
+    url: ["https://*.mercadolivre.com.br/*", "https://mercadolivre.com.br/*"]
   });
 
   if (tabs.length && tabs[0]?.id) {
