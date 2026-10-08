@@ -1,6 +1,10 @@
 const SOURCE = "robo-de-ofertas";
 const LINKS_ENDPOINT = "/affiliate-program/api/v2/stripe/user/links";
 const TAGS_ENDPOINT = "/affiliate-program/api/v2/stripe/user/tags";
+const TAG_CACHE_MS = 5 * 60 * 1000;
+
+let tagCache = "";
+let tagCacheAt = 0;
 
 function enviarResultado(offerId, data = {}) {
   chrome.runtime.sendMessage({
@@ -26,18 +30,87 @@ function normalizarUrlProduto(value) {
 async function lerResposta(response) {
   const text = await response.text();
   let json = {};
+
   try {
     json = text ? JSON.parse(text) : {};
   } catch {
     json = {};
   }
+
   return { json, text };
 }
 
-chrome.runtime.sendMessage({ type: "ML_AFFILIATE_READY" });
+async function obterTagAtiva() {
+  const agora = Date.now();
+
+  if (tagCache && agora - tagCacheAt < TAG_CACHE_MS) {
+    return tagCache;
+  }
+
+  const tagResponse = await fetch(TAGS_ENDPOINT, {
+    method: "GET",
+    headers: {
+      Accept: "application/json, text/plain, */*"
+    },
+    credentials: "include",
+    cache: "no-store"
+  });
+
+  const tagResult = await lerResposta(tagResponse);
+  const tagData = tagResult.json;
+
+  if (!tagResponse.ok) {
+    throw new Error(
+      "Mercado Livre recusou a consulta das etiquetas: HTTP " +
+      tagResponse.status +
+      (tagData?.message ? " - " + tagData.message : "")
+    );
+  }
+
+  const tags = Array.isArray(tagData)
+    ? tagData
+    : Array.isArray(tagData?.tags)
+      ? tagData.tags
+      : Array.isArray(tagData?.data)
+        ? tagData.data
+        : [];
+
+  const active =
+    tags.find((item) => item?.in_use === true) ||
+    tags.find((item) => item?.inUse === true) ||
+    tags.find((item) =>
+      String(item?.status || "").toLowerCase() === "active"
+    ) ||
+    null;
+
+  const tag = String(
+    active?.tag ||
+    active?.id ||
+    active?.name ||
+    ""
+  ).trim();
+
+  if (!tag) {
+    throw new Error(
+      "O Mercado Livre não informou uma etiqueta de afiliado ativa. " +
+      "Quantidade de etiquetas retornadas: " + tags.length + "."
+    );
+  }
+
+  tagCache = tag;
+  tagCacheAt = agora;
+
+  return tag;
+}
+
+chrome.runtime.sendMessage({
+  type: "ML_AFFILIATE_READY"
+});
 
 chrome.runtime.onMessage.addListener((message) => {
-  if (!message || message.type !== "ML_AFFILIATE_GENERATE_ON_TAB") return;
+  if (!message || message.type !== "ML_AFFILIATE_GENERATE_ON_TAB") {
+    return;
+  }
 
   (async () => {
     const offer = message.offer || {};
@@ -53,60 +126,10 @@ chrome.runtime.onMessage.addListener((message) => {
     }
 
     try {
-      if (location.href.split("#")[0] !== productUrl.split("#")[0]) {
-        location.href = productUrl;
-        return;
-      }
-
-      const tagResponse = await fetch(TAGS_ENDPOINT, {
-        method: "GET",
-        headers: {
-          Accept: "application/json, text/plain, */*"
-        },
-        credentials: "include",
-        cache: "no-store"
-      });
-
-      const tagResult = await lerResposta(tagResponse);
-      const tagData = tagResult.json;
-
-      if (!tagResponse.ok) {
-        throw new Error(
-          "Mercado Livre recusou a consulta das etiquetas: HTTP " +
-          tagResponse.status +
-          (tagData?.message ? " - " + tagData.message : "")
-        );
-      }
-
-      const tags = Array.isArray(tagData)
-        ? tagData
-        : Array.isArray(tagData?.tags)
-          ? tagData.tags
-          : Array.isArray(tagData?.data)
-            ? tagData.data
-            : [];
-
-      const active =
-        tags.find((item) => item?.in_use === true) ||
-        tags.find((item) => item?.inUse === true) ||
-        tags.find((item) =>
-          String(item?.status || "").toLowerCase() === "active"
-        ) ||
-        null;
-
-      const tag = String(
-        active?.tag ||
-        active?.id ||
-        active?.name ||
-        ""
-      ).trim();
-
-      if (!tag) {
-        throw new Error(
-          "O Mercado Livre não informou uma etiqueta de afiliado ativa. " +
-          "Quantidade de etiquetas retornadas: " + tags.length + "."
-        );
-      }
+      // Não navegamos até o produto a cada oferta.
+      // O endpoint oficial aceita a URL do produto diretamente,
+      // então mantemos a mesma aba autenticada do Mercado Livre.
+      const tag = await obterTagAtiva();
 
       const linkResponse = await fetch(LINKS_ENDPOINT, {
         method: "POST",
@@ -155,6 +178,7 @@ chrome.runtime.onMessage.addListener((message) => {
       }
 
       let hostname = "";
+
       try {
         hostname = new URL(affiliateUrl).hostname.toLowerCase();
       } catch {}
