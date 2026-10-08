@@ -4,6 +4,7 @@ import { supabase } from "./supabase";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const SOURCE = "robo-de-ofertas";
+const RETRY_AFTER_MS = 20000;
 
 function isMercadoLivreAffiliateUrl(value) {
   try {
@@ -22,21 +23,58 @@ function isMercadoLivreAffiliateUrl(value) {
 }
 
 export default function MercadoLivreAffiliateBridge() {
-  const enviados = useRef(new Set());
   const processando = useRef(new Set());
+  const timeouts = useRef(new Map());
 
   useEffect(() => {
     let ativo = true;
 
+    const liberarOferta = (offerId) => {
+      const id = String(offerId || "").trim();
+      if (!id) return;
+      const timer = timeouts.current.get(id);
+      if (timer) window.clearTimeout(timer);
+      timeouts.current.delete(id);
+      processando.current.delete(id);
+    };
+
+    const programarRetry = (offerId) => {
+      const id = String(offerId || "").trim();
+      if (!id) return;
+      const anterior = timeouts.current.get(id);
+      if (anterior) window.clearTimeout(anterior);
+
+      const timer = window.setTimeout(() => {
+        timeouts.current.delete(id);
+        processando.current.delete(id);
+      }, RETRY_AFTER_MS);
+
+      timeouts.current.set(id, timer);
+    };
+
     const anexarLink = async (payload) => {
       const offerId = String(payload?.offer_id || "").trim();
       const affiliateUrl = String(payload?.affiliate_url || "").trim();
-      if (!offerId || !isMercadoLivreAffiliateUrl(affiliateUrl)) return;
+
+      if (!offerId) return;
+
+      if (!isMercadoLivreAffiliateUrl(affiliateUrl)) {
+        console.warn(
+          "Mercado Livre: a extensão respondeu sem um link de afiliado válido.",
+          payload?.error || "Resposta sem affiliate_url."
+        );
+        liberarOferta(offerId);
+        return;
+      }
 
       try {
         const { data: sessionData } = await supabase.auth.getSession();
         const token = sessionData?.session?.access_token;
-        if (!token) return;
+
+        if (!token) {
+          liberarOferta(offerId);
+          return;
+        }
 
         const response = await fetch(SUPABASE_URL + "/functions/v1/affiliate-link", {
           method: "POST",
@@ -52,22 +90,29 @@ export default function MercadoLivreAffiliateBridge() {
         });
 
         const result = await response.json().catch(() => ({}));
+
         if (response.ok && result?.ok) {
-          enviados.current.delete(offerId);
-          processando.current.delete(offerId);
+          liberarOferta(offerId);
+
           window.postMessage({
             source: SOURCE,
             type: "ML_AFFILIATE_SAVED",
             offer_id: offerId,
             affiliate_url: affiliateUrl
           }, "*");
-        } else {
-          processando.current.delete(offerId);
-          console.warn("Mercado Livre: não foi possível salvar o link.", result);
+          return;
         }
+
+        console.warn(
+          "Mercado Livre: não foi possível salvar o link.",
+          result
+        );
+        liberarOferta(offerId);
+        programarRetry(offerId);
       } catch (error) {
-        processando.current.delete(offerId);
         console.warn("Mercado Livre bridge:", error);
+        liberarOferta(offerId);
+        programarRetry(offerId);
       }
     };
 
@@ -81,6 +126,7 @@ export default function MercadoLivreAffiliateBridge() {
 
     const enviarPendentes = async () => {
       if (!ativo) return;
+
       try {
         const { data: sessionData } = await supabase.auth.getSession();
         if (!sessionData?.session?.user?.id) return;
@@ -102,11 +148,19 @@ export default function MercadoLivreAffiliateBridge() {
 
         for (const offer of data || []) {
           const offerId = String(offer.id);
-          const productUrl = String(offer.store_product_url || offer.url_produto || "").trim();
-          if (!productUrl || enviados.current.has(offerId) || processando.current.has(offerId)) continue;
+          const productUrl = String(
+            offer.store_product_url || offer.url_produto || ""
+          ).trim();
 
-          enviados.current.add(offerId);
+          if (
+            !productUrl ||
+            processando.current.has(offerId)
+          ) {
+            continue;
+          }
+
           processando.current.add(offerId);
+          programarRetry(offerId);
 
           window.postMessage({
             source: SOURCE,
@@ -130,6 +184,11 @@ export default function MercadoLivreAffiliateBridge() {
     return () => {
       ativo = false;
       window.clearInterval(timer);
+      for (const timeout of timeouts.current.values()) {
+        window.clearTimeout(timeout);
+      }
+      timeouts.current.clear();
+      processando.current.clear();
       window.removeEventListener("message", onMessage);
     };
   }, []);
