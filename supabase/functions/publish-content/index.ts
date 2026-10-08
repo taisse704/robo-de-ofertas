@@ -67,7 +67,7 @@ async function kwai(a:{db:any;userId:string;videoUrl:string;imageUrl:string;titl
   if(!pr.ok||pd.result!==1||!pd.video_info?.photo_id)throw new Error(pd.error_msg||`Kwai recusou a publicação (HTTP ${pr.status}).`);
   return {externalId:String(pd.video_info.photo_id),status:pd.video_info.pending?"publicando":"publicada",photoId:String(pd.video_info.photo_id),url:pd.video_info.play_url||null};
 }
-\nconst PINTEREST_API = "https://api.pinterest.com/v5";
+const PINTEREST_API = "https://api.pinterest.com/v5";
 async function pinterestToken(db:any,userId:string){
   const {data:a,error}=await db.from("channel_accounts").select("id,status,configuracao").eq("user_id",userId).eq("canal","pinterest").maybeSingle();
   if(error) throw error;
