@@ -1,9 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Robô de Ofertas — Links Mercado Livre",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Ponte automática entre o Robô de Ofertas e o Gerador de Links do Mercado Livre.",
-  "permissions": ["tabs"],
+  "permissions": [
+    "tabs"
+  ],
   "host_permissions": [
     "https://www.mercadolivre.com.br/*",
     "https://mercadolivre.com.br/*",
@@ -14,8 +16,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://taisse704.github.io/robo-de-ofertas/*"],
-      "js": ["app-bridge.js"],
+      "matches": [
+        "https://taisse704.github.io/robo-de-ofertas/*"
+      ],
+      "js": [
+        "app-bridge.js"
+      ],
       "run_at": "document_start"
     },
     {
@@ -23,7 +29,9 @@
         "https://www.mercadolivre.com.br/*",
         "https://mercadolivre.com.br/*"
       ],
-      "js": ["mercado-livre.js"],
+      "js": [
+        "mercado-livre.js"
+      ],
       "run_at": "document_start"
     }
   ]
