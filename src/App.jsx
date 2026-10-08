@@ -127,14 +127,55 @@ export default function App() {
 
   useEffect(() => {
     if (!usuario) return;
-    const onAffiliateSaved = (event) => {
+    let mounted = true;
+    const processarResultadoAfiliado = async (event) => {
       const data = event?.data;
-      if (!data || data.source !== "robo-de-ofertas" || data.type !== "ML_AFFILIATE_SAVED") return;
-      carregarOfertas();
-      setMensagemOferta("Link de afiliado do Mercado Livre gerado e salvo.");
+      if (
+        event.source !== window ||
+        !data ||
+        data.source !== "robo-de-ofertas" ||
+        data.type !== "ML_AFFILIATE_RESULT"
+      ) return;
+
+      const offerId = String(data.offer_id || "").trim();
+      if (!offerId) return;
+
+      if (data.ok !== true || !String(data.affiliate_url || "").trim()) {
+        setMensagemOferta(
+          "Não foi possível gerar o link do Mercado Livre: " +
+          String(data.error || "a extensão não retornou um link oficial.")
+        );
+        return;
+      }
+
+      try {
+        setMensagemOferta("Link oficial recebido. Salvando no Robô de Ofertas...");
+        const { data: saved, error } = await supabase.functions.invoke("affiliate-link", {
+          body: {
+            offer_id: offerId,
+            affiliate_url: String(data.affiliate_url).trim()
+          }
+        });
+        if (error) throw error;
+        if (!saved?.ok || saved?.status !== "gerado") {
+          throw new Error(saved?.error || saved?.proxima_acao || "O Supabase não confirmou o salvamento do link.");
+        }
+        if (!mounted) return;
+        await carregarOfertas();
+        setMensagemOferta("Link de afiliado oficial gerado e salvo. A oferta já pode seguir para a fila.");
+      } catch (error) {
+        console.error("SALVAR LINK AFILIADO MERCADO LIVRE:", error);
+        if (mounted) setMensagemOferta(
+          "O link foi recebido, mas não foi possível salvá-lo: " +
+          String(error?.message || error)
+        );
+      }
     };
-    window.addEventListener("message", onAffiliateSaved);
-    return () => window.removeEventListener("message", onAffiliateSaved);
+    window.addEventListener("message", processarResultadoAfiliado);
+    return () => {
+      mounted = false;
+      window.removeEventListener("message", processarResultadoAfiliado);
+    };
   }, [usuario]);
 
   useEffect(() => {
@@ -1013,7 +1054,7 @@ export default function App() {
         if (!productUrl) continue;
         window.postMessage({
           source: "robo-de-ofertas",
-          type: "ML_AFFILIATE_REQUEST",
+          type: "ML_AFFILIATE_GENERATE",
           offer: {
             offer_id: String(oferta.id),
             title: oferta.titulo || "Produto Mercado Livre",
@@ -1073,7 +1114,7 @@ export default function App() {
 
         window.postMessage({
           source: "robo-de-ofertas",
-          type: "ML_AFFILIATE_REQUEST",
+          type: "ML_AFFILIATE_GENERATE",
           offer: {
             offer_id: String(oferta.id),
             title: oferta.titulo || "Produto Mercado Livre",
