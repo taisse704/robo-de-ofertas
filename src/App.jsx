@@ -126,6 +126,18 @@ export default function App() {
   }, [usuario]);
 
   useEffect(() => {
+    if (!usuario) return;
+    const onAffiliateSaved = (event) => {
+      const data = event?.data;
+      if (!data || data.source !== "robo-de-ofertas" || data.type !== "ML_AFFILIATE_SAVED") return;
+      carregarOfertas();
+      setMensagemOferta("Link de afiliado do Mercado Livre gerado e salvo.");
+    };
+    window.addEventListener("message", onAffiliateSaved);
+    return () => window.removeEventListener("message", onAffiliateSaved);
+  }, [usuario]);
+
+  useEffect(() => {
     if (!usuario || pagina !== "cupons") return;
     carregarCupons();
   }, [usuario, pagina]);
