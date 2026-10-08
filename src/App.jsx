@@ -987,20 +987,55 @@ export default function App() {
     setEnfileirandoOfertas(true);
     setMensagemOferta("");
     try {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !session?.access_token) throw new Error("Sessao expirada. Faca login novamente.");
-      const response = await fetch(SUPABASE_URL + "/functions/v1/generate-content", {
-        method: "POST",
-        headers: { Authorization: "Bearer " + session.access_token, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: usuario.id, offer_ids: ids })
-      });
-      const resultado = await response.json().catch(() => ({}));
-      if (!response.ok || resultado?.ok === false) throw new Error(resultado?.error || resultado?.message || ("Erro HTTP " + response.status));
-      const count = Number(resultado.count || 0);
-      if (count > 0) {
-        await marcarOfertasComoCadastradas(ids);
+      const ofertas = ids.map((id) => listaOfertas.find((item) => String(item.id) === String(id))).filter(Boolean);
+      const pendentesML = ofertas.filter((o) =>
+        String(o.store_provider || "").toLowerCase() === "mercadolivre" &&
+        !String(o.affiliate_url || "").trim()
+      );
+      const idsGeracaoDireta = ofertas
+        .filter((o) => !pendentesML.some((p) => String(p.id) === String(o.id)))
+        .map((o) => o.id);
+
+      for (const oferta of pendentesML) {
+        const productUrl = String(oferta.store_product_url || oferta.url_produto || "").trim();
+        if (!productUrl) continue;
+        window.postMessage({
+          source: "robo-de-ofertas",
+          type: "ML_AFFILIATE_REQUEST",
+          offer: {
+            offer_id: String(oferta.id),
+            title: oferta.titulo || "Produto Mercado Livre",
+            product_url: productUrl,
+            product_external_id: oferta.product_external_id || null
+          }
+        }, "*");
       }
-      setMensagemOferta(count > 0 ? count + " oferta(s) colocada(s) na fila de publicação e transferida(s) para Cadastradas." : (resultado.message || "Nenhuma oferta nova foi colocada na fila."));
+
+      if (pendentesML.length) {
+        setMensagemOferta(
+          pendentesML.length === 1
+            ? "Gerando o link de afiliado oficial do Mercado Livre..."
+            : "Gerando os links de afiliado oficiais do Mercado Livre para as ofertas selecionadas..."
+        );
+      }
+
+      if (idsGeracaoDireta.length) {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError || !session?.access_token) throw new Error("Sessao expirada. Faca login novamente.");
+        const response = await fetch(SUPABASE_URL + "/functions/v1/generate-content", {
+          method: "POST",
+          headers: { Authorization: "Bearer " + session.access_token, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: usuario.id, offer_ids: idsGeracaoDireta })
+        });
+        const resultado = await response.json().catch(() => ({}));
+        if (!response.ok || resultado?.ok === false) throw new Error(resultado?.error || resultado?.message || ("Erro HTTP " + response.status));
+        const count = Number(resultado.count || 0);
+        if (count > 0) await marcarOfertasComoCadastradas(idsGeracaoDireta);
+        if (!pendentesML.length) {
+          setMensagemOferta(count > 0 ? count + " oferta(s) colocada(s) na fila de publicação e transferida(s) para Cadastradas." : (resultado.message || "Nenhuma oferta nova foi colocada na fila."));
+        }
+      }
+
       limparSelecaoOfertas();
       await carregarConteudos();
     } catch (error) {
@@ -1015,6 +1050,30 @@ export default function App() {
     setEnfileirandoOfertas(true);
     setMensagemOferta("");
     try {
+      const oferta = listaOfertas.find((item) => String(item.id) === String(id));
+      if (!oferta) throw new Error("Oferta não encontrada.");
+
+      const provider = String(oferta.store_provider || "").toLowerCase();
+      const productUrl = String(oferta.store_product_url || oferta.url_produto || "").trim();
+
+      if (provider === "mercadolivre" && !String(oferta.affiliate_url || "").trim()) {
+        if (!productUrl) throw new Error("Esta oferta do Mercado Livre não possui URL do produto.");
+
+        window.postMessage({
+          source: "robo-de-ofertas",
+          type: "ML_AFFILIATE_REQUEST",
+          offer: {
+            offer_id: String(oferta.id),
+            title: oferta.titulo || "Produto Mercado Livre",
+            product_url: productUrl,
+            product_external_id: oferta.product_external_id || null
+          }
+        }, "*");
+
+        setMensagemOferta("Gerando o link de afiliado oficial do Mercado Livre...");
+        return;
+      }
+
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !session?.access_token) throw new Error("Sessao expirada. Faca login novamente.");
       const response = await fetch(SUPABASE_URL + "/functions/v1/generate-content", {
