@@ -111,12 +111,9 @@ export default function MercadoLivreAffiliateBridge() {
           window.postMessage({
             source: SOURCE,
             type: "ML_AFFILIATE_GENERATE",
-            offer: {
-              offer_id: offerId,
-              title: offer.titulo || "Produto Mercado Livre",
-              product_url: productUrl,
-              product_external_id: offer.product_external_id || null
-            }
+            requestId: crypto.randomUUID(),
+            offerId,
+            productUrl
           }, "*");
         }
       } catch (error) {
