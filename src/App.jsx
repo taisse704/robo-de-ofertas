@@ -456,6 +456,34 @@ export default function App() {
     setCarregandoOfertas(false);
   }
 
+  async function limparOfertasManualmente() {
+    if (!usuario?.id) return;
+    const confirmar = window.confirm(
+      "Limpar os produtos/ofertas desta conta agora?\n\nIsso remove as ofertas, conteúdos gerados, publicações relacionadas, links afiliados, histórico de preços e tarefas derivados das ofertas. Suas conexões e configurações NÃO serão removidas."
+    );
+    if (!confirmar) return;
+
+    setCarregandoOfertas(true);
+    setMensagemOferta("Limpando ofertas...");
+    try {
+      const { data, error } = await supabase.rpc("limpar_minhas_ofertas");
+      if (error) throw error;
+      setListaOfertas([]);
+      setOfertasPublicadas(new Set());
+      setOfertasSelecionadas(new Set());
+      setNovasShopeeIds(new Set());
+      setMensagemOferta(
+        `Limpeza concluída: ${Number(data?.offers || 0)} oferta(s), ${Number(data?.products || 0)} produto(s) e ${Number(data?.contents || 0)} conteúdo(s) removidos.`
+      );
+      await Promise.all([carregarOfertas(), carregarOfertasPublicadas(), carregarConteudos()]);
+    } catch (error) {
+      console.error("LIMPAR OFERTAS:", error);
+      setMensagemOferta(error?.message || "Não foi possível limpar as ofertas.");
+    } finally {
+      setCarregandoOfertas(false);
+    }
+  }
+
   async function carregarOfertasPublicadas() {
     const { data, error } = await supabase
       .from("offer_publications")
@@ -1263,7 +1291,7 @@ export default function App() {
         {pagina === "ofertas-ml" && (
           <>
             <h2>Ofertas Mercado Livre</h2>
-            <div className="panel"><button className="primary" onClick={buscarOfertasMercadoLivre} disabled={carregandoOfertas}>{carregandoOfertas ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DO MERCADO LIVRE"}</button></div>
+            <div className="panel" style={{display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap"}}><button className="primary" onClick={buscarOfertasMercadoLivre} disabled={carregandoOfertas || carregandoShopee}>{carregandoOfertas ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DO MERCADO LIVRE"}</button><button className="secondary danger" onClick={limparOfertasManualmente} disabled={carregandoOfertas || carregandoShopee}>🗑️ LIMPAR OFERTAS</button></div>
             {mensagemOferta && <div className="panel"><p>{mensagemOferta}</p></div>}
             <div className="offer-tabs">
               <button className={abaOfertas === "novas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("novas")}>🆕 Novas <span>{listaOfertas.filter((o) => (o.store_provider === "mercadolivre" || o.platforms?.nome === "Mercado Livre") && ofertaEhNova(o)).length}</span></button>
@@ -1288,7 +1316,7 @@ export default function App() {
         {pagina === "ofertas-shopee" && (
           <>
             <h2>Ofertas Shopee</h2>
-            <div className="panel"><button className="primary" onClick={buscarOfertasShopee} disabled={carregandoShopee}>{carregandoShopee ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DA SHOPEE"}</button></div>
+            <div className="panel" style={{display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap"}}><button className="primary" onClick={buscarOfertasShopee} disabled={carregandoShopee || carregandoOfertas}>{carregandoShopee ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DA SHOPEE"}</button><button className="secondary danger" onClick={limparOfertasManualmente} disabled={carregandoShopee || carregandoOfertas}>🗑️ LIMPAR OFERTAS</button></div>
             {mensagemShopee && <div className="panel"><p>{mensagemShopee}</p></div>}
             <div className="offer-tabs">
               <button className={abaOfertas === "novas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("novas")}>🆕 Novas <span>{listaOfertas.filter((o) => (o.store_provider === "shopee" || o.platforms?.nome === "Shopee") && ofertaEhNova(o)).length}</span></button>
