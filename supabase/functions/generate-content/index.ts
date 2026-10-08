@@ -85,6 +85,13 @@ Deno.serve(async (req) => {
     const conteudos = [];
 
     for (const offer of offers) {
+      const isMercadoLivre = String(offer.store_provider || "").toLowerCase() === "mercadolivre";
+      const affiliateUrl = String(offer.affiliate_url || "").trim();
+
+      // Mercado Livre só pode entrar no conteúdo depois que o link oficial
+      // de afiliado foi realmente gerado e salvo.
+      if (isMercadoLivre && !affiliateUrl) continue;
+
       const { data: exists } = await db
         .from("contents")
         .select("id")
@@ -100,7 +107,7 @@ Deno.serve(async (req) => {
       const old = Number(offer.preco_anterior || 0);
       const discount = Number(offer.desconto_percentual || 0);
       const title = offer.titulo || "Oferta especial";
-      const link = offer.affiliate_url || offer.url_produto || "";
+      const link = isMercadoLivre ? affiliateUrl : (affiliateUrl || offer.url_produto || "");
 
       let legenda = "🔥 " + title + "\n\n💰 Por R$ " +
         price.toFixed(2).replace(".", ",");
