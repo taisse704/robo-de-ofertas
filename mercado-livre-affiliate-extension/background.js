@@ -3,6 +3,7 @@ let mlTabId = null;
 let fila = [];
 let processando = false;
 let aguardandoNavegacao = false;
+let timeoutProcessamento = null;
 
 function enviarResultadoParaApp(message) {
   chrome.tabs.query({
@@ -12,6 +13,22 @@ function enviarResultadoParaApp(message) {
       if (tab.id) chrome.tabs.sendMessage(tab.id, message).catch(() => {});
     }
   }).catch(() => {});
+}
+
+function limparTimeoutProcessamento() {
+  if (timeoutProcessamento) {
+    clearTimeout(timeoutProcessamento);
+    timeoutProcessamento = null;
+  }
+}
+
+function agendarTimeoutProcessamento() {
+  limparTimeoutProcessamento();
+  timeoutProcessamento = setTimeout(() => {
+    processando = false;
+    aguardandoNavegacao = false;
+    enviarItemAtual().catch(() => {});
+  }, 30000);
 }
 
 async function encontrarOuCriarAbaMercadoLivre() {
@@ -49,13 +66,14 @@ async function enviarItemAtual() {
   if (processando || !fila.length) return;
 
   const item = fila[0];
+  const offerId = String(item.offer?.offer_id || "").trim();
   const destino = String(item.offer?.product_url || "").trim();
 
-  if (!item.offer?.offer_id || !destino) {
+  if (!offerId || !destino) {
     fila.shift();
     enviarResultadoParaApp({
       type: "ML_AFFILIATE_RESULT",
-      offer_id: item.offer?.offer_id || null,
+      offer_id: offerId || null,
       error: "Oferta sem ID ou URL do produto."
     });
     setTimeout(enviarItemAtual, 100);
@@ -76,6 +94,7 @@ async function enviarItemAtual() {
         url: destino,
         active: false
       });
+      agendarTimeoutProcessamento();
       return;
     }
 
@@ -83,11 +102,12 @@ async function enviarItemAtual() {
       type: "ML_AFFILIATE_GENERATE_ON_TAB",
       offer: item.offer
     });
+
+    agendarTimeoutProcessamento();
   } catch (error) {
     processando = false;
+    aguardandoNavegacao = false;
 
-    // A página pode ainda estar recriando o content script.
-    // Mantém a oferta na fila e tenta novamente.
     setTimeout(() => {
       enviarItemAtual().catch(() => {});
     }, 1000);
@@ -101,11 +121,11 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     sender.tab?.url?.startsWith(APP_MATCH) &&
     message.type === "ML_AFFILIATE_GENERATE"
   ) {
-    const offerId = message.offer?.offer_id;
+    const offerId = String(message.offer?.offer_id || "").trim();
 
     if (
       offerId &&
-      !fila.some((item) => item.offer?.offer_id === offerId)
+      !fila.some((item) => String(item.offer?.offer_id || "") === offerId)
     ) {
       fila.push(message);
     }
@@ -119,28 +139,35 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       mlTabId = sender.tab.id;
       aguardandoNavegacao = false;
 
-      // O content script acabou de ficar pronto.
-      // Se houver oferta aguardando, entrega imediatamente.
       if (fila.length) {
         processando = false;
+        limparTimeoutProcessamento();
         setTimeout(() => {
           enviarItemAtual().catch(() => {});
-        }, 150);
+        }, 300);
       }
     }
     return;
   }
 
   if (message.type === "ML_AFFILIATE_RESULT") {
-    fila.shift();
+    const resultOfferId = String(message.offer_id || "").trim();
+    const index = fila.findIndex(
+      (item) => String(item.offer?.offer_id || "") === resultOfferId
+    );
+
+    if (index >= 0) fila.splice(index, 1);
+
+    limparTimeoutProcessamento();
     processando = false;
     aguardandoNavegacao = false;
 
     enviarResultadoParaApp({
       type: "ML_AFFILIATE_RESULT",
-      offer_id: message.offer_id,
+      offer_id: resultOfferId || null,
       affiliate_url: message.affiliate_url || null,
-      error: message.error || null
+      error: message.error || null,
+      ok: message.ok !== false
     });
 
     setTimeout(() => {
@@ -155,10 +182,11 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "complete" && fila.length) {
     aguardandoNavegacao = false;
     processando = false;
+    limparTimeoutProcessamento();
 
     setTimeout(() => {
       enviarItemAtual().catch(() => {});
-    }, 500);
+    }, 700);
   }
 });
 
@@ -167,6 +195,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     mlTabId = null;
     processando = false;
     aguardandoNavegacao = false;
+    limparTimeoutProcessamento();
 
     if (fila.length) {
       setTimeout(() => {
