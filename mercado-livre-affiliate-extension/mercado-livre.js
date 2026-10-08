@@ -2,6 +2,22 @@ const SOURCE = "robo-de-ofertas";
 const LINKS_ENDPOINT = "/affiliate-program/api/v2/stripe/user/links";
 const TAGS_ENDPOINT = "/affiliate-program/api/v2/stripe/user/tags";
 const TAG_CACHE_MS = 5 * 60 * 1000;
+const FETCH_TIMEOUT_MS = 12000;
+
+async function fetchComTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("O Mercado Livre demorou mais de 12 segundos para responder. Verifique se a conta está conectada e tente novamente.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 let tagCache = "";
 let tagCacheAt = 0;
@@ -47,7 +63,7 @@ async function obterTagAtiva() {
     return tagCache;
   }
 
-  const tagResponse = await fetch(TAGS_ENDPOINT, {
+  const tagResponse = await fetchComTimeout(TAGS_ENDPOINT, {
     method: "GET",
     headers: {
       Accept: "application/json, text/plain, */*"
@@ -131,7 +147,7 @@ chrome.runtime.onMessage.addListener((message) => {
       // então mantemos a mesma aba autenticada do Mercado Livre.
       const tag = await obterTagAtiva();
 
-      const linkResponse = await fetch(LINKS_ENDPOINT, {
+      const linkResponse = await fetchComTimeout(LINKS_ENDPOINT, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
