@@ -24,9 +24,32 @@ function limparTimeoutProcessamento() {
 function agendarTimeoutProcessamento() {
   limparTimeoutProcessamento();
   timeoutProcessamento = setTimeout(() => {
+    const item = fila.shift();
     processando = false;
+    if (item) {
+      enviarResultadoParaApp({
+        type: "ML_AFFILIATE_RESULT",
+        offer_id: String(item.offer?.offer_id || "") || null,
+        ok: false,
+        error: "Tempo esgotado aguardando o Mercado Livre gerar o link. Tente novamente com a aba do Mercado Livre aberta e conectada."
+      });
+    }
     enviarItemAtual().catch(() => {});
   }, 30000);
+}
+
+async function enviarMensagemComTentativas(tabId, message) {
+  let lastError = null;
+  for (let tentativa = 0; tentativa < 8; tentativa++) {
+    try {
+      await chrome.tabs.sendMessage(tabId, message);
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  throw lastError || new Error("A extensão não conseguiu comunicar com a página do Mercado Livre.");
 }
 
 async function encontrarOuCriarAbaMercadoLivre(destino) {
@@ -85,7 +108,7 @@ async function enviarItemAtual() {
     // a URL do produto no payload. Não exigimos que a aba esteja exatamente
     // na mesma URL, porque o Mercado Livre pode redirecionar /p/MLB... para
     // uma URL canônica diferente.
-    await chrome.tabs.sendMessage(tabId, {
+    await enviarMensagemComTentativas(tabId, {
       type: "ML_AFFILIATE_GENERATE_ON_TAB",
       offer: item.offer
     });
@@ -149,7 +172,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (tabId !== mlTabId) return;
-  if (changeInfo.status === "complete" && fila.length) {
+  if (changeInfo.status === "complete" && fila.length && !processando) {
     processando = false;
     limparTimeoutProcessamento();
     setTimeout(() => enviarItemAtual().catch(() => {}), 700);
