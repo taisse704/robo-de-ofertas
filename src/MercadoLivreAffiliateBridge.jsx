@@ -94,6 +94,28 @@ export default function MercadoLivreAffiliateBridge() {
         if (response.ok && result?.ok) {
           liberarOferta(offerId);
 
+          // Só gera o conteúdo depois que o link oficial foi salvo.
+          try {
+            const contentResponse = await fetch(SUPABASE_URL + "/functions/v1/generate-content", {
+              method: "POST",
+              headers: {
+                Authorization: "Bearer " + token,
+                apikey: SUPABASE_ANON_KEY,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                user_id: sessionData.session.user.id,
+                offer_ids: [offerId]
+              })
+            });
+            const contentResult = await contentResponse.json().catch(() => ({}));
+            if (!contentResponse.ok || contentResult?.ok === false) {
+              console.warn("Mercado Livre: link salvo, mas o conteúdo não foi gerado.", contentResult);
+            }
+          } catch (error) {
+            console.warn("Mercado Livre: erro ao gerar conteúdo após salvar o link.", error);
+          }
+
           window.postMessage({
             source: SOURCE,
             type: "ML_AFFILIATE_SAVED",
@@ -119,7 +141,33 @@ export default function MercadoLivreAffiliateBridge() {
     const onMessage = (event) => {
       const data = event?.data;
       if (!data || data.source !== SOURCE) return;
-      if (data.type === "ML_AFFILIATE_RESULT") anexarLink(data);
+
+      if (data.type === "ML_AFFILIATE_RESULT") {
+        anexarLink(data);
+        return;
+      }
+
+      if (data.type === "ML_AFFILIATE_REQUEST") {
+        const offer = data.offer || {};
+        const offerId = String(offer.offer_id || "").trim();
+        const productUrl = String(offer.product_url || "").trim();
+
+        if (!offerId || !productUrl || processando.current.has(offerId)) return;
+
+        processando.current.add(offerId);
+        programarRetry(offerId);
+
+        window.postMessage({
+          source: SOURCE,
+          type: "ML_AFFILIATE_GENERATE",
+          offer: {
+            offer_id: offerId,
+            title: offer.title || "Produto Mercado Livre",
+            product_url: productUrl,
+            product_external_id: offer.product_external_id || null
+          }
+        }, "*");
+      }
     };
 
     window.addEventListener("message", onMessage);
