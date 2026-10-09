@@ -1202,11 +1202,15 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Prioridade: posição no ranking de mais vendidos, depois promoção/desconto.
+    // Comissão não está disponível de forma confiável neste endpoint; não inventamos valores.
     candidates.sort(
       (a, b) =>
-        b.score - a.score ||
+        a.position - b.position ||
         b.discount - a.discount ||
-        a.position - b.position
+        Number(Boolean(b.promotion_id)) - Number(Boolean(a.promotion_id)) ||
+        Number(Boolean(b.free_shipping)) - Number(Boolean(a.free_shipping)) ||
+        b.score - a.score
     );
 
     // Identidade exata é a regra principal. Título parecido não é suficiente:
