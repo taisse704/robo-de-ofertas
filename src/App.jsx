@@ -950,31 +950,52 @@ export default function App() {
         0
       );
 
-      const diagnosticos = Array.isArray(resultado?.diagnostics)
-        ? resultado.diagnostics
-        : Array.isArray(resultado?.diagnostico)
-          ? resultado.diagnostico
+      const diagnosticos = resultado?.diagnostics ?? resultado?.diagnostico ?? null;
+
+      // process-offers retorna um objeto de diagnóstico (não uma lista).
+      // Exibimos os contadores e os status por categoria para distinguir
+      // ranking vazio, falha de conversão, ausência de preço ou duplicatas.
+      let diagnosticoTexto = "";
+      if (Array.isArray(diagnosticos)) {
+        diagnosticoTexto = diagnosticos.map((d) => {
+          if (typeof d === "string") return d;
+          const term = d?.term || d?.termo || d?.categoria || "Mercado Livre";
+          const status = d?.search_status ?? d?.catalog_status ?? d?.status ?? "—";
+          const results = d?.search_results ?? d?.catalog_results ?? d?.results ?? d?.encontrados ?? 0;
+          const err = d?.erro ? `, erro: ${d.erro}` : "";
+          return `${term}: HTTP ${status}, ${results} resultados${err}`;
+        }).join(" | ");
+      } else if (diagnosticos && typeof diagnosticos === "object") {
+        const counts = [
+          ["destaques", diagnosticos.destaques_recebidos],
+          ["resolvidos", diagnosticos.destaques_resolvidos],
+          ["itens consultados", diagnosticos.itens_consultados],
+          ["itens com detalhes", diagnosticos.itens_com_detalhes],
+          ["candidatos com preço", diagnosticos.candidatos_com_preco],
+          ["duplicados ignorados", diagnosticos.duplicados_ignorados],
+          ["ofertas existentes ignoradas", diagnosticos.existentes_ignorados],
+          ["produtos em promoção", diagnosticos.em_promocao]
+        ].filter(([, value]) => value !== undefined && value !== null)
+          .map(([label, value]) => `${label}: ${value}`);
+
+        const categories = Array.isArray(diagnosticos.categorias_consultadas)
+          ? diagnosticos.categorias_consultadas.map((d) => {
+              const category = d?.categoria || d?.categoria_nome || d?.categoria_id || "categoria";
+              const status = d?.status ?? "—";
+              const count = d?.encontrados ?? 0;
+              const err = d?.erro ? `, erro: ${d.erro}` : "";
+              return `${category}: HTTP ${status}, ${count} destaques${err}`;
+            })
           : [];
 
-      const diagnosticoTexto = diagnosticos
-        .map((d) => {
-          if (typeof d === "string") return d;
+        const errors = Array.isArray(diagnosticos.erros_resolucao)
+          ? diagnosticos.erros_resolucao.slice(0, 3).map((e) =>
+              `erro ${e?.tipo || "resultado"} ${e?.id || ""}: HTTP ${e?.status ?? "—"} ${e?.erro || e?.message || ""}`
+            )
+          : [];
 
-          const term = d?.term || d?.termo || "Mercado Livre";
-          const status =
-            d?.search_status ??
-            d?.catalog_status ??
-            d?.status ??
-            "—";
-          const results =
-            d?.search_results ??
-            d?.catalog_results ??
-            d?.results ??
-            0;
-
-          return `${term}: HTTP ${status}, ${results} resultados`;
-        })
-        .join(" | ");
+        diagnosticoTexto = [...counts, ...categories, ...errors].join(" | ");
+      }
 
       let mensagem =
         `Busca concluida: ${encontrados} produtos encontrados e ${novasEncontradas} nova(s) oferta(s) adicionada(s).`;
