@@ -61,6 +61,9 @@ Deno.serve(async (req) => {
       .eq("user_id", userId)
       .eq("permitido_divulgacao", true);
 
+    // Não cria conteúdo que não tenha mídia de origem utilizável.
+    // Isso evita tarefas de vídeo que já nascem sem imagem/capa.
+    offersQuery = offersQuery.or("imagem_url.not.is.null,video_url.not.is.null");
     if (selectedOfferIds.length) offersQuery = offersQuery.in("id", selectedOfferIds);
 
     // No modo automático, não podemos limitar a seleção aos 10 primeiros
@@ -69,7 +72,9 @@ Deno.serve(async (req) => {
     // ofertas, mesmo havendo centenas de ofertas elegíveis.
     //
     // Para seleção manual (offer_ids), mantemos exatamente os IDs escolhidos.
-    const candidateLimit = selectedOfferIds.length ? selectedOfferIds.length : 100;
+    // Uma rodada automática cria no máximo 20 conteúdos para não inundar
+    // a fila enquanto o processamento de vídeo estiver pendente.
+    const candidateLimit = selectedOfferIds.length ? selectedOfferIds.length : 20;
 
     const { data: offers, error } = await offersQuery
       .order("score_oferta", { ascending: false })
@@ -133,7 +138,12 @@ Deno.serve(async (req) => {
       const paymentMethods = Array.isArray(origin.payment_methods)
         ? origin.payment_methods.map((x: unknown) => String(x).toLowerCase())
         : [];
-      const pixConfirmed = paymentInfo.includes("pix") || paymentMethods.some((x: string) => x.includes("pix"));
+      const paymentVerifiedAt = Date.parse(String(origin.payment_method_verified_at || ""));
+      const paymentInfoFresh = Number.isFinite(paymentVerifiedAt) &&
+        paymentVerifiedAt <= Date.now() &&
+        Date.now() - paymentVerifiedAt <= 24 * 60 * 60 * 1000;
+      const pixConfirmed = paymentInfoFresh &&
+        (paymentInfo.includes("pix") || paymentMethods.some((x: string) => x.includes("pix")));
 
       let legenda = "🔥 *" + headline + "* 🔥\n\n🛍️ " + title + "\n\n";
       if (old > price) {
