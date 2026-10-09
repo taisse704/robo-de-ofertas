@@ -1422,7 +1422,6 @@ Deno.serve(async (req) => {
       const updatePayload: Record<string, unknown> = {
         titulo: safeTitle,
         url_produto: canonicalProductUrl,
-        url_produto: canonicalProductUrl,
         store_provider: "mercadolivre",
         store_product_url: canonicalProductUrl,
         preco_atual: o.current,
@@ -1498,8 +1497,13 @@ Deno.serve(async (req) => {
           categoria_nome: o.categoria_nome,
           categoria_grupo: o.categoria_grupo,
           posicao_ranking: o.position,
-          item_id: o.external_id
+          item_id: o.external_id,
+          ...(o.seller_id ? { seller_id: o.seller_id } : {}),
+          ...(o.seller_name ? { seller_name: o.seller_name } : {}),
+          ...(o.payment_method ? { payment_method: o.payment_method, payment_method_verified_at: now } : {}),
+          ...(o.coupon_code ? { coupon_code: o.coupon_code } : {})
         },
+        ...(o.coupon_code ? { cupom_codigo: o.coupon_code } : {}),
         promocao_id_externo: o.promotion_id,
         oferta_tipo: o.oferta_tipo,
         melhor_preco: o.discount > 0 || Boolean(o.promotion_id),
