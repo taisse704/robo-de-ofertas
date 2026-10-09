@@ -1214,7 +1214,15 @@ Deno.serve(async (req) => {
     const unique: any[] = [];
     const seenProducts = new Set<string>();
     const seenItems = new Set<string>();
+    const normalizeTitleKey = (value: unknown) => String(value || "").trim().toLowerCase();
+    const existingTitleKeys = new Set(
+      (existingOffers || [])
+        .map((item: any) => normalizeTitleKey(item?.titulo))
+        .filter(Boolean)
+    );
+    const seenTitleKeys = new Set<string>();
     let duplicadosIgnorados = 0;
+    let titulosDuplicadosIgnorados = 0;
     let existentesIgnorados = 0;
 
     for (const item of candidates) {
@@ -1231,6 +1239,16 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      // O banco também exige título único por usuário/plataforma.
+      // Ignoramos previamente o título repetido para uma oferta não abortar
+      // toda a busca com erro PostgreSQL 23505.
+      const titleKey = normalizeTitleKey(item.title);
+      if (titleKey && (existingTitleKeys.has(titleKey) || seenTitleKeys.has(titleKey))) {
+        titulosDuplicadosIgnorados++;
+        existentesIgnorados++;
+        continue;
+      }
+
       // Não deixa uma oferta já cadastrada ocupar uma das vagas de novidades.
       // Assim a função continua percorrendo o ranking para encontrar produtos novos.
       if (
@@ -1243,6 +1261,7 @@ Deno.serve(async (req) => {
 
       if (productId) seenProducts.add(productId);
       if (itemId) seenItems.add(itemId);
+      if (titleKey) seenTitleKeys.add(titleKey);
       unique.push(item);
 
       if (unique.length >= limit) break;
@@ -1415,6 +1434,7 @@ Deno.serve(async (req) => {
         produtos_catalogo_processados: resolved.filter((r) => Boolean(r.product?.buy_box_winner)).length,
         candidatos_com_preco: candidates.length,
         duplicados_ignorados: duplicadosIgnorados,
+        titulos_duplicados_ignorados: titulosDuplicadosIgnorados,
         existentes_ignorados: existentesIgnorados,
         em_promocao: candidates.filter((x) => x.discount > 0 || x.promotion_id).length,
         sem_preco: Math.max(0, resolved.length - itemMap.size),
