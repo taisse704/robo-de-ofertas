@@ -478,11 +478,11 @@ export default function App() {
       }
 
       setMensagemConteudo(
-        modo === "video"
-          ? (resultado.video_status === "original_disponivel"
-              ? "Vídeo original selecionado e pronto para publicação."
-              : "Vídeo solicitado. O gerador vai criar o vídeo automaticamente.")
-          : "Conteúdo alterado para post com imagem, sem vídeo."
+        resultado.fallback
+          ? "Não há vídeo original nem gerador de vídeo ativo. O conteúdo foi mantido como post com imagem."
+          : modo === "video"
+            ? "Vídeo original selecionado e pronto para publicação."
+            : "Conteúdo alterado para post com imagem, sem vídeo."
       );
       await carregarConteudos();
     } catch (error) {
