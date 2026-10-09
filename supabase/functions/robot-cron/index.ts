@@ -15,11 +15,8 @@ Deno.serve(async req=>{
   if(!expected||req.headers.get("x-robot-secret")!==expected)return j({ok:false,error:"Não autorizado."},401);
   const {data:users,error}=await db.from("robot_settings").select("user_id").eq("ativo",true).eq("busca_automatica",true).not("user_id","is",null);
   if(error)throw error;
-  const out:any[]=[];
-  for(const row of users||[]){
-   const r=await fetch(`${U}/functions/v1/robot-worker`,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+S,"apikey":S},body:JSON.stringify({user_id:row.user_id})});
-   out.push({user_id:row.user_id,ok:r.ok,result:await r.json().catch(()=>({}))});
-  }
-  return j({ok:true,usuarios_processados:out.length,resultados:out});
+  const r=await fetch(`${U}/functions/v1/robot-worker`,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+S,"apikey":S},body:JSON.stringify({})});
+  const result=await r.json().catch(()=>({ok:false,error:"Resposta inválida"}));
+  return j({ok:r.ok && result?.ok!==false,usuarios_processados:Number(result?.usuarios_processados||users?.length||0),resultados:result?.resultados||[],worker:result});
  }catch(e){console.error("ROBOT-CRON ERRO:",e);return j({ok:false,error:e instanceof Error?e.message:"Erro interno."},500);}
 });
