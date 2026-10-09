@@ -1299,7 +1299,9 @@ Deno.serve(async (req) => {
     if (moveOldNewError) throw moveOldNewError;
 
     let atualizadas = 0;
-    const limiteAtualizacoes = Math.min(limit, 20);
+    // No máximo 'limit' operações de oferta por busca: primeiro as novidades,
+    // depois atualizações das já cadastradas com as vagas restantes.
+    const limiteAtualizacoes = Math.max(0, limit - unique.length);
     const existingByProduct = new Map((existingOffers || []).map((x: any) => [String(x.product_external_id || ""), x]));
     const existingByItem = new Map((existingOffers || []).map((x: any) => [String(x?.dados_origem?.item_id || ""), x]).filter(([k]: any[]) => Boolean(k)));
     const matchedExisting = new Set<string>();
