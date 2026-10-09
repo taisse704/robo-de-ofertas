@@ -89,8 +89,42 @@ Deno.serve(async (req) => {
       ? offer.video_url.trim()
       : (typeof content.video_url === "string" && content.video_url.trim() ? content.video_url.trim() : null);
 
-    const videoSource = originalVideo ? (offer?.video_source || content.video_source || "original") : "gerado";
-    const videoStatus = originalVideo ? "original_disponivel" : "aguardando_geracao";
+    // Não há renderizador de vídeo ativo no projeto. Sem vídeo original,
+    // nunca criamos um job pendente que não possa ser processado.
+    if (!originalVideo) {
+      const image = String(offer?.imagem_url || content.thumbnail_url || "").trim();
+      if (!image) {
+        return out({
+          ok: false,
+          error: "Este produto ainda está sem imagem e não possui vídeo original. A tarefa não foi colocada na fila; a busca precisa recuperar a imagem primeiro."
+        }, 409);
+      }
+      const { data: post, error: postError } = await db.from("contents")
+        .update({
+          tipo: "oferta_rapida",
+          thumbnail_url: image,
+          video_url: null,
+          video_source: null,
+          video_status: "nao_solicitado",
+          video_storage_path: null,
+          status: "pronto",
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", contentId)
+        .eq("user_id", userId)
+        .select()
+        .single();
+      if (postError) throw postError;
+      return out({
+        ok: true,
+        modo: "post",
+        fallback: true,
+        error: "Não há vídeo original nem renderizador de vídeo ativo; o conteúdo foi mantido como post com imagem."
+      });
+    }
+
+    const videoSource = offer?.video_source || content.video_source || "original";
+    const videoStatus = "original_disponivel";
 
     const { data: updated, error: ue } = await db.from("contents")
       .update({
@@ -120,37 +154,6 @@ Deno.serve(async (req) => {
         dados: { origem: "set-content-mode" },
         updated_at: new Date().toISOString()
       }, { onConflict: "content_id" });
-    } else {
-      const { data: activeJob } = await db.from("video_jobs")
-        .select("id,status")
-        .eq("content_id", contentId)
-        .in("status", ["pendente", "processando", "concluido"])
-        .limit(1)
-        .maybeSingle();
-
-      if (!activeJob) {
-        const price = Number(offer?.preco_atual || 0);
-        const discount = Number(offer?.desconto_percentual || 0);
-        const { error: je } = await db.from("video_jobs").insert({
-          user_id: userId,
-          offer_id: content.offer_id,
-          content_id: contentId,
-          status: "pendente",
-          source_type: "gerar",
-          dados: {
-            formato: "9:16",
-            largura: 1080,
-            altura: 1920,
-            duracao_segundos: 10,
-            titulo: content.titulo,
-            preco: price,
-            desconto: discount,
-            imagem_url: offer?.imagem_url || content.thumbnail_url || null,
-            provider: offer?.store_provider || null
-          }
-        });
-        if (je && je.code !== "23505") throw je;
-      }
     }
 
     return out({ ok: true, modo: "video", video_status: videoStatus, content: updated });
