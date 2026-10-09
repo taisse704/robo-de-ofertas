@@ -113,11 +113,11 @@ Deno.serve(async (req) => {
         maximumFractionDigits: 2
       });
       const headlineBase = title
-        .replace(/\\s+/g, " ")
+        .replace(/\s+/g, " ")
         .split(/[|,;:]/)[0]
         .trim()
         .slice(0, 54)
-        .replace(/\\s+\\S*$/, "")
+        .replace(/\s+\S*$/, "")
         .trim();
       const headline = (headlineBase || "OFERTA").toLocaleUpperCase("pt-BR") + " NO PRECINHO";
       const origin = offer.dados_origem && typeof offer.dados_origem === "object"
@@ -135,17 +135,17 @@ Deno.serve(async (req) => {
         : [];
       const pixConfirmed = paymentInfo.includes("pix") || paymentMethods.some((x: string) => x.includes("pix"));
 
-      let legenda = "🔥 *" + headline + "* 🔥\\n\\n🛍️ " + title + "\\n\\n";
+      let legenda = "🔥 *" + headline + "* 🔥\n\n🛍️ " + title + "\n\n";
       if (old > price) {
         legenda += "💰 De ~R$ " + money(old) + "~ por *R$ " + money(price) + "*";
       } else {
         legenda += "💰 Por *R$ " + money(price) + "*";
       }
-      if (discount > 0) legenda += "\\n🏷️ *" + discount + "% OFF*";
-      if (coupon) legenda += "\\n🎟️ Use o cupom: *" + coupon + "*";
-      if (pixConfirmed) legenda += "\\n💳 Selecione *Pix* para garantir o preço";
-      if (seller) legenda += "\\n\\n🏪 Vendido por " + seller + " no Mercado Livre";
-      legenda += "\\n\\n🛒 Compre aqui 👇\\n" + link;
+      if (discount > 0) legenda += "\n🏷️ *" + discount + "% OFF*";
+      if (coupon) legenda += "\n🎟️ Use o cupom: *" + coupon + "*";
+      if (pixConfirmed) legenda += "\n💳 Selecione *Pix* para garantir o preço";
+      if (seller) legenda += "\n\n🏪 Vendido por " + seller + " no Mercado Livre";
+      legenda += "\n\n🛒 Compre aqui 👇\n" + link;
 
       const originalVideo = typeof offer.video_url === "string" && offer.video_url.trim()
         ? offer.video_url.trim()
