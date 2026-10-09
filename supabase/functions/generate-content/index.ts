@@ -112,13 +112,13 @@ Deno.serve(async (req) => {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2
       });
-      const headlineBase = title
+      const headlineSource = title
         .replace(/\s+/g, " ")
         .split(/[|,;:]/)[0]
-        .trim()
-        .slice(0, 54)
-        .replace(/\s+\S*$/, "")
         .trim();
+      const headlineBase = headlineSource.length > 54
+        ? headlineSource.slice(0, 54).replace(/\s+\S*$/, "").trim()
+        : headlineSource;
       const headline = (headlineBase || "OFERTA").toLocaleUpperCase("pt-BR") + " NO PRECINHO";
       const origin = offer.dados_origem && typeof offer.dados_origem === "object"
         ? offer.dados_origem
