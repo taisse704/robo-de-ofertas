@@ -36,6 +36,7 @@ Deno.serve(async req=>{
   const userId=String(b.user_id||"");
   const contentId=String(b.content_id||"");
   if(!userId||!contentId)return j({ok:false,error:"user_id e content_id são obrigatórios."},400);
+  if(!BASE||!TOKEN)return j({ok:false,error:"Stories do Instagram não configurados: faltam STORRITO_API_BASE_URL e STORRITO_API_TOKEN."},409);
 
   const {data:content,error:ce}=await db.from("contents")
     .select("id,user_id,offer_id,titulo,legenda,thumbnail_url,imagem_1080_url,imagem_story_1080_url,video_url")
