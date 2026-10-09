@@ -861,8 +861,10 @@ Deno.serve(async (req) => {
           categoria_grupo: category.grupo
         });
         entriesFromCategory++;
-        // Evita que uma única categoria ocupe toda a amostra consultada.
-        if (entriesFromCategory >= 8) break;
+        // Lemos todos os destaques disponíveis por categoria. A seleção final
+        // continua limitada a 2 por categoria e 5 por grupo, então ampliar a
+        // amostra ajuda a encontrar produtos realmente novos sem perder diversidade.
+        if (entriesFromCategory >= 20) break;
       }
 
       // Não encerrar a coleta apenas porque os primeiros 120 destaques
