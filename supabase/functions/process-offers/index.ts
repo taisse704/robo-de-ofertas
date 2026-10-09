@@ -46,6 +46,14 @@ const CATEGORY_EXCLUDE = new Set([
   "Mais Categorias"
 ]);
 
+// IDs que o endpoint /highlights rejeitou repetidamente como dimensão inválida.
+// Ignorá-los evita chamadas 404 sem afetar as categorias que respondem com HTTP 200.
+const INVALID_HIGHLIGHT_CATEGORY_IDS = new Set([
+  "MLB73048", "MLB439348", "MLB459667", "MLB1902", "MLB186267",
+  "MLB277607", "MLB33422", "MLB457041", "MLB1899", "MLB455719",
+  "MLB459710", "MLB1647", "MLB457530", "MLB429306"
+]);
+
 Deno.serve(async (req) => {
   const cors = {
     "Access-Control-Allow-Origin": "*",
@@ -816,7 +824,7 @@ Deno.serve(async (req) => {
     const categoriesToScan = [
       ...highlightCategories.slice(categoryRotation),
       ...highlightCategories.slice(0, categoryRotation)
-    ];
+    ].filter((category) => !INVALID_HIGHLIGHT_CATEGORY_IDS.has(String(category.id)));
 
     // Coletamos rankings em ordem rotativa; a classificação final continua
     // priorizando posição no ranking, depois desconto/promoção.
