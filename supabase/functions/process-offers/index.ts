@@ -1325,7 +1325,7 @@ Deno.serve(async (req) => {
         }
         return a.position - b.position || b.discount - a.discount || a.current - b.current;
       })
-      .slice(0, 10);
+      .slice(0, Math.min(limit, 20));
     const imageSearchResults = await runWithConcurrency(
       imageSearchCandidates,
       async (candidate: any) => {
@@ -1360,7 +1360,7 @@ Deno.serve(async (req) => {
     for (const entry of imageSearchResults) {
       const item = entry.item;
       if (!item) continue;
-      const image = String(item.thumbnail || item.pictures?.[0]?.secure_url || item.pictures?.[0]?.url || "").trim();
+      const image = getImageUrl(item.thumbnail, item.thumbnail_url, item.pictures?.[0], item.picture_id) || "";
       if (!image) continue;
       entry.candidate.image = image;
       entry.candidate.permalink = item.permalink || entry.candidate.permalink;
