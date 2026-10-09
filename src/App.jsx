@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-07-ofertas-20-por-atualizacao";
+const FRONTEND_BUILD_VERSION = "2026-10-09-ml-affiliate-save-fix";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -128,6 +128,9 @@ export default function App() {
   useEffect(() => {
     if (!usuario) return;
     let mounted = true;
+    const ofertasEmAndamento = new Set();
+    const ofertasConcluidas = new Set();
+
     const processarResultadoAfiliado = async (event) => {
       const data = event?.data;
       if (
@@ -138,9 +141,10 @@ export default function App() {
       ) return;
 
       const offerId = String(data.offer_id || "").trim();
-      if (!offerId) return;
+      const affiliateUrl = String(data.affiliate_url || "").trim();
+      if (!offerId || ofertasEmAndamento.has(offerId) || ofertasConcluidas.has(offerId)) return;
 
-      if (data.ok !== true || !String(data.affiliate_url || "").trim()) {
+      if (data.ok !== true || !affiliateUrl) {
         setMensagemOferta(
           "Não foi possível gerar o link do Mercado Livre: " +
           String(data.error || "a extensão não retornou um link oficial.")
@@ -148,29 +152,95 @@ export default function App() {
         return;
       }
 
+      ofertasEmAndamento.add(offerId);
       try {
         setMensagemOferta("Link oficial recebido. Salvando no Robô de Ofertas...");
-        const { data: saved, error } = await supabase.functions.invoke("affiliate-link", {
-          body: {
-            offer_id: offerId,
-            affiliate_url: String(data.affiliate_url).trim()
-          }
-        });
-        if (error) throw error;
-        if (!saved?.ok || saved?.status !== "gerado") {
-          throw new Error(saved?.error || saved?.proxima_acao || "O Supabase não confirmou o salvamento do link.");
+
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        const token = sessionData?.session?.access_token;
+        if (!token) throw new Error("Sua sessão expirou. Entre novamente no Robô de Ofertas.");
+
+        if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+          throw new Error("A configuração de conexão com o Supabase está incompleta.");
         }
+
+        // Usamos fetch diretamente para exibir a resposta real da Edge Function
+        // em vez da mensagem genérica do cliente Supabase.
+        const response = await fetch(`${SUPABASE_URL}/functions/v1/affiliate-link`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            apikey: SUPABASE_ANON_KEY,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            offer_id: offerId,
+            affiliate_url: affiliateUrl
+          })
+        });
+        const saved = await response.json().catch(() => ({}));
+
+        if (!response.ok || !saved?.ok || saved?.status !== "gerado") {
+          throw new Error(
+            saved?.error ||
+            saved?.proxima_acao ||
+            `A função affiliate-link respondeu HTTP ${response.status} sem confirmar o salvamento.`
+          );
+        }
+
+        ofertasConcluidas.add(offerId);
         if (!mounted) return;
+
         await carregarOfertas();
-        setMensagemOferta("Link de afiliado oficial gerado e salvo. A oferta já pode seguir para a fila.");
+        setMensagemOferta("Link de afiliado oficial salvo. Preparando o conteúdo...");
+
+        // O conteúdo só é solicitado depois de confirmar que o link foi salvo.
+        try {
+          const contentResponse = await fetch(`${SUPABASE_URL}/functions/v1/generate-content`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              apikey: SUPABASE_ANON_KEY,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              user_id: sessionData.session.user.id,
+              offer_ids: [offerId]
+            })
+          });
+          const contentResult = await contentResponse.json().catch(() => ({}));
+          if (!contentResponse.ok || contentResult?.ok === false) {
+            console.warn("Mercado Livre: link salvo, mas o conteúdo não foi gerado.", contentResult);
+            if (mounted) {
+              setMensagemOferta("Link de afiliado salvo. O conteúdo não foi gerado automaticamente: " +
+                String(contentResult?.error || `HTTP ${contentResponse.status}`));
+            }
+            return;
+          }
+        } catch (contentError) {
+          console.warn("Mercado Livre: erro ao gerar conteúdo após salvar o link.", contentError);
+          if (mounted) {
+            setMensagemOferta("Link de afiliado salvo, mas houve uma falha ao gerar o conteúdo: " +
+              String(contentError?.message || contentError));
+          }
+          return;
+        }
+
+        if (mounted) setMensagemOferta("Link de afiliado oficial gerado e salvo. O conteúdo foi encaminhado para geração.");
       } catch (error) {
         console.error("SALVAR LINK AFILIADO MERCADO LIVRE:", error);
-        if (mounted) setMensagemOferta(
-          "O link foi recebido, mas não foi possível salvá-lo: " +
-          String(error?.message || error)
-        );
+        if (mounted) {
+          setMensagemOferta(
+            "O link foi recebido, mas não foi possível salvá-lo: " +
+            String(error?.message || error)
+          );
+        }
+      } finally {
+        ofertasEmAndamento.delete(offerId);
       }
     };
+
     window.addEventListener("message", processarResultadoAfiliado);
     return () => {
       mounted = false;
