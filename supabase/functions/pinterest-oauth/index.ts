@@ -7,10 +7,16 @@ const REDIRECT_URI = `${SUPABASE_URL}/functions/v1/pinterest-oauth`;
 const AUTH_URL = "https://www.pinterest.com/oauth/";
 const TOKEN_URL = "https://api.pinterest.com/v5/oauth/token";
 
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
+};
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json; charset=utf-8" }
+    headers: { ...CORS, "Content-Type": "application/json; charset=utf-8" }
   });
 
 async function sha256(value: string) {
@@ -34,7 +40,7 @@ function basic(clientId: string, secret: string) {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return json({ ok: true });
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   try {
     const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const url = new URL(req.url);
