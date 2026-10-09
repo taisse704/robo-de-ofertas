@@ -106,15 +106,46 @@ Deno.serve(async (req) => {
       const price = Number(offer.preco_atual || 0);
       const old = Number(offer.preco_anterior || 0);
       const discount = Number(offer.desconto_percentual || 0);
-      const title = offer.titulo || "Oferta especial";
+      const title = String(offer.titulo || "Oferta especial").trim();
       const link = isMercadoLivre ? affiliateUrl : (affiliateUrl || offer.url_produto || "");
+      const money = (value: number) => value.toLocaleString("pt-BR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+      const headlineBase = title
+        .replace(/\\s+/g, " ")
+        .split(/[|,;:]/)[0]
+        .trim()
+        .slice(0, 54)
+        .replace(/\\s+\\S*$/, "")
+        .trim();
+      const headline = (headlineBase || "OFERTA").toLocaleUpperCase("pt-BR") + " NO PRECINHO";
+      const origin = offer.dados_origem && typeof offer.dados_origem === "object"
+        ? offer.dados_origem
+        : {};
+      const coupon = String(offer.cupom_codigo || "").trim();
+      const seller = String(
+        origin.seller_name || origin.seller_nickname || origin.vendedor_nome || ""
+      ).trim();
+      const paymentInfo = String(
+        origin.payment_method || origin.forma_pagamento || ""
+      ).toLowerCase();
+      const paymentMethods = Array.isArray(origin.payment_methods)
+        ? origin.payment_methods.map((x: unknown) => String(x).toLowerCase())
+        : [];
+      const pixConfirmed = paymentInfo.includes("pix") || paymentMethods.some((x: string) => x.includes("pix"));
 
-      let legenda = "🔥 " + title + "\n\n💰 Por R$ " +
-        price.toFixed(2).replace(".", ",");
-
-      if (old > price) legenda += " (antes R$ " + old.toFixed(2).replace(".", ",") + ")";
-      if (discount > 0) legenda += "\n🏷️ " + discount + "% OFF";
-      legenda += "\n\n🛒 Aproveite: " + link;
+      let legenda = "🔥 *" + headline + "* 🔥\\n\\n🛍️ " + title + "\\n\\n";
+      if (old > price) {
+        legenda += "💰 De ~R$ " + money(old) + "~ por *R$ " + money(price) + "*";
+      } else {
+        legenda += "💰 Por *R$ " + money(price) + "*";
+      }
+      if (discount > 0) legenda += "\\n🏷️ *" + discount + "% OFF*";
+      if (coupon) legenda += "\\n🎟️ Use o cupom: *" + coupon + "*";
+      if (pixConfirmed) legenda += "\\n💳 Selecione *Pix* para garantir o preço";
+      if (seller) legenda += "\\n\\n🏪 Vendido por " + seller + " no Mercado Livre";
+      legenda += "\\n\\n🛒 Compre aqui 👇\\n" + link;
 
       const originalVideo = typeof offer.video_url === "string" && offer.video_url.trim()
         ? offer.video_url.trim()
