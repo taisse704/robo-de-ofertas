@@ -1299,10 +1299,12 @@ Deno.serve(async (req) => {
     if (moveOldNewError) throw moveOldNewError;
 
     let atualizadas = 0;
+    const limiteAtualizacoes = Math.min(limit, 20);
     const existingByProduct = new Map((existingOffers || []).map((x: any) => [String(x.product_external_id || ""), x]));
     const existingByItem = new Map((existingOffers || []).map((x: any) => [String(x?.dados_origem?.item_id || ""), x]).filter(([k]: any[]) => Boolean(k)));
     const matchedExisting = new Set<string>();
     for (const o of candidates) {
+      if (atualizadas >= limiteAtualizacoes) break;
       const pid = String(o.product_external_id || "");
       const iid = String(o.external_id || "");
       const existing: any = existingByProduct.get(pid) || existingByItem.get(iid);
@@ -1442,7 +1444,8 @@ Deno.serve(async (req) => {
 
     return json({
       ok: true,
-      produtos_encontrados: ofertas.length,
+      // Total de candidatos com preço válido; novas continua contando apenas inserções.
+      produtos_encontrados: candidates.length,
       novas,
       atualizadas,
       limite: limit,
