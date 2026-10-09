@@ -161,7 +161,8 @@ Deno.serve(async (req) => {
         ? offer.video_url.trim()
         : null;
 
-      const usarVideo = modoConteudo === "video" || (modoConteudo === "automatico" && !!originalVideo);
+      const usarVideo = !!originalVideo && (modoConteudo === "video" || modoConteudo === "automatico");
+      const videoFallbackParaPost = modoConteudo === "video" && !originalVideo;
 
       const videoSource = usarVideo
         ? (originalVideo ? (offer.video_source || "original") : "gerado")
@@ -192,7 +193,9 @@ Deno.serve(async (req) => {
             gerar_imagem: settings?.gerar_imagem !== false,
             gerar_video: usarVideo,
             modo_conteudo: modoConteudo,
-            video_source: videoSource
+            video_source: videoSource,
+            video_fallback_para_post: videoFallbackParaPost,
+            video_fallback_motivo: videoFallbackParaPost ? "Não há vídeo original e o projeto não possui renderizador de vídeo ativo." : null
           },
           status
         })
