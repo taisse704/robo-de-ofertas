@@ -303,7 +303,7 @@ Deno.serve(async (req) => {
     function normalizeText(value: unknown) {
       return String(value || "")
         .normalize("NFD")
-        .replace(/[\\u0300-\\u036f]/g, "")
+        .replace(/[\u0300-\u036f]/g, "")
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, " ")
         .trim();
@@ -1150,7 +1150,7 @@ Deno.serve(async (req) => {
 
     const { data: existingOffers, error: existingOffersError } = await db
       .from("offers")
-      .select("id,product_external_id,titulo,dados_origem")
+      .select("id,product_external_id,titulo,dados_origem,nova")
       .eq("user_id", userId)
       .eq("platform_id", platform.id);
 
@@ -1161,6 +1161,21 @@ Deno.serve(async (req) => {
         .map((item: any) => String(item?.product_external_id || ""))
         .filter(Boolean)
     );
+    const historyRows: any[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      const { data: batch, error: historyError } = await db
+        .from("offer_product_history")
+        .select("external_product_id,external_item_id,product_title")
+        .eq("user_id", userId)
+        .eq("provider", "mercadolivre")
+        .range(offset, offset + 999);
+      if (historyError) throw historyError;
+      if (!batch?.length) break;
+      historyRows.push(...batch);
+      if (batch.length < 1000) break;
+    }
+    const historicalProductIds = new Set(historyRows.map((x: any) => String(x.external_product_id || "")));
+    const historicalItemIds = new Set(historyRows.map((x: any) => String(x.external_item_id || "")).filter(Boolean));
 
     const existingItemIds = new Set(
       (existingOffers || [])
@@ -1193,8 +1208,8 @@ Deno.serve(async (req) => {
       // Não deixa uma oferta já cadastrada ocupar uma das vagas de novidades.
       // Assim a função continua percorrendo o ranking para encontrar produtos novos.
       if (
-        (productId && existingProductIds.has(productId)) ||
-        (itemId && existingItemIds.has(itemId))
+        (productId && (existingProductIds.has(productId) || historicalProductIds.has(productId))) ||
+        (itemId && (existingItemIds.has(itemId) || historicalItemIds.has(itemId)))
       ) {
         existentesIgnorados++;
         continue;
@@ -1207,8 +1222,71 @@ Deno.serve(async (req) => {
       if (unique.length >= limit) break;
     }
 
-    let novas = 0;
+    const { error: moveOldNewError } = await db
+      .from("offers")
+      .update({ nova: false })
+      .eq("user_id", userId)
+      .eq("platform_id", platform.id)
+      .eq("nova", true);
+    if (moveOldNewError) throw moveOldNewError;
+
     let atualizadas = 0;
+    const existingByProduct = new Map((existingOffers || []).map((x: any) => [String(x.product_external_id || ""), x]));
+    const existingByItem = new Map((existingOffers || []).map((x: any) => [String(x?.dados_origem?.item_id || ""), x]).filter(([k]: any[]) => Boolean(k)));
+    const matchedExisting = new Set<string>();
+    for (const o of candidates) {
+      const pid = String(o.product_external_id || "");
+      const iid = String(o.external_id || "");
+      const existing: any = existingByProduct.get(pid) || existingByItem.get(iid);
+      if (!existing || matchedExisting.has(String(existing.id))) continue;
+      const now = new Date().toISOString();
+      const canonicalProductUrl = String(o.permalink || "").trim() ||
+        (pid.startsWith("MLB") ? `https://www.mercadolivre.com.br/p/${pid}` : "");
+      const { error: updateError } = await db.from("offers").update({
+        titulo: o.title,
+        url_produto: canonicalProductUrl,
+        store_provider: "mercadolivre",
+        store_product_url: canonicalProductUrl,
+        preco_atual: o.current,
+        preco_anterior: o.original,
+        desconto_percentual: o.discount,
+        moeda: "BRL",
+        disponibilidade: true,
+        imagem_url: o.image,
+        dados_origem: {
+          ...(existing.dados_origem || {}),
+          fonte: "mercadolivre-highlights",
+          categoria_id: o.categoria_id,
+          categoria_nome: o.categoria_nome,
+          categoria_grupo: o.categoria_grupo,
+          posicao_ranking: o.position,
+          item_id: o.external_id
+        },
+        promocao_id_externo: o.promotion_id,
+        oferta_tipo: o.oferta_tipo,
+        melhor_preco: o.discount > 0 || Boolean(o.promotion_id),
+        score_oferta: o.score,
+        atualizada_em: now,
+        coletada_em: now,
+        nova: false
+      }).eq("id", existing.id).eq("user_id", userId);
+      if (updateError) throw updateError;
+      matchedExisting.add(String(existing.id));
+      atualizadas++;
+    }
+
+    const historyPayload = candidates
+      .filter((o: any) => String(o.product_external_id || "").trim())
+      .map((o: any) => ({
+        user_id: userId,
+        provider: "mercadolivre",
+        external_product_id: String(o.product_external_id),
+        external_item_id: String(o.external_id || ""),
+        product_title: String(o.title || ""),
+        last_seen_at: new Date().toISOString(),
+        metadata: { source: "mercadolivre-highlights", promotion_id: o.promotion_id || null }
+      }));
+    let novas = 0;
     const ofertas: any[] = [];
 
     for (const o of unique) {
@@ -1258,39 +1336,14 @@ Deno.serve(async (req) => {
         nova: false
       };
 
-      const { data: existing, error: findError } = await db
+      const { data: inserted, error } = await db
         .from("offers")
+        .insert({ ...values, encontrada_em: now, nova: true })
         .select("id")
-        .eq("user_id", userId)
-        .eq("platform_id", platform.id)
-        .eq("product_external_id", o.product_external_id)
-        .limit(1)
-        .maybeSingle();
-
-      if (findError) throw findError;
-
-      let offerId = existing?.id || null;
-
-      if (offerId) {
-        const { error } = await db
-          .from("offers")
-          .update(values)
-          .eq("id", offerId)
-          .eq("user_id", userId);
-
-        if (error) throw error;
-        atualizadas++;
-      } else {
-        const { data: inserted, error } = await db
-          .from("offers")
-          .insert({ ...values, encontrada_em: now, nova: true })
-          .select("id")
-          .single();
-
-        if (error) throw error;
-        offerId = inserted.id;
-        novas++;
-      }
+        .single();
+      if (error) throw error;
+      const offerId = inserted.id;
+      novas++;
 
       ofertas.push({
         id: offerId,
@@ -1310,6 +1363,13 @@ Deno.serve(async (req) => {
         score: o.score,
         oferta_tipo: o.oferta_tipo
       });
+    }
+
+    for (let i = 0; i < historyPayload.length; i += 500) {
+      const { error: historyWriteError } = await db
+        .from("offer_product_history")
+        .upsert(historyPayload.slice(i, i + 500), { onConflict: "user_id,provider,external_product_id" });
+      if (historyWriteError) throw historyWriteError;
     }
 
     return json({
