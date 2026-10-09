@@ -1285,13 +1285,25 @@ Deno.serve(async (req) => {
     // no buy_box_winner. Recuperamos a imagem por busca pública, aceitando apenas
     // o mesmo item/catálogo ou um título muito próximo com preço compatível.
     let imagensEnriquecidas = 0;
+    const existingForImageSearch = new Map(
+      (existingOffers || []).map((item: any) => [
+        String(item.product_external_id || ""),
+        item
+      ])
+    );
     const imageSearchCandidates = candidates
       .filter((item: any) => !String(item.image || "").trim() && String(item.title || "").trim())
-      .sort((a: any, b: any) =>
-        a.position - b.position ||
-        b.discount - a.discount ||
-        a.current - b.current
-      )
+      .sort((a: any, b: any) => {
+        const aExisting: any = existingForImageSearch.get(String(a.product_external_id || ""));
+        const bExisting: any = existingForImageSearch.get(String(b.product_external_id || ""));
+        if (Boolean(aExisting) !== Boolean(bExisting)) return aExisting ? -1 : 1;
+        if (aExisting && bExisting) {
+          const aTime = Date.parse(String(aExisting.atualizada_em || aExisting.created_at || "")) || 0;
+          const bTime = Date.parse(String(bExisting.atualizada_em || bExisting.created_at || "")) || 0;
+          if (aTime !== bTime) return aTime - bTime;
+        }
+        return a.position - b.position || b.discount - a.discount || a.current - b.current;
+      })
       .slice(0, 10);
     const imageSearchResults = await runWithConcurrency(
       imageSearchCandidates,
