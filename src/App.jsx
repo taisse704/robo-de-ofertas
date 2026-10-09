@@ -971,6 +971,7 @@ export default function App() {
           ["resolvidos", diagnosticos.destaques_resolvidos],
           ["itens consultados", diagnosticos.itens_consultados],
           ["itens com detalhes", diagnosticos.itens_com_detalhes],
+          ["imagens recuperadas", diagnosticos.imagens_enriquecidas],
           ["candidatos com preço", diagnosticos.candidatos_com_preco],
           ["duplicados ignorados", diagnosticos.duplicados_ignorados],
           ["ofertas existentes ignoradas", diagnosticos.existentes_ignorados],
