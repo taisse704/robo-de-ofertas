@@ -26,10 +26,30 @@ Deno.serve(async(req)=>{
     continue;
    }
 
-   const sh=await fetch(base+"/shopee-offers",{method:"POST",headers:h,body:JSON.stringify({user_id:u.user_id,limit:20})});
+   // Antes de chamar Shopee/Mercado Livre/geração, respeita o intervalo de publicação.
+   // Isso evita repetir dezenas de chamadas externas quando o robô ainda está aguardando
+   // o próximo horário de publicação.
+   const {data:lastEarly,error:lastEarlyError}=await db.from("offer_publications")
+     .select("published_at")
+     .eq("user_id",u.user_id)
+     .eq("status","publicada")
+     .not("published_at","is",null)
+     .order("published_at",{ascending:false})
+     .limit(1)
+     .maybeSingle();
+   if(lastEarlyError)throw lastEarlyError;
+
+   const earlyLastAt=lastEarly?.published_at?new Date(lastEarly.published_at).getTime():0;
+   const earlyNextAt=earlyLastAt+intervalo*60*1000;
+   if(earlyLastAt && Date.now()<earlyNextAt){
+    resultados.push({user_id:u.user_id,fila:"aguardando_intervalo",proxima_publicacao:new Date(earlyNextAt).toISOString()});
+    continue;
+   }
+
+   const sh=await fetch(base+"/shopee-offers",{method:"POST",headers:h,body:JSON.stringify({user_id:u.user_id,limit:50})});
    const sd=await sh.json().catch(()=>({ok:false,error:"Resposta inválida"}));
 
-   const p=await fetch(base+"/process-offers",{method:"POST",headers:h,body:JSON.stringify({user_id:u.user_id,limit:20,somente_descontos:false})});
+   const p=await fetch(base+"/process-offers",{method:"POST",headers:h,body:JSON.stringify({user_id:u.user_id,limit:50,somente_descontos:false})});
    const pd=await p.json().catch(()=>({ok:false,error:"Resposta inválida"}));
 
    const g=await fetch(base+"/generate-content",{method:"POST",headers:h,body:JSON.stringify({user_id:u.user_id})});
@@ -54,25 +74,7 @@ Deno.serve(async(req)=>{
    }
 
    // Fila automática: no máximo 1 publicação por intervalo configurado.
-   const {data:last,error:lastError}=await db.from("offer_publications")
-     .select("published_at")
-     .eq("user_id",u.user_id)
-     .eq("status","publicada")
-     .not("published_at","is",null)
-     .order("published_at",{ascending:false})
-     .limit(1)
-     .maybeSingle();
-   if(lastError)throw lastError;
-
    const now=Date.now();
-   const lastAt=last?.published_at?new Date(last.published_at).getTime():0;
-   const nextAt=lastAt+intervalo*60*1000;
-
-   if(lastAt&&now<nextAt){
-    resultados.push({user_id:u.user_id,shopee:sd,ofertas:pd,conteudo:gd,fila:"aguardando_intervalo",proxima_publicacao:new Date(nextAt).toISOString()});
-    continue;
-   }
-
    // Prioridade da fila: maior comissão estimada em R$ primeiro.
    // Em empate, maior desconto; depois, o conteúdo mais antigo.
    const {data:conteudosProntos,error:ce}=await db.from("contents")
@@ -122,13 +124,21 @@ Deno.serve(async(req)=>{
    const qd=await q.json().catch(()=>({ok:false,error:"Resposta inválida"}));
 
    let story:any={skipped:true};
-   if(qd?.ok){
-    const st=await fetch(base+"/storrito-story",{
-     method:"POST",
-     headers:h,
-     body:JSON.stringify({user_id:u.user_id,content_id:conteudo.id})
-    });
-    story=await st.json().catch(()=>({ok:false,error:"Resposta inválida"}));
+   if(qd?.ok && Number(qd?.publicadas||0)>0){
+    const storritoConfigured=Boolean(
+     Deno.env.get("STORRITO_API_BASE_URL") && Deno.env.get("STORRITO_API_TOKEN")
+    );
+    if(storritoConfigured){
+     const st=await fetch(base+"/storrito-story",{
+      method:"POST",
+      headers:h,
+      body:JSON.stringify({user_id:u.user_id,content_id:conteudo.id})
+     });
+     story=await st.json().catch(()=>({ok:false,error:"Resposta inválida"}));
+    }else{
+     // Evita gravar uma falha a cada publicação quando Stories ainda não está configurado.
+     story={skipped:true,reason:"Storrito não configurado; Stories ignorados nesta rodada."};
+    }
    }else{
     await db.from("contents").update({status:"pronto",updated_at:new Date().toISOString()})
       .eq("id",conteudo.id).eq("user_id",u.user_id);
