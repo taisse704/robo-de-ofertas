@@ -87,6 +87,7 @@ Deno.serve(async (req) => {
     }
 
     let count = 0;
+    let skippedVideoWithoutRenderer = 0;
     const conteudos = [];
 
     for (const offer of offers) {
@@ -161,6 +162,13 @@ Deno.serve(async (req) => {
         ? offer.video_url.trim()
         : null;
 
+      // Não existe um renderizador de vídeo ativo neste projeto. Sem vídeo
+      // original, não criamos jobs que ficariam eternamente pendentes.
+      if (modoConteudo === "video" && !originalVideo) {
+        skippedVideoWithoutRenderer++;
+        continue;
+      }
+
       const usarVideo = modoConteudo === "video" || (modoConteudo === "automatico" && !!originalVideo);
 
       const videoSource = usarVideo
@@ -230,7 +238,15 @@ Deno.serve(async (req) => {
       count++;
     }
 
-    return out({ ok: true, count, conteudos });
+    return out({
+      ok: true,
+      count,
+      conteudos,
+      skipped_video_without_renderer: skippedVideoWithoutRenderer,
+      message: skippedVideoWithoutRenderer > 0 && count === 0
+        ? "Nenhum vídeo foi criado: o projeto ainda não tem um renderizador de vídeo ativo e essas ofertas não possuem vídeo original."
+        : undefined
+    });
   } catch (e) {
     console.error("GENERATE-CONTENT ERRO:", e);
     return out({ ok: false, error: e?.message || "Erro interno." }, 500);
