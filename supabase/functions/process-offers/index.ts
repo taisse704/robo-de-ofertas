@@ -804,13 +804,12 @@ Deno.serve(async (req) => {
 
       if (!result.ok || !content.length) continue;
 
+      let entriesFromCategory = 0;
       for (const entry of content) {
         const entryType = String(entry?.type || "");
 
         // O ranking mistura ITEM, PRODUCT e USER_PRODUCT.
-        // ITEM de terceiros exige permissão de Publicação e sincronização;
-        // USER_PRODUCT pertence ao vendedor que criou o produto.
-        // Para o robô de afiliados, usamos apenas PRODUCT e seu buy_box_winner.
+        // Para afiliados, usamos apenas PRODUCT com dados de catálogo.
         if (entryType !== "PRODUCT") continue;
 
         const key = entryType + ":" + String(entry?.id || "");
@@ -823,6 +822,9 @@ Deno.serve(async (req) => {
           categoria_nome: category.nome,
           categoria_grupo: category.grupo
         });
+        entriesFromCategory++;
+        // Evita que uma única categoria ocupe toda a amostra consultada.
+        if (entriesFromCategory >= 8) break;
       }
 
       // Não encerrar a coleta apenas porque os primeiros 120 destaques
@@ -1210,6 +1212,9 @@ Deno.serve(async (req) => {
         b.discount - a.discount ||
         Number(Boolean(b.promotion_id)) - Number(Boolean(a.promotion_id)) ||
         Number(Boolean(b.free_shipping)) - Number(Boolean(a.free_shipping)) ||
+        // Em caso de empate, prefere preços mais acessíveis sem sobrepor
+        // a prioridade principal de vendas e descontos.
+        a.current - b.current ||
         b.score - a.score
     );
 
@@ -1218,6 +1223,10 @@ Deno.serve(async (req) => {
     const unique: any[] = [];
     const seenProducts = new Set<string>();
     const seenItems = new Set<string>();
+    const categoryCounts = new Map<string, number>();
+    const groupCounts = new Map<string, number>();
+    const MAX_PER_CATEGORY = 2;
+    const MAX_PER_CATEGORY_GROUP = 5;
     const normalizeTitleKey = (value: unknown) => String(value || "").trim().toLowerCase();
     const existingTitleKeys = new Set(
       (existingOffers || [])
@@ -1263,9 +1272,19 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      // Diversidade: no máximo 2 produtos por categoria específica e 5
+      // por grupo principal. Se uma categoria estiver saturada, seguimos
+      // percorrendo o ranking para encontrar outras categorias populares.
+      const categoryKey = String(item.categoria_id || item.categoria_nome || "sem_categoria");
+      const groupKey = String(item.categoria_grupo || "sem_grupo");
+      if ((categoryCounts.get(categoryKey) || 0) >= MAX_PER_CATEGORY) continue;
+      if ((groupCounts.get(groupKey) || 0) >= MAX_PER_CATEGORY_GROUP) continue;
+
       if (productId) seenProducts.add(productId);
       if (itemId) seenItems.add(itemId);
       if (titleKey) seenTitleKeys.add(titleKey);
+      categoryCounts.set(categoryKey, (categoryCounts.get(categoryKey) || 0) + 1);
+      groupCounts.set(groupKey, (groupCounts.get(groupKey) || 0) + 1);
       unique.push(item);
 
       if (unique.length >= limit) break;
