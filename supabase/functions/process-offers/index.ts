@@ -779,10 +779,20 @@ Deno.serve(async (req) => {
       highlightCategories.push(...leaves);
     }
 
-    // Coletamos os rankings das folhas encontradas. O foco agora é:
-    // Moda + Casa + Acessórios, priorizando mais vendidos e depois maior
-    // desconto/promoção.
-    for (const category of highlightCategories) {
+    // Alterna o ponto de início da varredura em janelas de 5 minutos.
+    // Isso evita consultar sempre as mesmas primeiras categorias e ajuda a
+    // descobrir ofertas novas sem perder a ordenação por ranking depois.
+    const categoryRotation = highlightCategories.length
+      ? Math.floor(Date.now() / (5 * 60 * 1000)) % highlightCategories.length
+      : 0;
+    const categoriesToScan = [
+      ...highlightCategories.slice(categoryRotation),
+      ...highlightCategories.slice(0, categoryRotation)
+    ];
+
+    // Coletamos rankings em ordem rotativa; a classificação final continua
+    // priorizando posição no ranking, depois desconto/promoção.
+    for (const category of categoriesToScan) {
       const result = await getJson(
         ML + "/highlights/" + SITE_ID + "/category/" +
         encodeURIComponent(category.id),
@@ -852,7 +862,7 @@ Deno.serve(async (req) => {
     // impeçam a coleta das ofertas de catálogo.
     const { data: existingOffers, error: existingOffersError } = await db
       .from("offers")
-      .select("id,product_external_id,titulo,dados_origem,nova")
+      .select("id,product_external_id,titulo,dados_origem,nova,atualizada_em,created_at")
       .eq("user_id", userId)
       .eq("platform_id", platform.id);
 
@@ -977,9 +987,12 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Consultamos detalhes opcionais dos anúncios vencedores também para
+    // produtos de catálogo. Se a API negar acesso, a oferta continua usando
+    // os dados públicos de catálogo já resolvidos.
     const itemIds = Array.from(new Set(
-      resolved.filter((r) => !r.product).map((r) => String(r.itemId)).filter((id) => id.startsWith("MLB"))
-    )).slice(0, 20);
+      resolved.map((r) => String(r.itemId || "")).filter((id) => id.startsWith("MLB"))
+    )).slice(0, MAX);
 
     const itemMap = new Map<string, any>();
 
@@ -1000,9 +1013,10 @@ Deno.serve(async (req) => {
           if (item?.id) itemMap.set(String(item.id), item);
         }
       }
-      if (!itemMap.size) {
+      const missingItemIds = itemIds.filter((id) => !itemMap.has(id)).slice(0, 10);
+      if (missingItemIds.length) {
         const fallbackItems = await runWithConcurrency(
-          itemIds.slice(0, 10),
+          missingItemIds,
           async (id) => {
             let result = await getJson(ML + "/items/" + encodeURIComponent(id), false);
             if (!result.ok) result = await getJson(ML + "/items/" + encodeURIComponent(id), true);
@@ -1030,6 +1044,29 @@ Deno.serve(async (req) => {
       for (const entry of salePrices) {
         if (entry.result?.ok && entry.result?.data) salePriceMap.set(entry.id, entry.result.data);
       }
+    }
+
+    // Nome do vendedor só é usado quando a API fornece uma identificação
+    // verificável. Falhas nessa consulta não interrompem a busca.
+    const sellerIds = Array.from(new Set(
+      itemIds.map((id) => {
+        const item = itemMap.get(id);
+        return String(item?.seller?.id || item?.seller_id || "");
+      }).filter((id) => /^\\d+$/.test(id))
+    )).slice(0, MAX);
+    const sellerMap = new Map<string, string>();
+    const sellerResults = await runWithConcurrency(
+      sellerIds,
+      async (sellerId) => {
+        let result = await getJson(ML + "/users/" + encodeURIComponent(sellerId), false);
+        if (!result.ok) result = await getJson(ML + "/users/" + encodeURIComponent(sellerId), true);
+        const nickname = String(result.data?.nickname || result.data?.first_name || "").trim();
+        return { sellerId, nickname: result.ok ? nickname : "" };
+      },
+      5
+    );
+    for (const seller of sellerResults) {
+      if (seller.nickname) sellerMap.set(seller.sellerId, seller.nickname);
     }
 
     const candidates: any[] = [];
@@ -1093,37 +1130,76 @@ Deno.serve(async (req) => {
       if (r.product?.buy_box_winner) {
         const product = r.product;
         const winner = product.buy_box_winner;
-        const current = Number(winner.price);
+        const externalItemId = String(winner.item_id || winner.id || r.itemId || product.id);
+        const itemDetails = itemMap.get(externalItemId) || {};
+        const salePrice = salePriceMap.get(externalItemId) || {};
+        const priceCandidates = [salePrice.amount, itemDetails.price, winner.price]
+          .map((value) => Number(value))
+          .filter((value) => Number.isFinite(value) && value > 0);
+        const current = priceCandidates[0] || 0;
         if (!Number.isFinite(current) || current <= 0) continue;
 
-        const originalNumber = Number(winner.original_price);
-        const original = Number.isFinite(originalNumber) && originalNumber > current ? originalNumber : null;
+        const originalCandidates = [
+          salePrice.regular_amount,
+          itemDetails.original_price,
+          itemDetails.base_price,
+          winner.original_price
+        ];
+        const originalNumber = originalCandidates.map((value) => Number(value))
+          .find((value) => Number.isFinite(value) && value > current);
+        const original = originalNumber || null;
         const discount = original ? Math.round(((original - current) / original) * 100) : 0;
-        const promotionId = Array.isArray(winner.deal_ids) && winner.deal_ids.length
-          ? String(winner.deal_ids[0])
-          : null;
+        const promotionId = Array.isArray(itemDetails.deal_ids) && itemDetails.deal_ids.length
+          ? String(itemDetails.deal_ids[0])
+          : (Array.isArray(winner.deal_ids) && winner.deal_ids.length ? String(winner.deal_ids[0]) : null);
         const freeShipping =
+          itemDetails?.shipping?.free_shipping === true ||
+          itemDetails?.shipping?.tags?.includes("mandatory_free_shipping") ||
           winner?.shipping?.free_shipping === true ||
           winner?.shipping?.tags?.includes("mandatory_free_shipping");
+        const sellerId = String(itemDetails?.seller?.id || itemDetails?.seller_id || "");
+        const sellerName = String(
+          itemDetails?.seller?.nickname ||
+          (sellerId ? sellerMap.get(sellerId) : "") ||
+          ""
+        ).trim();
+        const couponCode = String(
+          itemDetails?.coupon_code ||
+          itemDetails?.coupon?.code ||
+          salePrice?.metadata?.coupon_code ||
+          ""
+        ).trim();
+        const paymentMethod = String(
+          itemDetails?.payment_method ||
+          salePrice?.metadata?.payment_method ||
+          ""
+        ).trim();
         const position = Number(r.highlight?.position) || 999;
 
         if (somenteDescontos && discount <= 0 && !promotionId) continue;
 
         candidates.push({
-          external_id: String(winner.item_id || winner.id || product.id),
+          external_id: externalItemId,
           product_external_id: String(product.id),
-          title: product.name || product.family_name || r.highlight?.categoria_nome || "Produto Mercado Livre",
+          title: itemDetails.title || product.name || product.family_name || r.highlight?.categoria_nome || "Produto Mercado Livre",
           current,
           original,
           discount,
           image:
+            itemDetails.thumbnail ||
+            itemDetails.pictures?.[0]?.secure_url ||
+            itemDetails.pictures?.[0]?.url ||
             product.pictures?.[0]?.secure_url ||
             product.pictures?.[0]?.url ||
             product.pictures?.[0]?.thumbnail ||
             null,
-          permalink: product.permalink || null,
+          permalink: itemDetails.permalink || winner.permalink || product.permalink || null,
+          seller_id: sellerId || null,
+          seller_name: sellerName || null,
+          coupon_code: couponCode || null,
+          payment_method: paymentMethod || null,
           promotion_id: promotionId,
-          promotion_type: promotionId ? "deal" : (winner.listing_type_id || null),
+          promotion_type: salePrice?.metadata?.promotion_type || (promotionId ? "deal" : (winner.listing_type_id || null)),
           free_shipping: freeShipping,
           position,
           categoria_id: r.highlight?.categoria_id || winner.category_id || null,
@@ -1305,17 +1381,47 @@ Deno.serve(async (req) => {
     const existingByProduct = new Map((existingOffers || []).map((x: any) => [String(x.product_external_id || ""), x]));
     const existingByItem = new Map((existingOffers || []).map((x: any) => [String(x?.dados_origem?.item_id || ""), x]).filter(([k]: any[]) => Boolean(k)));
     const matchedExisting = new Set<string>();
-    for (const o of candidates) {
-      if (atualizadas >= limiteAtualizacoes) break;
-      const pid = String(o.product_external_id || "");
-      const iid = String(o.external_id || "");
+    const existingTitleOwners = new Map(
+      (existingOffers || []).map((x: any) => [String(x?.titulo || "").trim().toLowerCase(), String(x.id)])
+    );
+    const updateCandidates = candidates.map((offer: any) => {
+      const pid = String(offer.product_external_id || "");
+      const iid = String(offer.external_id || "");
       const existing: any = existingByProduct.get(pid) || existingByItem.get(iid);
-      if (!existing || matchedExisting.has(String(existing.id))) continue;
+      return { offer, existing };
+    }).filter((entry: any) => entry.existing).sort((a: any, b: any) => {
+      const aTime = Date.parse(String(a.existing.atualizada_em || a.existing.created_at || "")) || 0;
+      const bTime = Date.parse(String(b.existing.atualizada_em || b.existing.created_at || "")) || 0;
+      return aTime - bTime;
+    });
+
+    for (const entry of updateCandidates) {
+      if (atualizadas >= limiteAtualizacoes) break;
+      const o = entry.offer;
+      const existing: any = entry.existing;
+      if (matchedExisting.has(String(existing.id))) continue;
       const now = new Date().toISOString();
       const canonicalProductUrl = String(o.permalink || "").trim() ||
-        (pid.startsWith("MLB") ? `https://www.mercadolivre.com.br/p/${pid}` : "");
-      const { error: updateError } = await db.from("offers").update({
-        titulo: o.title,
+        (String(o.product_external_id || "").startsWith("MLB") ? `https://www.mercadolivre.com.br/p/${o.product_external_id}` : "");
+      const candidateTitleKey = String(o.title || "").trim().toLowerCase();
+      const titleOwner = existingTitleOwners.get(candidateTitleKey);
+      const safeTitle = titleOwner && titleOwner !== String(existing.id) ? existing.titulo : o.title;
+      const originPatch: Record<string, unknown> = {
+        ...(existing.dados_origem || {}),
+        fonte: "mercadolivre-highlights",
+        categoria_id: o.categoria_id,
+        categoria_nome: o.categoria_nome,
+        categoria_grupo: o.categoria_grupo,
+        posicao_ranking: o.position,
+        item_id: o.external_id
+      };
+      if (o.seller_name) originPatch.seller_name = o.seller_name;
+      if (o.seller_id) originPatch.seller_id = o.seller_id;
+      if (o.payment_method) originPatch.payment_method = o.payment_method;
+      if (o.coupon_code) originPatch.coupon_code = o.coupon_code;
+      const updatePayload: Record<string, unknown> = {
+        titulo: safeTitle,
+        url_produto: canonicalProductUrl,
         url_produto: canonicalProductUrl,
         store_provider: "mercadolivre",
         store_product_url: canonicalProductUrl,
@@ -1325,15 +1431,7 @@ Deno.serve(async (req) => {
         moeda: "BRL",
         disponibilidade: true,
         imagem_url: o.image,
-        dados_origem: {
-          ...(existing.dados_origem || {}),
-          fonte: "mercadolivre-highlights",
-          categoria_id: o.categoria_id,
-          categoria_nome: o.categoria_nome,
-          categoria_grupo: o.categoria_grupo,
-          posicao_ranking: o.position,
-          item_id: o.external_id
-        },
+        dados_origem: originPatch,
         promocao_id_externo: o.promotion_id,
         oferta_tipo: o.oferta_tipo,
         melhor_preco: o.discount > 0 || Boolean(o.promotion_id),
@@ -1341,7 +1439,10 @@ Deno.serve(async (req) => {
         atualizada_em: now,
         coletada_em: now,
         nova: false
-      }).eq("id", existing.id).eq("user_id", userId);
+      };
+      if (o.coupon_code) updatePayload.cupom_codigo = o.coupon_code;
+      const { error: updateError } = await db.from("offers").update(updatePayload)
+        .eq("id", existing.id).eq("user_id", userId);
       if (updateError) throw updateError;
       matchedExisting.add(String(existing.id));
       atualizadas++;
