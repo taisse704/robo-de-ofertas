@@ -41,15 +41,48 @@ Deno.serve(async(req)=>{
 
    const earlyLastAt=lastEarly?.published_at?new Date(lastEarly.published_at).getTime():0;
    const earlyNextAt=earlyLastAt+intervalo*60*1000;
-   if(earlyLastAt && Date.now()<earlyNextAt){
-    resultados.push({user_id:u.user_id,fila:"aguardando_intervalo",proxima_publicacao:new Date(earlyNextAt).toISOString()});
-    continue;
-   }
+    if(earlyLastAt && Date.now()<earlyNextAt){
+     resultados.push({user_id:u.user_id,fila:"aguardando_intervalo",proxima_publicacao:new Date(earlyNextAt).toISOString()});
+     continue;
+    }
 
-   const sh=await fetch(base+"/shopee-offers",{method:"POST",headers:h,body:JSON.stringify({user_id:u.user_id,limit:50})});
+    // Limita rodadas sem publicação concluída; sem isso, o cron cria novos
+    // conteúdos a cada chamada quando os vídeos ficam pendentes.
+    const {data:lastCycle,error:lastCycleError}=await db.from("robot_jobs")
+      .select("id,status,created_at")
+      .eq("user_id",u.user_id)
+      .eq("tipo","worker_cycle")
+      .order("created_at",{ascending:false})
+      .limit(1)
+      .maybeSingle();
+    if(lastCycleError)throw lastCycleError;
+    const lastCycleAt=lastCycle?.created_at?new Date(lastCycle.created_at).getTime():0;
+    const cycleAge=lastCycleAt?Date.now()-lastCycleAt:Number.POSITIVE_INFINITY;
+    const cycleStillRunning=lastCycle?.status==="executando" && cycleAge<15*60*1000;
+    const cycleWithinInterval=Boolean(lastCycle) && lastCycle.status!=="executando" && cycleAge<intervalo*60*1000;
+    if(cycleStillRunning || cycleWithinInterval){
+     const cooldown=lastCycle?.status==="executando"?15*60*1000:intervalo*60*1000;
+     resultados.push({user_id:u.user_id,fila:"aguardando_intervalo_automacao",proxima_execucao:new Date(lastCycleAt+cooldown).toISOString()});
+     continue;
+    }
+
+    const cycleStartedAt=new Date().toISOString();
+    const {data:cycle,error:cycleInsertError}=await db.from("robot_jobs").insert({
+     user_id:u.user_id,
+     tipo:"worker_cycle",
+     store_provider:"all",
+     status:"executando",
+     prioridade:0,
+     payload:{intervalo_minutos:intervalo},
+     executar_em:cycleStartedAt,
+     iniciado_em:cycleStartedAt
+    }).select("id").single();
+    if(cycleInsertError)throw cycleInsertError;
+
+   const sh=await fetch(base+"/shopee-offers",{method:"POST",headers:h,body:JSON.stringify({user_id:u.user_id,limit:20})});
    const sd=await sh.json().catch(()=>({ok:false,error:"Resposta inválida"}));
 
-   const p=await fetch(base+"/process-offers",{method:"POST",headers:h,body:JSON.stringify({user_id:u.user_id,limit:50,somente_descontos:false})});
+   const p=await fetch(base+"/process-offers",{method:"POST",headers:h,body:JSON.stringify({user_id:u.user_id,limit:20,somente_descontos:false})});
    const pd=await p.json().catch(()=>({ok:false,error:"Resposta inválida"}));
 
    const g=await fetch(base+"/generate-content",{method:"POST",headers:h,body:JSON.stringify({user_id:u.user_id})});
@@ -98,6 +131,11 @@ Deno.serve(async(req)=>{
    })[0];
 
    if(!conteudo){
+    await db.from("robot_jobs").update({
+     status:"concluido",
+     finalizado_em:new Date().toISOString(),
+     resultado:{fila:"vazia",shopee:sd,ofertas:pd,conteudo:gd}
+    }).eq("id",cycle.id).eq("user_id",u.user_id);
     resultados.push({user_id:u.user_id,shopee:sd,ofertas:pd,conteudo:gd,fila:"vazia"});
     continue;
    }
@@ -112,6 +150,11 @@ Deno.serve(async(req)=>{
      .maybeSingle();
    if(re)throw re;
    if(!reserved){
+    await db.from("robot_jobs").update({
+     status:"concluido",
+     finalizado_em:new Date().toISOString(),
+     resultado:{fila:"concorrencia",content_id:conteudo.id}
+    }).eq("id",cycle.id).eq("user_id",u.user_id);
     resultados.push({user_id:u.user_id,fila:"concorrencia",content_id:conteudo.id});
     continue;
    }
@@ -143,6 +186,13 @@ Deno.serve(async(req)=>{
     await db.from("contents").update({status:"pronto",updated_at:new Date().toISOString()})
       .eq("id",conteudo.id).eq("user_id",u.user_id);
    }
+
+   await db.from("robot_jobs").update({
+    status:qd?.ok?"concluido":"erro",
+    finalizado_em:new Date().toISOString(),
+    erro:qd?.ok?null:String(qd?.error||"Nenhuma rede conseguiu publicar."),
+    resultado:{fila:qd?.ok?"publicado":"erro",content_id:conteudo.id,publicacao:qd,story}
+   }).eq("id",cycle.id).eq("user_id",u.user_id);
 
    resultados.push({
     user_id:u.user_id,
