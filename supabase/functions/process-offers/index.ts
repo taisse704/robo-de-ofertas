@@ -942,11 +942,11 @@ Deno.serve(async (req) => {
     // mas continua reservando parte da busca para atualizar preços existentes.
     const unseenHighlights = highlightEntries.filter((entry: any) => {
       const id = String(entry?.id || "");
-      return id && !existingProductIds.has(id) && !historicalProductIds.has(id);
+      return id && !existingProductIds.has(id);
     });
     const knownHighlights = highlightEntries.filter((entry: any) => {
       const id = String(entry?.id || "");
-      return id && (existingProductIds.has(id) || historicalProductIds.has(id));
+      return id && existingProductIds.has(id);
     });
     const orderedHighlightEntries: any[] = [];
     let unseenIndex = 0;
@@ -1523,8 +1523,8 @@ Deno.serve(async (req) => {
       // Não deixa uma oferta já cadastrada ocupar uma das vagas de novidades.
       // Assim a função continua percorrendo o ranking para encontrar produtos novos.
       if (
-        (productId && (existingProductIds.has(productId) || historicalProductIds.has(productId))) ||
-        (itemId && (existingItemIds.has(itemId) || historicalItemIds.has(itemId)))
+        (productId && existingProductIds.has(productId)) ||
+        (itemId && existingItemIds.has(itemId))
       ) {
         existentesIgnorados++;
         continue;
