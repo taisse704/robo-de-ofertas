@@ -147,9 +147,9 @@ Deno.serve(async (req) => {
 
       let legenda = "🔥 *" + headline + "* 🔥\n\n🛍️ " + title + "\n\n";
       if (old > price) {
-        legenda += "💰 De ~R$ " + money(old) + "~ por *R$ " + money(price) + "*";
+        legenda += "💰 De R$ " + money(old) + " por *R$ " + money(price) + (pixConfirmed ? " no Pix*" : "*");
       } else {
-        legenda += "💰 Por *R$ " + money(price) + "*";
+        legenda += "💰 Por *R$ " + money(price) + (pixConfirmed ? " no Pix*" : "*");
       }
       if (discount > 0) legenda += "\n🏷️ *" + discount + "% OFF*";
       if (coupon) legenda += "\n🎟️ Use o cupom: *" + coupon + "*";
