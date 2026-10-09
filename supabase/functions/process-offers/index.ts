@@ -1338,48 +1338,118 @@ Deno.serve(async (req) => {
         return a.position - b.position || b.discount - a.discount || a.current - b.current;
       })
       .slice(0, Math.min(limit, 20));
+    const imageLookupDiagnostics: any[] = [];
     const imageSearchResults = await runWithConcurrency(
       imageSearchCandidates,
       async (candidate: any) => {
-        const params = new URLSearchParams({
-          q: String(candidate.title),
-          limit: "50",
-          sort: "relevance"
-        });
-        const result = await getJson(
-          ML + "/sites/" + SITE_ID + "/search?" + params.toString(),
-          false
-        );
-        if (!result.ok || !Array.isArray(result.data?.results)) {
-          return { candidate, item: null };
+        const diagnostic: Record<string, unknown> = {
+          product_id: String(candidate.product_external_id || ""),
+          item_id: String(candidate.external_id || ""),
+          direct_item_status: null,
+          product_status: null,
+          search_status: null,
+          matched_by: null
+        };
+        let imageItem: any = null;
+
+        // Prioriza o anúncio exato, sem depender de uma busca textual.
+        const itemId = String(candidate.external_id || "");
+        if (itemId.startsWith("MLB")) {
+          let direct = await getJson(ML + "/items/" + encodeURIComponent(itemId), false);
+          diagnostic.direct_item_status = direct.status;
+          if (!direct.ok && (direct.status === 401 || direct.status === 403)) {
+            direct = await getJson(ML + "/items/" + encodeURIComponent(itemId), true);
+            diagnostic.direct_item_status = direct.status;
+          }
+          if (direct.ok && direct.data?.id) {
+            const directImage = getImageUrl(
+              direct.data.thumbnail, direct.data.thumbnail_url, direct.data.pictures?.[0],
+              direct.data.picture_id, direct.data.secure_thumbnail
+            );
+            if (directImage) {
+              imageItem = direct.data;
+              diagnostic.matched_by = "item_id_exato";
+            }
+          }
         }
-        const rows = result.data.results as any[];
-        const exact = rows.find((row: any) =>
-          String(row?.id || "") === String(candidate.external_id || "") ||
-          String(row?.catalog_product_id || "") === String(candidate.product_external_id || "")
-        );
-        const close = exact || rows.find((row: any) => {
-          const price = Number(row?.price || 0);
-          return row?.id &&
-            titleSimilarity(candidate.title, row.title) >= 0.82 &&
-            price > 0 &&
-            Math.abs(price - Number(candidate.current)) / Number(candidate.current) <= 0.05;
-        });
-        return { candidate, item: close || null };
+
+        // Segunda tentativa: consulta novamente o produto exato do catálogo.
+        if (!imageItem) {
+          const productId = String(candidate.product_external_id || "");
+          if (productId.startsWith("MLB")) {
+            const productResult = await getCatalogJson(ML + "/products/" + encodeURIComponent(productId));
+            diagnostic.product_status = productResult.status;
+            if (productResult.ok && productResult.data) {
+              const product = productResult.data;
+              const productImage = getImageUrl(
+                product.thumbnail, product.thumbnail_url, product.main_picture,
+                product.pictures?.[0], product.picture_id
+              );
+              if (productImage) {
+                imageItem = {
+                  thumbnail: productImage,
+                  permalink: product.permalink,
+                  title: product.name || product.family_name
+                };
+                diagnostic.matched_by = "produto_catalogo_exato";
+              }
+            }
+          }
+        }
+
+        // Última tentativa: busca textual com correspondência exata ou forte.
+        if (!imageItem) {
+          const params = new URLSearchParams({
+            q: String(candidate.title),
+            limit: "50",
+            sort: "relevance"
+          });
+          const result = await getJson(
+            ML + "/sites/" + SITE_ID + "/search?" + params.toString(),
+            false
+          );
+          diagnostic.search_status = result.status;
+          if (result.ok && Array.isArray(result.data?.results)) {
+            const rows = result.data.results as any[];
+            const exact = rows.find((row: any) =>
+              String(row?.id || "") === itemId ||
+              String(row?.catalog_product_id || "") === String(candidate.product_external_id || "")
+            );
+            const close = exact || rows.find((row: any) => {
+              const price = Number(row?.price || 0);
+              return row?.id &&
+                titleSimilarity(candidate.title, row.title) >= 0.82 &&
+                price > 0 &&
+                Number(candidate.current) > 0 &&
+                Math.abs(price - Number(candidate.current)) / Number(candidate.current) <= 0.05;
+            });
+            if (close && getImageUrl(close.thumbnail, close.thumbnail_url, close.pictures?.[0], close.picture_id)) {
+              imageItem = close;
+              diagnostic.matched_by = exact ? "busca_id_exato" : "busca_titulo_preco";
+            }
+          }
+        }
+
+        const image = imageItem
+          ? getImageUrl(
+              imageItem.thumbnail, imageItem.thumbnail_url, imageItem.pictures?.[0],
+              imageItem.picture_id, imageItem.secure_thumbnail
+            )
+          : null;
+        diagnostic.image_found = Boolean(image);
+        imageLookupDiagnostics.push(diagnostic);
+        return { candidate, item: imageItem, image };
       },
       5
     );
     for (const entry of imageSearchResults) {
-      const item = entry.item;
-      if (!item) continue;
-      const image = getImageUrl(item.thumbnail, item.thumbnail_url, item.pictures?.[0], item.picture_id) || "";
-      if (!image) continue;
-      entry.candidate.image = image;
-      entry.candidate.permalink = item.permalink || entry.candidate.permalink;
-      if (item.seller?.id) entry.candidate.seller_id = String(item.seller.id);
-      if (item.seller?.nickname) entry.candidate.seller_name = String(item.seller.nickname);
-      if (item.title && titleSimilarity(entry.candidate.title, item.title) >= 0.92) {
-        entry.candidate.title = String(item.title);
+      if (!entry.image) continue;
+      entry.candidate.image = entry.image;
+      entry.candidate.permalink = entry.item?.permalink || entry.candidate.permalink;
+      if (entry.item?.seller?.id) entry.candidate.seller_id = String(entry.item.seller.id);
+      if (entry.item?.seller?.nickname) entry.candidate.seller_name = String(entry.item.seller.nickname);
+      if (entry.item?.title && titleSimilarity(entry.candidate.title, entry.item.title) >= 0.92) {
+        entry.candidate.title = String(entry.item.title);
       }
       imagensEnriquecidas++;
     }
@@ -1684,6 +1754,10 @@ Deno.serve(async (req) => {
         itens_consultados: itemIds.length,
         itens_com_detalhes: itemMap.size,
         imagens_enriquecidas: imagensEnriquecidas,
+        busca_imagem_consultados: imageLookupDiagnostics.length,
+        busca_imagem_com_correspondencia: imageLookupDiagnostics.filter((x: any) => Boolean(x.matched_by)).length,
+        busca_imagem_com_imagem: imageLookupDiagnostics.filter((x: any) => Boolean(x.image_found)).length,
+        busca_imagem_diagnostico: imageLookupDiagnostics.slice(0, 20),
         produtos_catalogo_processados: resolved.filter((r) => Boolean(r.product?.buy_box_winner)).length,
         candidatos_com_preco: candidates.length,
         duplicados_ignorados: duplicadosIgnorados,
