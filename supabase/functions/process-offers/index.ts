@@ -6,8 +6,15 @@ const MAX = 20;
 
 const getImageUrl = (...sources: any[]): string | null => {
   for (const source of sources) {
-    if (typeof source === "string" && /^https?:\/\//i.test(source.trim())) {
-      return source.trim().replace(/^http:\/\//i, "https://");
+    if (typeof source === "string") {
+      const value = source.trim();
+      if (/^https?:\/\//i.test(value)) {
+        return value.replace(/^http:\/\//i, "https://");
+      }
+      // Algumas respostas do catálogo entregam o identificador da foto em vez da URL.
+      if (/^[\w-]{8,}$/.test(value) && /ML[A-Z]/i.test(value)) {
+        return "https://http2.mlstatic.com/D_NQ_NP_" + value + "-O.webp";
+      }
     }
     if (source && typeof source === "object") {
       const nested = [
@@ -16,7 +23,7 @@ const getImageUrl = (...sources: any[]): string | null => {
       ].find((value: any) => typeof value === "string" && /^https?:\/\//i.test(value.trim()));
       if (nested) return String(nested).trim().replace(/^http:\/\//i, "https://");
       const pictureId = String(source.id || source.picture_id || "").trim();
-      if (/^[\w-]{8,}$/.test(pictureId) && /MLB/i.test(pictureId)) {
+      if (/^[\w-]{8,}$/.test(pictureId) && /ML[A-Z]/i.test(pictureId)) {
         return "https://http2.mlstatic.com/D_NQ_NP_" + pictureId + "-O.webp";
       }
     }
@@ -1212,7 +1219,8 @@ Deno.serve(async (req) => {
           discount,
           image: getImageUrl(
             itemDetails.thumbnail, itemDetails.thumbnail_url, itemDetails.pictures?.[0], itemDetails.picture_id,
-            winner.thumbnail, winner.pictures?.[0], winner.picture_id,
+            r.publicItem?.thumbnail, r.publicItem?.thumbnail_url, r.publicItem?.pictures?.[0], r.publicItem?.picture_id,
+            winner.thumbnail, winner.thumbnail_url, winner.pictures?.[0], winner.picture_id,
             product.thumbnail, product.thumbnail_url, product.pictures?.[0], product.picture_id
           ),
           permalink: itemDetails.permalink || winner.permalink || product.permalink || null,
