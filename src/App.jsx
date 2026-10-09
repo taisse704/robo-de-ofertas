@@ -1328,6 +1328,17 @@ export default function App() {
     return Number(valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   }
 
+  function rotuloComissao(oferta) {
+    // O conector atual do Mercado Livre não recebe a comissão por produto.
+    // Zero aqui é valor padrão do banco, não uma confirmação de comissão zero.
+    if (oferta?.store_provider === "mercadolivre" && Number(oferta?.comissao_estimada || 0) <= 0) {
+      return "Não informada pela plataforma";
+    }
+    return oferta?.comissao_estimada == null || oferta.comissao_estimada === ""
+      ? "Não informada"
+      : moeda(oferta.comissao_estimada);
+  }
+
   const menu = [
     ["inicio", "Inicio"],
     ["ofertas-ml", "Ofertas Mercado Livre"],
@@ -1510,7 +1521,7 @@ export default function App() {
               {ofertasDaAba("mercadolivre").map((o) => (
                 <div className="offer" key={o.id}>
                   <div className="offer-image">{o.imagem_url ? <img src={o.imagem_url} alt="" /> : "Oferta"}</div>
-                  <div className="offer-info"><label style={{display:"flex",alignItems:"center",gap:"8px",fontWeight:700}}><input type="checkbox" checked={ofertasSelecionadas.has(o.id)} onChange={() => alternarOfertaSelecionada(o.id)} /> Selecionar para publicação</label><h3>{o.titulo}</h3><p>Mercado Livre</p><strong>{o.preco_atual == null ? "Preço não informado" : moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{Number(o.desconto_percentual || 0)}% de desconto</span>}<small>Comissao estimada: {moeda(o.comissao_estimada)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="primary" disabled={enfileirandoOfertas} onClick={() => colocarOfertaNaFila(o.id)}>📥 COLOCAR NA FILA</button><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
+                  <div className="offer-info"><label style={{display:"flex",alignItems:"center",gap:"8px",fontWeight:700}}><input type="checkbox" checked={ofertasSelecionadas.has(o.id)} onChange={() => alternarOfertaSelecionada(o.id)} /> Selecionar para publicação</label><h3>{o.titulo}</h3><p>Mercado Livre</p><strong>{o.preco_atual == null ? "Preço não informado" : moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{Number(o.desconto_percentual || 0)}% de desconto</span>}<small>Comissão estimada: {rotuloComissao(o)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="primary" disabled={enfileirandoOfertas} onClick={() => colocarOfertaNaFila(o.id)}>📥 COLOCAR NA FILA</button><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
                 </div>
               ))}
             </div>
@@ -1535,7 +1546,7 @@ export default function App() {
               {ofertasDaAba("shopee").map((o) => (
                 <div className="offer" key={o.id}>
                   <div className="offer-image">{o.imagem_url ? <img src={o.imagem_url} alt="" /> : "Oferta"}</div>
-                  <div className="offer-info"><label style={{display:"flex",alignItems:"center",gap:"8px",fontWeight:700}}><input type="checkbox" checked={ofertasSelecionadas.has(o.id)} onChange={() => alternarOfertaSelecionada(o.id)} /> Selecionar para publicação</label><h3>{o.titulo}</h3><p>Shopee</p><strong>{o.preco_atual == null ? "Preço não informado" : moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{Number(o.desconto_percentual || 0)}% de desconto</span>}<small>Comissao estimada: {moeda(o.comissao_estimada)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="primary" disabled={enfileirandoOfertas} onClick={() => colocarOfertaNaFila(o.id)}>📥 COLOCAR NA FILA</button><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
+                  <div className="offer-info"><label style={{display:"flex",alignItems:"center",gap:"8px",fontWeight:700}}><input type="checkbox" checked={ofertasSelecionadas.has(o.id)} onChange={() => alternarOfertaSelecionada(o.id)} /> Selecionar para publicação</label><h3>{o.titulo}</h3><p>Shopee</p><strong>{o.preco_atual == null ? "Preço não informado" : moeda(o.preco_atual)}</strong>{o.desconto_percentual != null && <span>{Number(o.desconto_percentual || 0)}% de desconto</span>}<small>Comissão estimada: {rotuloComissao(o)}</small><small>Status: {o.classificacao}</small><div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}><select value={o.classificacao} onChange={(e) => alterarClassificacao(o.id, e.target.value)}><option value="interessante">Interessante</option><option value="verificar">Verificar</option><option value="descartada">Descartada</option></select><button className="primary" disabled={enfileirandoOfertas} onClick={() => colocarOfertaNaFila(o.id)}>📥 COLOCAR NA FILA</button><button className="secondary" onClick={() => excluirOferta(o.id)}>Excluir</button></div></div>
                 </div>
               ))}
             </div>
