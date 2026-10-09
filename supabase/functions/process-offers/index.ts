@@ -962,7 +962,7 @@ Deno.serve(async (req) => {
     }
 
     const resolved: any[] = [];
-    const targetResolved = Math.min(Math.max(limit * 12, 60), 150);
+    const targetResolved = Math.min(Math.max(limit * 15, 100), 300);
     const RESOLUTION_BATCH_SIZE = 10;
 
     for (
