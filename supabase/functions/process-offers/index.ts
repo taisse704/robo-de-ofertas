@@ -3,6 +3,27 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const ML = "https://api.mercadolibre.com";
 const SITE_ID = "MLB";
 const MAX = 20;
+
+const getImageUrl = (...sources: any[]): string | null => {
+  for (const source of sources) {
+    if (typeof source === "string" && /^https?:\/\//i.test(source.trim())) {
+      return source.trim().replace(/^http:\/\//i, "https://");
+    }
+    if (source && typeof source === "object") {
+      const nested = [
+        source.secure_url, source.url, source.thumbnail, source.thumbnail_url,
+        source.picture, source.picture_url
+      ].find((value: any) => typeof value === "string" && /^https?:\/\//i.test(value.trim()));
+      if (nested) return String(nested).trim().replace(/^http:\/\//i, "https://");
+      const pictureId = String(source.id || source.picture_id || "").trim();
+      if (/^[\w-]{8,}$/.test(pictureId) && /MLB/i.test(pictureId)) {
+        return "https://http2.mlstatic.com/D_NQ_NP_" + pictureId + "-O.webp";
+      }
+    }
+  }
+  return null;
+};
+
 const REQUEST_TIMEOUT_MS = 8000;
 
 // Categorias usadas somente como fonte de ranking "Mais vendidos".
@@ -862,12 +883,15 @@ Deno.serve(async (req) => {
     // impeçam a coleta das ofertas de catálogo.
     const { data: existingOffers, error: existingOffersError } = await db
       .from("offers")
-      .select("id,product_external_id,titulo,dados_origem,nova,atualizada_em,created_at")
+      .select("id,product_external_id,titulo,dados_origem,nova,atualizada_em,created_at,imagem_url")
       .eq("user_id", userId)
       .eq("platform_id", platform.id);
 
     if (existingOffersError) throw existingOffersError;
 
+    const existingByProductId = new Map(
+      (existingOffers || []).map((item: any) => [String(item?.product_external_id || ""), item])
+    );
     const existingProductIds = new Set(
       (existingOffers || [])
         .map((item: any) => String(item?.product_external_id || ""))
@@ -1107,7 +1131,7 @@ Deno.serve(async (req) => {
           current,
           original,
           discount,
-          image: item.thumbnail || item.pictures?.[0]?.secure_url || item.pictures?.[0]?.url || null,
+          image: getImageUrl(item.thumbnail, item.thumbnail_url, item.pictures?.[0], item.picture_id),
           permalink: item.permalink || null,
           promotion_id: promotionId,
           promotion_type: item.listing_type_id || null,
@@ -1186,14 +1210,11 @@ Deno.serve(async (req) => {
           current,
           original,
           discount,
-          image:
-            itemDetails.thumbnail ||
-            itemDetails.pictures?.[0]?.secure_url ||
-            itemDetails.pictures?.[0]?.url ||
-            product.pictures?.[0]?.secure_url ||
-            product.pictures?.[0]?.url ||
-            product.pictures?.[0]?.thumbnail ||
-            null,
+          image: getImageUrl(
+            itemDetails.thumbnail, itemDetails.thumbnail_url, itemDetails.pictures?.[0], itemDetails.picture_id,
+            winner.thumbnail, winner.pictures?.[0], winner.picture_id,
+            product.thumbnail, product.thumbnail_url, product.pictures?.[0], product.picture_id
+          ),
           permalink: itemDetails.permalink || winner.permalink || product.permalink || null,
           seller_id: sellerId || null,
           seller_name: sellerName || null,
@@ -1514,7 +1535,7 @@ Deno.serve(async (req) => {
         desconto_percentual: o.discount,
         moeda: "BRL",
         disponibilidade: true,
-        imagem_url: o.image,
+        imagem_url: o.image || String((existingByProductId.get(String(o.product_external_id || "")) as any)?.imagem_url || "").trim() || null,
         dados_origem: originPatch,
         promocao_id_externo: o.promotion_id,
         oferta_tipo: o.oferta_tipo,
@@ -1575,7 +1596,7 @@ Deno.serve(async (req) => {
         classificacao: o.discount >= 10 ? "interessante" : "verificar",
         permitido_afiliado: false,
         permitido_divulgacao: false,
-        imagem_url: o.image,
+        imagem_url: o.image || String((existingByProductId.get(String(o.product_external_id || "")) as any)?.imagem_url || "").trim() || null,
         dados_origem: {
           fonte: "mercadolivre-highlights",
           categoria_id: o.categoria_id,
