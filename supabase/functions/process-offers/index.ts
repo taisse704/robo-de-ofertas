@@ -1044,7 +1044,9 @@ Deno.serve(async (req) => {
           if (item?.id) itemMap.set(String(item.id), item);
         }
       }
-      const missingItemIds = itemIds.filter((id) => !itemMap.has(id)).slice(0, 10);
+      // Há no máximo 20 IDs por rodada; completar todos os detalhes faltantes
+      // evita que os produtos sem imagem fiquem presos indefinidamente.
+      const missingItemIds = itemIds.filter((id) => !itemMap.has(id));
       if (missingItemIds.length) {
         const fallbackItems = await runWithConcurrency(
           missingItemIds,
@@ -1357,9 +1359,9 @@ Deno.serve(async (req) => {
         const close = exact || rows.find((row: any) => {
           const price = Number(row?.price || 0);
           return row?.id &&
-            titleSimilarity(candidate.title, row.title) >= 0.92 &&
+            titleSimilarity(candidate.title, row.title) >= 0.82 &&
             price > 0 &&
-            Math.abs(price - Number(candidate.current)) / Number(candidate.current) <= 0.10;
+            Math.abs(price - Number(candidate.current)) / Number(candidate.current) <= 0.05;
         });
         return { candidate, item: close || null };
       },
