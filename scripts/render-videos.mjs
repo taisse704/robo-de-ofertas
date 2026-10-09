@@ -56,15 +56,27 @@ async function upload(path, file) {
   return SUPABASE_URL + "/storage/v1/object/public/videos/" + path.split("/").map(encodeURIComponent).join("/");
 }
 
+async function usuariosComVideoAtivo() {
+  const settings = await rest("robot_settings?select=user_id&gerar_video=eq.true&ativo=eq.true");
+  return new Set((Array.isArray(settings) ? settings : []).map(row => row.user_id).filter(Boolean));
+}
+
 async function recuperarJobsComImagemDisponivel() {
+  // Respeita a configuração individual: não reabre nem processa vídeos
+  // para contas que deixaram a geração de vídeo desativada.
+  const videoUsers = await usuariosComVideoAtivo();
+  if (!videoUsers.size) return;
+
   // Os jobs antigos podem ter falhado apenas porque a oferta ainda não tinha imagem.
   // Recoloca-os na fila somente quando a tabela offers já possui uma URL válida.
   const failed = await rest(
-    "video_jobs?status=eq.erro&error=ilike.*imagem*&select=id,offer_id,dados,error,attempts&order=created_at.asc&limit=250"
+    "video_jobs?status=eq.erro&error=ilike.*imagem*&select=id,user_id,offer_id,dados,error,attempts&order=created_at.asc&limit=250"
   );
   if (!Array.isArray(failed) || !failed.length) return;
+  const eligibleFailed = failed.filter(job => videoUsers.has(job.user_id));
+  if (!eligibleFailed.length) return;
 
-  const offerIds = [...new Set(failed.map(job => job.offer_id).filter(Boolean))];
+  const offerIds = [...new Set(eligibleFailed.map(job => job.offer_id).filter(Boolean))];
   if (!offerIds.length) return;
 
   const offers = await rest(
@@ -77,7 +89,7 @@ async function recuperarJobsComImagemDisponivel() {
   );
 
   let recovered = 0;
-  for (const job of failed) {
+  for (const job of eligibleFailed) {
     const imageUrl = imageByOffer.get(job.offer_id);
     if (!imageUrl) continue;
     const dados = job.dados && typeof job.dados === "object" ? job.dados : {};
@@ -99,8 +111,17 @@ async function recuperarJobsComImagemDisponivel() {
 async function main() {
   await recuperarJobsComImagemDisponivel();
 
-  const jobs = await rest("video_jobs?status=eq.pendente&order=created_at.asc&limit=6&select=*");
-  if (!Array.isArray(jobs) || !jobs.length) {
+  const videoUsers = await usuariosComVideoAtivo();
+  if (!videoUsers.size) {
+    console.log("Geração de vídeo desativada nas configurações.");
+    return;
+  }
+
+  const pendingJobs = await rest("video_jobs?status=eq.pendente&order=created_at.asc&limit=50&select=*");
+  const jobs = (Array.isArray(pendingJobs) ? pendingJobs : [])
+    .filter(job => videoUsers.has(job.user_id))
+    .slice(0, 6);
+  if (!jobs.length) {
     console.log("Nenhum vídeo pendente.");
     return;
   }
