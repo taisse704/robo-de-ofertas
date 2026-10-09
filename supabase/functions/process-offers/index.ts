@@ -1029,9 +1029,10 @@ Deno.serve(async (req) => {
     }
 
     const salePriceMap = new Map<string, any>();
-    if (itemIds.length) {
+    const detailedItemIds = itemIds.filter((id) => itemMap.has(id)).slice(0, 10);
+    if (detailedItemIds.length) {
       const salePrices = await runWithConcurrency(
-        itemIds.slice(0, MAX),
+        detailedItemIds,
         async (id) => ({
           id,
           result: await getJson(
@@ -1039,7 +1040,7 @@ Deno.serve(async (req) => {
             true
           )
         }),
-        2
+        5
       );
       for (const entry of salePrices) {
         if (entry.result?.ok && entry.result?.data) salePriceMap.set(entry.id, entry.result.data);
@@ -1053,7 +1054,7 @@ Deno.serve(async (req) => {
         const item = itemMap.get(id);
         return String(item?.seller?.id || item?.seller_id || "");
       }).filter((id) => /^\d+$/.test(id))
-    )).slice(0, MAX);
+    )).slice(0, 10);
     const sellerMap = new Map<string, string>();
     const sellerResults = await runWithConcurrency(
       sellerIds,
@@ -1075,7 +1076,7 @@ Deno.serve(async (req) => {
       // PRODUCT sem Buy Box: usa a publicação encontrada pela busca pública.
       // O preço/permalink vêm da própria resposta pública; não fazemos
       // /items/{id} em publicação de terceiro.
-      if (r.publicItem) {
+      if (r.publicItem && !r.product?.buy_box_winner) {
         const item = r.publicItem;
         const current = Number(item.price);
         if (!Number.isFinite(current) || current <= 0) continue;
@@ -1415,9 +1416,23 @@ Deno.serve(async (req) => {
         posicao_ranking: o.position,
         item_id: o.external_id
       };
+      const previousSellerId = String(existing.dados_origem?.seller_id || "");
+      if (o.seller_id) {
+        if (previousSellerId && previousSellerId !== String(o.seller_id) && !o.seller_name) {
+          delete originPatch.seller_name;
+        }
+        originPatch.seller_id = o.seller_id;
+      }
       if (o.seller_name) originPatch.seller_name = o.seller_name;
-      if (o.seller_id) originPatch.seller_id = o.seller_id;
-      if (o.payment_method) originPatch.payment_method = o.payment_method;
+      if (o.payment_method) {
+        originPatch.payment_method = o.payment_method;
+        originPatch.payment_method_verified_at = now;
+      } else {
+        // Não mantém uma condição Pix antiga como se ainda estivesse confirmada.
+        delete originPatch.payment_method;
+        delete originPatch.payment_methods;
+        delete originPatch.payment_method_verified_at;
+      }
       if (o.coupon_code) originPatch.coupon_code = o.coupon_code;
       const updatePayload: Record<string, unknown> = {
         titulo: safeTitle,
