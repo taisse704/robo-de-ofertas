@@ -1052,7 +1052,7 @@ Deno.serve(async (req) => {
       itemIds.map((id) => {
         const item = itemMap.get(id);
         return String(item?.seller?.id || item?.seller_id || "");
-      }).filter((id) => /^\\d+$/.test(id))
+      }).filter((id) => /^\d+$/.test(id))
     )).slice(0, MAX);
     const sellerMap = new Map<string, string>();
     const sellerResults = await runWithConcurrency(
