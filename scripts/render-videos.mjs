@@ -56,7 +56,49 @@ async function upload(path, file) {
   return SUPABASE_URL + "/storage/v1/object/public/videos/" + path.split("/").map(encodeURIComponent).join("/");
 }
 
+async function recuperarJobsComImagemDisponivel() {
+  // Os jobs antigos podem ter falhado apenas porque a oferta ainda não tinha imagem.
+  // Recoloca-os na fila somente quando a tabela offers já possui uma URL válida.
+  const failed = await rest(
+    "video_jobs?status=eq.erro&error=ilike.*imagem*&select=id,offer_id,dados,error,attempts&order=created_at.asc&limit=250"
+  );
+  if (!Array.isArray(failed) || !failed.length) return;
+
+  const offerIds = [...new Set(failed.map(job => job.offer_id).filter(Boolean))];
+  if (!offerIds.length) return;
+
+  const offers = await rest(
+    "offers?select=id,imagem_url&id=in.(" + offerIds.map(encodeURIComponent).join(",") + ")"
+  );
+  const imageByOffer = new Map(
+    (Array.isArray(offers) ? offers : [])
+      .filter(offer => typeof offer.imagem_url === "string" && /^https?:\/\//i.test(offer.imagem_url))
+      .map(offer => [offer.id, offer.imagem_url])
+  );
+
+  let recovered = 0;
+  for (const job of failed) {
+    const imageUrl = imageByOffer.get(job.offer_id);
+    if (!imageUrl) continue;
+    const dados = job.dados && typeof job.dados === "object" ? job.dados : {};
+    await rest("video_jobs?id=eq." + encodeURIComponent(job.id), {
+      method: "PATCH",
+      headers: { ...headers, Prefer: "return=minimal" },
+      body: JSON.stringify({
+        status: "pendente",
+        error: null,
+        dados: { ...dados, imagem_url: imageUrl },
+        updated_at: new Date().toISOString()
+      })
+    });
+    recovered++;
+  }
+  if (recovered) console.log("Vídeos recuperados após a imagem ficar disponível:", recovered);
+}
+
 async function main() {
+  await recuperarJobsComImagemDisponivel();
+
   const jobs = await rest("video_jobs?status=eq.pendente&order=created_at.asc&limit=6&select=*");
   if (!Array.isArray(jobs) || !jobs.length) {
     console.log("Nenhum vídeo pendente.");
