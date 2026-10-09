@@ -848,16 +848,76 @@ Deno.serve(async (req) => {
     // Resolvemos somente produtos de catálogo e continuamos enquanto ainda
     // faltarem itens válidos. Isso evita que ITEM/USER_PRODUCT bloqueados
     // impeçam a coleta das ofertas de catálogo.
+    const { data: existingOffers, error: existingOffersError } = await db
+      .from("offers")
+      .select("id,product_external_id,titulo,dados_origem,nova")
+      .eq("user_id", userId)
+      .eq("platform_id", platform.id);
+
+    if (existingOffersError) throw existingOffersError;
+
+    const existingProductIds = new Set(
+      (existingOffers || [])
+        .map((item: any) => String(item?.product_external_id || ""))
+        .filter(Boolean)
+    );
+    const historyRows: any[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      const { data: batch, error: historyError } = await db
+        .from("offer_product_history")
+        .select("external_product_id,external_item_id,product_title")
+        .eq("user_id", userId)
+        .eq("provider", "mercadolivre")
+        .range(offset, offset + 999);
+      if (historyError) throw historyError;
+      if (!batch?.length) break;
+      historyRows.push(...batch);
+      if (batch.length < 1000) break;
+    }
+    const historicalProductIds = new Set(historyRows.map((x: any) => String(x.external_product_id || "")));
+    const historicalItemIds = new Set(historyRows.map((x: any) => String(x.external_item_id || "")).filter(Boolean));
+
+    const existingItemIds = new Set(
+      (existingOffers || [])
+        .map((item: any) => String(item?.dados_origem?.item_id || ""))
+        .filter((id: string) => id.startsWith("MLB"))
+    );
+
+
+    // Alterna a prioridade entre produtos ainda não vistos e cadastrados:
+    // não deixa os primeiros 120 já conhecidos consumirem toda a resolução,
+    // mas continua reservando parte da busca para atualizar preços existentes.
+    const unseenHighlights = highlightEntries.filter((entry: any) => {
+      const id = String(entry?.id || "");
+      return id && !existingProductIds.has(id) && !historicalProductIds.has(id);
+    });
+    const knownHighlights = highlightEntries.filter((entry: any) => {
+      const id = String(entry?.id || "");
+      return id && (existingProductIds.has(id) || historicalProductIds.has(id));
+    });
+    const orderedHighlightEntries: any[] = [];
+    let unseenIndex = 0;
+    let knownIndex = 0;
+    while (unseenIndex < unseenHighlights.length || knownIndex < knownHighlights.length) {
+      for (let n = 0; n < 2 && unseenIndex < unseenHighlights.length; n++) {
+        orderedHighlightEntries.push(unseenHighlights[unseenIndex++]);
+      }
+      if (knownIndex < knownHighlights.length) {
+        orderedHighlightEntries.push(knownHighlights[knownIndex++]);
+      }
+      if (unseenIndex >= unseenHighlights.length && knownIndex >= knownHighlights.length) break;
+    }
+
     const resolved: any[] = [];
-    const targetResolved = Math.min(Math.max(limit * 12, 60), 120);
+    const targetResolved = Math.min(Math.max(limit * 12, 60), 150);
     const RESOLUTION_BATCH_SIZE = 10;
 
     for (
       let offset = 0;
-      offset < highlightEntries.length && resolved.length < targetResolved;
+      offset < orderedHighlightEntries.length && resolved.length < targetResolved;
       offset += RESOLUTION_BATCH_SIZE
     ) {
-      const resolutionBatch = highlightEntries.slice(
+      const resolutionBatch = orderedHighlightEntries.slice(
         offset,
         offset + RESOLUTION_BATCH_SIZE
       );
@@ -1147,41 +1207,6 @@ Deno.serve(async (req) => {
         b.score - a.score ||
         b.discount - a.discount ||
         a.position - b.position
-    );
-
-    const { data: existingOffers, error: existingOffersError } = await db
-      .from("offers")
-      .select("id,product_external_id,titulo,dados_origem,nova")
-      .eq("user_id", userId)
-      .eq("platform_id", platform.id);
-
-    if (existingOffersError) throw existingOffersError;
-
-    const existingProductIds = new Set(
-      (existingOffers || [])
-        .map((item: any) => String(item?.product_external_id || ""))
-        .filter(Boolean)
-    );
-    const historyRows: any[] = [];
-    for (let offset = 0; ; offset += 1000) {
-      const { data: batch, error: historyError } = await db
-        .from("offer_product_history")
-        .select("external_product_id,external_item_id,product_title")
-        .eq("user_id", userId)
-        .eq("provider", "mercadolivre")
-        .range(offset, offset + 999);
-      if (historyError) throw historyError;
-      if (!batch?.length) break;
-      historyRows.push(...batch);
-      if (batch.length < 1000) break;
-    }
-    const historicalProductIds = new Set(historyRows.map((x: any) => String(x.external_product_id || "")));
-    const historicalItemIds = new Set(historyRows.map((x: any) => String(x.external_item_id || "")).filter(Boolean));
-
-    const existingItemIds = new Set(
-      (existingOffers || [])
-        .map((item: any) => String(item?.dados_origem?.item_id || ""))
-        .filter((id: string) => id.startsWith("MLB"))
     );
 
     // Identidade exata é a regra principal. Título parecido não é suficiente:
