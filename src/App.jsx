@@ -972,6 +972,9 @@ export default function App() {
           ["itens consultados", diagnosticos.itens_consultados],
           ["itens com detalhes", diagnosticos.itens_com_detalhes],
           ["imagens recuperadas", diagnosticos.imagens_enriquecidas],
+          ["buscas de imagem", diagnosticos.busca_imagem_consultados],
+          ["correspondências de imagem", diagnosticos.busca_imagem_com_correspondencia],
+          ["resultados com imagem", diagnosticos.busca_imagem_com_imagem],
           ["candidatos com preço", diagnosticos.candidatos_com_preco],
           ["duplicados ignorados", diagnosticos.duplicados_ignorados],
           ["ofertas existentes ignoradas", diagnosticos.existentes_ignorados],
@@ -994,8 +997,14 @@ export default function App() {
               `erro ${e?.tipo || "resultado"} ${e?.id || ""}: HTTP ${e?.status ?? "—"} ${e?.erro || e?.message || ""}`
             )
           : [];
+        const imageErrors = Array.isArray(diagnosticos.busca_imagem_diagnostico)
+          ? diagnosticos.busca_imagem_diagnostico
+              .filter((d) => !d?.image_found)
+              .slice(0, 3)
+              .map((d) => `imagem ${d?.item_id || d?.product_id || "produto"}: item HTTP ${d?.direct_item_status ?? "—"}, catálogo HTTP ${d?.product_status ?? "—"}, busca HTTP ${d?.search_status ?? "—"}`)
+          : [];
 
-        diagnosticoTexto = [...counts, ...categories, ...errors].join(" | ");
+        diagnosticoTexto = [...counts, ...categories, ...errors, ...imageErrors].join(" | ");
       }
 
       let mensagem =
