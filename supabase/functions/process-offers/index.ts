@@ -1657,8 +1657,9 @@ Deno.serve(async (req) => {
 
     return json({
       ok: true,
-      // Total de candidatos com preço válido; novas continua contando apenas inserções.
-      produtos_encontrados: candidates.length,
+      // Total realmente processado nesta rodada (novas + atualizadas), limitado a 20.
+      // A quantidade bruta varrida continua disponível em diagnostico.candidatos_com_preco.
+      produtos_encontrados: novas + atualizadas,
       novas,
       atualizadas,
       limite: limit,
