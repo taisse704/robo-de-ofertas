@@ -825,10 +825,11 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Depois de consultar várias folhas, já temos candidatos suficientes
-      // para o filtro de 20 ofertas. Ainda deixamos margem para o filtro
-      // de desconto eliminar produtos sem promoção.
-      if (highlightEntries.length >= 120) break;
+      // Não encerrar a coleta apenas porque os primeiros 120 destaques
+      // vieram de produtos já cadastrados. Ampliamos a amostra para permitir
+      // que o filtro de histórico encontre produtos realmente novos.
+      // O limite de ofertas novas continua sendo controlado por "limit".
+      if (highlightEntries.length >= 360) break;
     }
 
     if (!highlightEntries.length) {
