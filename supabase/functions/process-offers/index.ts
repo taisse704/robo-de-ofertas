@@ -1585,7 +1585,7 @@ Deno.serve(async (req) => {
         titulos_duplicados_ignorados: titulosDuplicadosIgnorados,
         existentes_ignorados: existentesIgnorados,
         em_promocao: candidates.filter((x) => x.discount > 0 || x.promotion_id).length,
-        sem_preco: Math.max(0, resolved.length - itemMap.size),
+        sem_preco: Math.max(0, resolved.length - candidates.length),
         erros_resolucao: resolutionErrors.slice(0, 25),
         incidente_autenticacao: authenticationIncident,
         reautenticacao_necessaria: Boolean(reauthenticationUrl),
