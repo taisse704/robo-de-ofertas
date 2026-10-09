@@ -1281,6 +1281,64 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Alguns produtos de catálogo não expõem imagem no detalhe do produto nem
+    // no buy_box_winner. Recuperamos a imagem por busca pública, aceitando apenas
+    // o mesmo item/catálogo ou um título muito próximo com preço compatível.
+    let imagensEnriquecidas = 0;
+    const imageSearchCandidates = candidates
+      .filter((item: any) => !String(item.image || "").trim() && String(item.title || "").trim())
+      .sort((a: any, b: any) =>
+        a.position - b.position ||
+        b.discount - a.discount ||
+        a.current - b.current
+      )
+      .slice(0, 10);
+    const imageSearchResults = await runWithConcurrency(
+      imageSearchCandidates,
+      async (candidate: any) => {
+        const params = new URLSearchParams({
+          q: String(candidate.title),
+          limit: "50",
+          sort: "relevance"
+        });
+        const result = await getJson(
+          ML + "/sites/" + SITE_ID + "/search?" + params.toString(),
+          false
+        );
+        if (!result.ok || !Array.isArray(result.data?.results)) {
+          return { candidate, item: null };
+        }
+        const rows = result.data.results as any[];
+        const exact = rows.find((row: any) =>
+          String(row?.id || "") === String(candidate.external_id || "") ||
+          String(row?.catalog_product_id || "") === String(candidate.product_external_id || "")
+        );
+        const close = exact || rows.find((row: any) => {
+          const price = Number(row?.price || 0);
+          return row?.id &&
+            titleSimilarity(candidate.title, row.title) >= 0.92 &&
+            price > 0 &&
+            Math.abs(price - Number(candidate.current)) / Number(candidate.current) <= 0.10;
+        });
+        return { candidate, item: close || null };
+      },
+      5
+    );
+    for (const entry of imageSearchResults) {
+      const item = entry.item;
+      if (!item) continue;
+      const image = String(item.thumbnail || item.pictures?.[0]?.secure_url || item.pictures?.[0]?.url || "").trim();
+      if (!image) continue;
+      entry.candidate.image = image;
+      entry.candidate.permalink = item.permalink || entry.candidate.permalink;
+      if (item.seller?.id) entry.candidate.seller_id = String(item.seller.id);
+      if (item.seller?.nickname) entry.candidate.seller_name = String(item.seller.nickname);
+      if (item.title && titleSimilarity(entry.candidate.title, item.title) >= 0.92) {
+        entry.candidate.title = String(item.title);
+      }
+      imagensEnriquecidas++;
+    }
+
     // Prioridade: posição no ranking de mais vendidos, depois promoção/desconto.
     // Comissão não está disponível de forma confiável neste endpoint; não inventamos valores.
     candidates.sort(
@@ -1579,6 +1637,7 @@ Deno.serve(async (req) => {
         destaques_resolvidos: resolved.length,
         itens_consultados: itemIds.length,
         itens_com_detalhes: itemMap.size,
+        imagens_enriquecidas: imagensEnriquecidas,
         produtos_catalogo_processados: resolved.filter((r) => Boolean(r.product?.buy_box_winner)).length,
         candidatos_com_preco: candidates.length,
         duplicados_ignorados: duplicadosIgnorados,
