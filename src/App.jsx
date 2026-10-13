@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-09-ml-affiliate-save-fix";
+const FRONTEND_BUILD_VERSION = "2026-10-13-import-video-button-fix";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -475,24 +475,49 @@ export default function App() {
   async function importarVideosOriginais() {
     if (importandoVideosOriginais) return;
     setImportandoVideosOriginais(true);
-    setMensagemConteudo("Procurando vídeos originais nos anúncios da Shopee e do Mercado Livre...");
+    setMensagemConteudo("Conectando ao Supabase e procurando vídeos originais (lote de até 12 anúncios)...");
     try {
-      const { data: importacao, error } = await supabase.functions.invoke("import-product-videos", { body: { limit: 100 } });
-      if (error) throw error;
-      if (!importacao?.ok) throw new Error(importacao?.error || "Não foi possível importar os vídeos.");
-      let criados = 0;
-      let avisoGeracao = "";
-      const ids = Array.isArray(importacao.imported_offer_ids) ? importacao.imported_offer_ids : [];
-      if (ids.length) {
-        const { data: geracao, error: erroGeracao } = await supabase.functions.invoke("generate-content", { body: { offer_ids: ids } });
-        if (erroGeracao) avisoGeracao = " Os vídeos foram importados, mas não consegui criar os conteúdos automaticamente.";
-        else criados = Number(geracao?.count || 0);
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      const token = sessionData?.session?.access_token;
+      if (!token) throw new Error("Sua sessão expirou. Entre novamente no Robô de Ofertas e tente de novo.");
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) throw new Error("A configuração de conexão com o Supabase está incompleta.");
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/import-product-videos`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          apikey: SUPABASE_ANON_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ limit: 12 }),
+        signal: AbortSignal.timeout(90000)
+      });
+      const importacao = await response.json().catch(() => ({}));
+      if (!response.ok || !importacao?.ok) {
+        throw new Error(importacao?.error || importacao?.message || `A importação respondeu HTTP ${response.status}. Tente novamente.`);
       }
-      await Promise.all([carregarConteudos(), carregarOfertas()]);
-      setMensagemConteudo(`${importacao.message || "Importação finalizada."}${criados ? ` ${criados} conteúdo(s) criado(s) para a fila de vídeos.` : ""}${avisoGeracao}${importacao.failed ? ` ${importacao.failed} falha(s) na consulta ou no salvamento.` : ""}`);
+
+      const ids = Array.isArray(importacao.imported_offer_ids) ? importacao.imported_offer_ids : [];
+      setMensagemConteudo(`${importacao.message || "Importação finalizada."}${importacao.failed ? ` ${importacao.failed} falha(s) na consulta ou no salvamento.` : ""}`);
+      await Promise.all([carregarOfertas(), carregarConteudos()]);
+
+      if (ids.length) {
+        setMensagemConteudo(`${importacao.message || "Importação finalizada."} Preparando os conteúdos para a fila de vídeos...`);
+        try {
+          const { error: erroGeracao } = await supabase.functions.invoke("generate-content", { body: { offer_ids: ids } });
+          if (erroGeracao) setMensagemConteudo(`${importacao.message || "Importação finalizada."} Os vídeos foram salvos, mas a criação automática dos conteúdos falhou: ${erroGeracao.message || "erro desconhecido"}.`);
+          else {
+            await carregarConteudos();
+            setMensagemConteudo(`${importacao.message || "Importação finalizada."} Solicitei a criação dos conteúdos correspondentes.`);
+          }
+        } catch (erroGeracao) {
+          setMensagemConteudo(`${importacao.message || "Importação finalizada."} Os vídeos foram salvos, mas a criação dos conteúdos falhou: ${erroGeracao?.message || "erro desconhecido"}.`);
+        }
+      }
     } catch (error) {
       console.error("IMPORTAR VÍDEOS ORIGINAIS:", error);
-      setMensagemConteudo(error?.message || "Não foi possível importar os vídeos originais.");
+      setMensagemConteudo(error?.message || "Não foi possível importar os vídeos originais. Atualize a página e tente novamente.");
     } finally {
       setImportandoVideosOriginais(false);
     }
