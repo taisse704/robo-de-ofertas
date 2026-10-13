@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 
 const SOURCE = "robo-de-ofertas";
-const RETRY_AFTER_MS = 20000;
+const RETRY_AFTER_MS = 45000;
 
 
 export default function MercadoLivreAffiliateBridge() {
@@ -21,6 +21,13 @@ export default function MercadoLivreAffiliateBridge() {
       const timer = window.setTimeout(() => {
         timeouts.current.delete(id);
         processando.current.delete(id);
+        window.postMessage({
+          source: SOURCE,
+          type: "ML_AFFILIATE_RESULT",
+          offer_id: id,
+          ok: false,
+          error: "Não recebi resposta da extensão do Mercado Livre. Confira se a extensão “Robô de Ofertas — Links Mercado Livre” está instalada e ativada neste navegador, e se há uma aba do Mercado Livre aberta com sua conta de afiliado conectada."
+        }, "*");
       }, RETRY_AFTER_MS);
 
       timeouts.current.set(id, timer);
@@ -29,6 +36,21 @@ export default function MercadoLivreAffiliateBridge() {
     const onMessage = (event) => {
       const data = event?.data;
       if (!data || data.source !== SOURCE) return;
+
+      if (data.type === "ML_AFFILIATE_RESULT") {
+        const id = String(data.offer_id || "").trim();
+        if (id) {
+          const timer = timeouts.current.get(id);
+          if (timer) window.clearTimeout(timer);
+          timeouts.current.delete(id);
+          if (data.ok === true) {
+            // Mantém a oferta bloqueada na fila até o link salvo aparecer no banco.
+          } else {
+            processando.current.delete(id);
+          }
+        }
+        return;
+      }
 
       if (data.type === "ML_AFFILIATE_REQUEST") {
         const offer = data.offer || {};
