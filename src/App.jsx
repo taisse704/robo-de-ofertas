@@ -64,6 +64,12 @@ export default function App() {
   const [cupons, setCupons] = useState([]);
   const [carregandoCupons, setCarregandoCupons] = useState(false);
   const [mensagemCupons, setMensagemCupons] = useState("");
+  const [salvandoCupom, setSalvandoCupom] = useState(false);
+  const [novoCupom, setNovoCupom] = useState({
+    codigo: "", descricao: "", percentual: "", valor: "", compra_minima: "",
+    validade_inicio: "", validade_fim: "", url_afiliado: "", fonte_oficial: "",
+    texto_regras: "", confirmado: false
+  });
 
   useEffect(() => {
     verificarSessao();
@@ -366,6 +372,89 @@ export default function App() {
       setCupons([]);
     } finally {
       setCarregandoCupons(false);
+    }
+  }
+
+  async function salvarCupomShopee(event) {
+    event.preventDefault();
+    setMensagemCupons("");
+    if (!usuario?.id) return;
+    if (!novoCupom.confirmado) {
+      setMensagemCupons("Confirme que conferiu o código, a validade e o link no app ou painel oficial da Shopee.");
+      return;
+    }
+    setSalvandoCupom(true);
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.access_token) throw new Error("Sua sessão expirou. Entre novamente.");
+      const converterData = (valor) => valor ? new Date(valor).toISOString() : null;
+      const numeroCupom = (valor) => valor === "" || valor == null ? null : Number(valor);
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/shopee-coupons`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: SUPABASE_ANON_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          action: "upsert",
+          coupon: {
+            codigo: novoCupom.codigo.trim(),
+            descricao: novoCupom.descricao.trim(),
+            percentual: numeroCupom(novoCupom.percentual),
+            valor: numeroCupom(novoCupom.valor),
+            compra_minima: numeroCupom(novoCupom.compra_minima),
+            validade_inicio: converterData(novoCupom.validade_inicio),
+            validade_fim: converterData(novoCupom.validade_fim),
+            url_afiliado: novoCupom.url_afiliado.trim(),
+            fonte_oficial: novoCupom.fonte_oficial.trim(),
+            origem: "cadastro_manual_oficial",
+            verificado: true,
+            ativo: true,
+            prioridade: 0,
+            regras: { texto: novoCupom.texto_regras.trim() || "Confira as condições do cupom no aplicativo da Shopee." }
+          }
+        })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.ok) throw new Error(result.error || `Erro HTTP ${response.status}`);
+      setNovoCupom({
+        codigo: "", descricao: "", percentual: "", valor: "", compra_minima: "",
+        validade_inicio: "", validade_fim: "", url_afiliado: "", fonte_oficial: "",
+        texto_regras: "", confirmado: false
+      });
+      setMensagemCupons("Cupom oficial salvo. Ele já pode aparecer na página pública se estiver dentro da validade.");
+      await carregarCupons();
+    } catch (error) {
+      console.error("SALVAR CUPOM SHOPEE:", error);
+      setMensagemCupons(error?.message || "Não foi possível salvar o cupom.");
+    } finally {
+      setSalvandoCupom(false);
+    }
+  }
+
+  async function desativarCupomShopee(id) {
+    if (!window.confirm("Desativar este cupom? Ele deixará de aparecer na página pública.")) return;
+    setMensagemCupons("");
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.access_token) throw new Error("Sua sessão expirou. Entre novamente.");
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/shopee-coupons`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: SUPABASE_ANON_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ action: "deactivate", coupon_id: id })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.ok) throw new Error(result.error || `Erro HTTP ${response.status}`);
+      setMensagemCupons("Cupom desativado e removido da página pública.");
+      await carregarCupons();
+    } catch (error) {
+      console.error("DESATIVAR CUPOM SHOPEE:", error);
+      setMensagemCupons(error?.message || "Não foi possível desativar o cupom.");
     }
   }
 
@@ -1575,6 +1664,31 @@ export default function App() {
               {mensagemCupons && <p className="status">{mensagemCupons}</p>}
             </div>
             <div className="panel">
+              <h3>➕ Cadastrar cupom oficial da Shopee</h3>
+              <p>Use os dados conferidos no app/painel oficial da Shopee. O Robô não inventa códigos nem confirma descontos automaticamente.</p>
+              <form onSubmit={salvarCupomShopee} style={{display:"grid",gap:"12px",maxWidth:"760px"}}>
+                <label>Código do cupom *<input required value={novoCupom.codigo} onChange={e=>setNovoCupom(p=>({...p,codigo:e.target.value}))} placeholder="Digite o código exatamente como aparece na Shopee" /></label>
+                <label>Descrição<input value={novoCupom.descricao} onChange={e=>setNovoCupom(p=>({...p,descricao:e.target.value}))} placeholder="Ex.: desconto para compras elegíveis" /></label>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:"12px"}}>
+                  <label>Desconto (%)<input type="number" min="0.01" max="100" step="0.01" value={novoCupom.percentual} onChange={e=>setNovoCupom(p=>({...p,percentual:e.target.value}))} placeholder="Ex.: 10" /></label>
+                  <label>Desconto (R$)<input type="number" min="0.01" step="0.01" value={novoCupom.valor} onChange={e=>setNovoCupom(p=>({...p,valor:e.target.value}))} placeholder="Ex.: 15.00" /></label>
+                  <label>Compra mínima (R$)<input type="number" min="0" step="0.01" value={novoCupom.compra_minima} onChange={e=>setNovoCupom(p=>({...p,compra_minima:e.target.value}))} placeholder="Opcional" /></label>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:"12px"}}>
+                  <label>Começa em<input type="datetime-local" value={novoCupom.validade_inicio} onChange={e=>setNovoCupom(p=>({...p,validade_inicio:e.target.value}))} /></label>
+                  <label>Válido até<input type="datetime-local" value={novoCupom.validade_fim} onChange={e=>setNovoCupom(p=>({...p,validade_fim:e.target.value}))} /></label>
+                </div>
+                <label>Link de divulgação da Shopee *<input type="url" required value={novoCupom.url_afiliado} onChange={e=>setNovoCupom(p=>({...p,url_afiliado:e.target.value}))} placeholder="Cole seu link oficial/afiliado da Shopee" /></label>
+                <label>Link da fonte oficial onde conferiu o cupom *<input type="url" required value={novoCupom.fonte_oficial} onChange={e=>setNovoCupom(p=>({...p,fonte_oficial:e.target.value}))} placeholder="Cole um link oficial da Shopee" /></label>
+                <label>Regras/observações<input value={novoCupom.texto_regras} onChange={e=>setNovoCupom(p=>({...p,texto_regras:e.target.value}))} placeholder="Ex.: válido para produtos participantes" /></label>
+                <label style={{display:"flex",alignItems:"flex-start",gap:"10px"}}>
+                  <input type="checkbox" required checked={novoCupom.confirmado} onChange={e=>setNovoCupom(p=>({...p,confirmado:e.target.checked}))} style={{width:"auto",marginTop:"4px"}} />
+                  <span>Confirmo que conferi o código, as condições, a validade e o link no app/painel oficial da Shopee.</span>
+                </label>
+                <button className="primary" type="submit" disabled={salvandoCupom}>{salvandoCupom ? "SALVANDO..." : "SALVAR CUPOM VERIFICADO"}</button>
+              </form>
+            </div>
+            <div className="panel">
               <h3>Cupons disponíveis</h3>
               {carregandoCupons && <p>Carregando cupons...</p>}
               {!carregandoCupons && cupons.length === 0 && (
@@ -1594,6 +1708,8 @@ export default function App() {
                     {c.compra_minima != null && <small>Compra mínima: {moeda(c.compra_minima)}</small>}
                     {c.validade_fim && <small>Válido até: {new Date(c.validade_fim).toLocaleString("pt-BR")}</small>}
                     <small>{c.offer_id ? "Vinculado a uma oferta" : "Cupom geral"}</small>
+                    {c.fonte_oficial && <small>Fonte oficial conferida</small>}
+                    <button className="secondary danger" onClick={() => desativarCupomShopee(c.id)}>DESATIVAR CUPOM</button>
                   </div>
                 </div>
               ))}
