@@ -44,6 +44,7 @@ export default function App() {
   const [mensagemOferta, setMensagemOferta] = useState("");
   const [mensagemShopee, setMensagemShopee] = useState("");
   const [carregandoShopee, setCarregandoShopee] = useState(false);
+  const [importandoVideosOriginais, setImportandoVideosOriginais] = useState(false);
   const [mensagemAfiliadas, setMensagemAfiliadas] = useState("");
   const [config, setConfig] = useState({ativo:true,busca_automatica:true,publicar_automaticamente:true,aprovacao_antes_publicar:false,instagram:false,youtube:false,whatsapp:false,tiktok:false,kwai:false,facebook:false,pinterest:false,intervalo_minutos:30,modo_conteudo:"post"});
   const [salvandoConfig, setSalvandoConfig] = useState(false);
@@ -468,6 +469,32 @@ export default function App() {
       setMensagemCupons("Link da página de cupons copiado.");
     } catch {
       setMensagemCupons(url);
+    }
+  }
+
+  async function importarVideosOriginais() {
+    if (importandoVideosOriginais) return;
+    setImportandoVideosOriginais(true);
+    setMensagemConteudo("Procurando vídeos originais nos anúncios da Shopee e do Mercado Livre...");
+    try {
+      const { data: importacao, error } = await supabase.functions.invoke("import-product-videos", { body: { limit: 100 } });
+      if (error) throw error;
+      if (!importacao?.ok) throw new Error(importacao?.error || "Não foi possível importar os vídeos.");
+      let criados = 0;
+      let avisoGeracao = "";
+      const ids = Array.isArray(importacao.imported_offer_ids) ? importacao.imported_offer_ids : [];
+      if (ids.length) {
+        const { data: geracao, error: erroGeracao } = await supabase.functions.invoke("generate-content", { body: { offer_ids: ids } });
+        if (erroGeracao) avisoGeracao = " Os vídeos foram importados, mas não consegui criar os conteúdos automaticamente.";
+        else criados = Number(geracao?.count || 0);
+      }
+      await Promise.all([carregarConteudos(), carregarOfertas()]);
+      setMensagemConteudo(`${importacao.message || "Importação finalizada."}${criados ? ` ${criados} conteúdo(s) criado(s) para a fila de vídeos.` : ""}${avisoGeracao}${importacao.failed ? ` ${importacao.failed} falha(s) na consulta ou no salvamento.` : ""}`);
+    } catch (error) {
+      console.error("IMPORTAR VÍDEOS ORIGINAIS:", error);
+      setMensagemConteudo(error?.message || "Não foi possível importar os vídeos originais.");
+    } finally {
+      setImportandoVideosOriginais(false);
     }
   }
 
@@ -1774,6 +1801,14 @@ export default function App() {
           <>
             <h2>Gestão de Conteúdo</h2>
             {mensagemConteudo && <div className="panel"><p>{mensagemConteudo}</p></div>}
+            {abaConteudo === "videos" && (
+              <div className="panel" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px",flexWrap:"wrap"}}>
+                <div><strong>Importar vídeos originais</strong><p style={{margin:"4px 0 0"}}>Verifica até 100 anúncios da Shopee e do Mercado Livre. Só salva arquivos de vídeo encontrados na fonte; não publica automaticamente.</p></div>
+                <button className="primary" onClick={importarVideosOriginais} disabled={importandoVideosOriginais}>
+                  {importandoVideosOriginais ? "PROCURANDO VÍDEOS..." : "🎬 IMPORTAR VÍDEOS DOS ANÚNCIOS"}
+                </button>
+              </div>
+            )}
 
             <div className="content-tabs">
               <button className={abaConteudo === "controle" ? "tab-ativo" : ""} onClick={() => setAbaConteudo("controle")}>
