@@ -36,7 +36,8 @@ const getVideoUrl = (...sources: any[]): string | null => {
   const candidates: any[] = [];
   for (const source of sources) {
     if (!source) continue;
-    if (typeof source === "string") candidates.push(source);
+    if (Array.isArray(source)) candidates.push(...source);
+    else if (typeof source === "string") candidates.push(source);
     else if (typeof source === "object") {
       candidates.push(source.video_url, source.videoUrl, source.url, source.secure_url, source.src);
       if (Array.isArray(source.videos)) candidates.push(...source.videos);
