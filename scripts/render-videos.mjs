@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -236,6 +236,14 @@ async function main() {
         "-movflags", "+faststart",
         output
       ], { stdio: "inherit" });
+
+      // Não marque o job como concluído se o FFmpeg não produziu um MP4 válido.
+      if (!existsSync(output)) throw new Error("O renderizador terminou sem criar o arquivo MP4.");
+      const rendered = statSync(output);
+      if (!rendered.isFile() || rendered.size < 10000) {
+        throw new Error("O arquivo MP4 gerado está vazio ou incompleto (" + rendered.size + " bytes).");
+      }
+      console.log("Arquivo MP4 validado:", rendered.size, "bytes");
 
       const path = job.user_id + "/" + safeName(dados.titulo) + "-" + job.content_id + ".mp4";
       const outputUrl = await upload(path, output);
