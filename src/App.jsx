@@ -1440,6 +1440,50 @@ export default function App() {
       : moeda(oferta.comissao_estimada);
   }
 
+  function linksParaVitrineShopee() {
+    const vistos = new Set();
+    return listaOfertas
+      .filter((o) => String(o.store_provider || "").toLowerCase() === "shopee" || String(o.platforms?.nome || "").toLowerCase() === "shopee")
+      .map((o) => String(o.store_product_url || o.url_produto || "").trim())
+      .filter((url) => {
+        if (!/^https?:\/\//i.test(url) || vistos.has(url)) return false;
+        vistos.add(url);
+        return true;
+      });
+  }
+
+  async function copiarLinksParaVitrineShopee() {
+    const links = linksParaVitrineShopee();
+    if (!links.length) {
+      setMensagemShopee("Nenhum link original de produto Shopee disponível para exportar.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(links.join("\n"));
+      setMensagemShopee(links.length + " links originais copiados. Na Vitrine do Afiliado, use Adicionar por Link de Importação.");
+    } catch {
+      setMensagemShopee("Não foi possível copiar automaticamente. Baixe o arquivo de links para copiar manualmente.");
+    }
+  }
+
+  function baixarLinksParaVitrineShopee() {
+    const links = linksParaVitrineShopee();
+    if (!links.length) {
+      setMensagemShopee("Nenhum link original de produto Shopee disponível para exportar.");
+      return;
+    }
+    const arquivo = new Blob([links.join("\n") + "\n"], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(arquivo);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "links-shopee-para-vitrine.txt";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setMensagemShopee("Arquivo pronto: " + links.length + " links originais, sem duplicados. Abra o TXT para copiar os links na Vitrine do Afiliado.");
+  }
+
   const menu = [
     ["inicio", "Inicio"],
     ["ofertas-ml", "Ofertas Mercado Livre"],
@@ -1633,6 +1677,12 @@ export default function App() {
           <>
             <h2>Ofertas Shopee</h2>
             <div className="panel" style={{display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap"}}><button className="primary" onClick={buscarOfertasShopee} disabled={carregandoShopee || carregandoOfertas}>{carregandoShopee ? "BUSCANDO..." : "🔎 BUSCAR OFERTAS DA SHOPEE"}</button><button className="secondary danger" onClick={limparOfertasManualmente} disabled={carregandoShopee || carregandoOfertas}>🗑️ LIMPAR OFERTAS</button></div>
+            <div className="panel" style={{display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap"}}>
+              <strong>Vitrine do Afiliado Shopee</strong>
+              <button className="primary" onClick={baixarLinksParaVitrineShopee}>⬇️ BAIXAR LINKS PARA VITRINE (.TXT)</button>
+              <button className="secondary" onClick={copiarLinksParaVitrineShopee}>COPIAR LINKS PARA IMPORTAÇÃO</button>
+              <small>Exporta links originais de produtos, sem duplicados. Não altera a busca nem a publicação.</small>
+            </div>
             {mensagemShopee && <div className="panel"><p>{mensagemShopee}</p></div>}
             <div className="offer-tabs">
               <button className={abaOfertas === "novas" ? "tab-ativo" : ""} onClick={() => setAbaOfertas("novas")}>🆕 Novas <span>{listaOfertas.filter((o) => (o.store_provider === "shopee" || o.platforms?.nome === "Shopee") && ofertaEhNova(o)).length}</span></button>
