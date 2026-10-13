@@ -356,19 +356,23 @@ export default function App() {
     setCarregandoCupons(true);
     setMensagemCupons("");
     try {
-      const { data, error } = await supabase
-        .from("coupons")
-        .select("*, offers(id,titulo,imagem_url,affiliate_url,url_produto)")
-        .eq("user_id", usuario.id)
-        .eq("ativo", true)
-        .eq("verificado", true)
-        .order("prioridade", { ascending: false })
-        .order("validade_fim", { ascending: true, nullsFirst: false });
-      if (error) throw error;
-      setCupons(data || []);
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.access_token) throw new Error("Sua sessão expirou. Entre novamente.");
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/shopee-coupons`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: SUPABASE_ANON_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ action: "list", limit: 100 })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.ok) throw new Error(result.error || `Erro HTTP ${response.status}`);
+      setCupons(result.coupons || []);
     } catch (error) {
       console.error("CARREGAR CUPONS:", error);
-      setMensagemCupons("Não foi possível carregar os cupons.");
+      setMensagemCupons(error?.message || "Não foi possível carregar os cupons.");
       setCupons([]);
     } finally {
       setCarregandoCupons(false);
