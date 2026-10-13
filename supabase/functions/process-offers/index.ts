@@ -31,6 +31,33 @@ const getImageUrl = (...sources: any[]): string | null => {
   return null;
 };
 
+
+const getVideoUrl = (...sources: any[]): string | null => {
+  const candidates: any[] = [];
+  for (const source of sources) {
+    if (!source) continue;
+    if (Array.isArray(source)) candidates.push(...source);
+    else if (typeof source === "string") candidates.push(source);
+    else if (typeof source === "object") {
+      candidates.push(source.video_url, source.videoUrl, source.url, source.secure_url, source.src);
+      if (Array.isArray(source.videos)) candidates.push(...source.videos);
+      if (Array.isArray(source.media)) candidates.push(...source.media);
+    }
+  }
+  for (const candidate of candidates) {
+    const value = typeof candidate === "string"
+      ? candidate.trim()
+      : String(candidate?.video_url || candidate?.videoUrl || candidate?.url || candidate?.secure_url || candidate?.src || "").trim();
+    if (!/^https?:\/\//i.test(value)) continue;
+    // Só armazenamos endereços de mídia explicitamente retornados pela fonte;
+    // não fabricamos URLs a partir de IDs nem usamos páginas de produto como vídeo.
+    if (/\.(mp4|m4v|mov|webm|m3u8)(?:[?#].*)?$/i.test(value)) {
+      return value.replace(/^http:\/\//i, "https://");
+    }
+  }
+  return null;
+};
+
 const REQUEST_TIMEOUT_MS = 8000;
 
 // Categorias usadas somente como fonte de ranking "Mais vendidos".
@@ -1151,6 +1178,7 @@ Deno.serve(async (req) => {
           original,
           discount,
           image: getImageUrl(item.thumbnail, item.thumbnail_url, item.pictures?.[0], item.picture_id),
+          video_url: getVideoUrl(item.video_url, item.videoUrl, item.video, item.videos, item.media),
           permalink: item.permalink || null,
           promotion_id: promotionId,
           coupon_code: String(item?.coupon_code || item?.coupon?.code || item?.sale_price?.metadata?.coupon_code || item?.metadata?.coupon_code || "").trim() || null,
@@ -1230,6 +1258,7 @@ Deno.serve(async (req) => {
           current,
           original,
           discount,
+          video_url: getVideoUrl(itemDetails, r.publicItem, winner, product),
           image: getImageUrl(
             itemDetails.thumbnail, itemDetails.thumbnail_url, itemDetails.pictures?.[0], itemDetails.picture_id,
             r.publicItem?.thumbnail, r.publicItem?.thumbnail_url, r.publicItem?.pictures?.[0], r.publicItem?.picture_id,
@@ -1628,6 +1657,7 @@ Deno.serve(async (req) => {
         moeda: "BRL",
         disponibilidade: true,
         imagem_url: o.image || String((existingByProductId.get(String(o.product_external_id || "")) as any)?.imagem_url || "").trim() || null,
+        ...(o.video_url ? { video_url: o.video_url } : {}),
         dados_origem: originPatch,
         promocao_id_externo: o.promotion_id,
         oferta_tipo: o.oferta_tipo,
@@ -1689,6 +1719,7 @@ Deno.serve(async (req) => {
         permitido_afiliado: false,
         permitido_divulgacao: false,
         imagem_url: o.image || String((existingByProductId.get(String(o.product_external_id || "")) as any)?.imagem_url || "").trim() || null,
+        ...(o.video_url ? { video_url: o.video_url } : {}),
         dados_origem: {
           fonte: "mercadolivre-highlights",
           categoria_id: o.categoria_id,
