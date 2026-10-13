@@ -159,7 +159,7 @@ async function main() {
 
       writeFileSync(titleFile, title);
       writeFileSync(priceFile, "R$ " + price.toFixed(2).replace(".", ","));
-      writeFileSync(discountFile, discount > 0 ? discount + "% OFF" : "OFERTA ESPECIAL");
+      writeFileSync(discountFile, discount > 0 ? discount + " por cento OFF" : "OFERTA ESPECIAL");
       writeFileSync(ctaFile, "👇 CONFIRA A OFERTA");
 
       // Novo modelo: Short vertical de 9s, com movimento de câmera,
