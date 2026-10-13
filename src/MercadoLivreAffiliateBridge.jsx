@@ -43,11 +43,7 @@ export default function MercadoLivreAffiliateBridge() {
           const timer = timeouts.current.get(id);
           if (timer) window.clearTimeout(timer);
           timeouts.current.delete(id);
-          if (data.ok === true) {
-            // Mantém a oferta bloqueada na fila até o link salvo aparecer no banco.
-          } else {
-            processando.current.delete(id);
-          }
+          processando.current.delete(id);
         }
         return;
       }
