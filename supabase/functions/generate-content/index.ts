@@ -74,7 +74,10 @@ Deno.serve(async (req) => {
     // Para seleção manual (offer_ids), mantemos exatamente os IDs escolhidos.
     // Uma rodada automática cria no máximo 20 conteúdos para não inundar
     // a fila enquanto o processamento de vídeo estiver pendente.
-    const candidateLimit = selectedOfferIds.length ? selectedOfferIds.length : 20;
+    // Busca candidatos além dos primeiros já usados, para não ficar sem vídeo
+    // quando as ofertas de maior pontuação já têm conteúdo cadastrado.
+    const candidateLimit = selectedOfferIds.length ? selectedOfferIds.length : 100;
+    const contentLimit = selectedOfferIds.length ? selectedOfferIds.length : 20;
 
     const { data: offers, error } = await offersQuery
       .order("score_oferta", { ascending: false })
@@ -90,6 +93,7 @@ Deno.serve(async (req) => {
     const conteudos = [];
 
     for (const offer of offers) {
+      if (count >= contentLimit) break;
       const isMercadoLivre = String(offer.store_provider || "").toLowerCase() === "mercadolivre";
       const affiliateUrl = String(offer.affiliate_url || "").trim();
 
