@@ -354,7 +354,6 @@ export default function App() {
   async function carregarCupons() {
     if (!usuario?.id) return;
     setCarregandoCupons(true);
-    setMensagemCupons("");
     try {
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !session?.access_token) throw new Error("Sua sessão expirou. Entre novamente.");
