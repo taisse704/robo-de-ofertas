@@ -1444,7 +1444,8 @@ export default function App() {
     const vistos = new Set();
     return listaOfertas
       .filter((o) => String(o.store_provider || "").toLowerCase() === "shopee" || String(o.platforms?.nome || "").toLowerCase() === "shopee")
-      .map((o) => String(o.store_product_url || o.url_produto || "").trim())
+      // Exportar somente links de afiliado que já estejam salvos; nunca usar URL original como substituto.
+      .map((o) => String(o.affiliate_url || "").trim())
       .filter((url) => {
         if (!/^https?:\/\//i.test(url) || vistos.has(url)) return false;
         vistos.add(url);
@@ -1455,33 +1456,33 @@ export default function App() {
   async function copiarLinksParaVitrineShopee() {
     const links = linksParaVitrineShopee();
     if (!links.length) {
-      setMensagemShopee("Nenhum link original de produto Shopee disponível para exportar.");
+      setMensagemShopee("Nenhum link de afiliado Shopee já gerado e salvo está disponível para exportar.");
       return;
     }
     try {
       await navigator.clipboard.writeText(links.join("\n"));
-      setMensagemShopee(links.length + " links originais copiados. Na Vitrine do Afiliado, use Adicionar por Link de Importação.");
+      setMensagemShopee(links.length + " links de afiliado já gerados copiados.");
     } catch {
-      setMensagemShopee("Não foi possível copiar automaticamente. Baixe o arquivo de links para copiar manualmente.");
+      setMensagemShopee("Não foi possível copiar automaticamente. Baixe o arquivo TXT com os links de afiliado já gerados.");
     }
   }
 
   function baixarLinksParaVitrineShopee() {
     const links = linksParaVitrineShopee();
     if (!links.length) {
-      setMensagemShopee("Nenhum link original de produto Shopee disponível para exportar.");
+      setMensagemShopee("Nenhum link de afiliado Shopee já gerado e salvo está disponível para exportar.");
       return;
     }
     const arquivo = new Blob([links.join("\n") + "\n"], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(arquivo);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "links-shopee-para-vitrine.txt";
+    link.download = "links-afiliados-shopee-ja-gerados.txt";
     document.body.appendChild(link);
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-    setMensagemShopee("Arquivo pronto: " + links.length + " links originais, sem duplicados. Abra o TXT para copiar os links na Vitrine do Afiliado.");
+    setMensagemShopee("Arquivo pronto: " + links.length + " links de afiliado já gerados, sem duplicados.");
   }
 
   const menu = [
@@ -1681,7 +1682,7 @@ export default function App() {
               <strong>Vitrine do Afiliado Shopee</strong>
               <button className="primary" onClick={baixarLinksParaVitrineShopee}>⬇️ BAIXAR LINKS PARA VITRINE (.TXT)</button>
               <button className="secondary" onClick={copiarLinksParaVitrineShopee}>COPIAR LINKS PARA IMPORTAÇÃO</button>
-              <small>Exporta links originais de produtos, sem duplicados. Não altera a busca nem a publicação.</small>
+              <small>Exporta somente links de afiliado já gerados e salvos, sem duplicados. Não usa links originais.</small>
             </div>
             {mensagemShopee && <div className="panel"><p>{mensagemShopee}</p></div>}
             <div className="offer-tabs">
