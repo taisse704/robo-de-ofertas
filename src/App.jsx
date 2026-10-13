@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-13-import-video-button-fix";
+const FRONTEND_BUILD_VERSION = "2026-10-13-show-video-import-button";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -1826,14 +1826,12 @@ export default function App() {
           <>
             <h2>Gestão de Conteúdo</h2>
             {mensagemConteudo && <div className="panel"><p>{mensagemConteudo}</p></div>}
-            {abaConteudo === "videos" && (
-              <div className="panel" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px",flexWrap:"wrap"}}>
-                <div><strong>Importar vídeos originais</strong><p style={{margin:"4px 0 0"}}>Verifica até 100 anúncios da Shopee e do Mercado Livre. Só salva arquivos de vídeo encontrados na fonte; não publica automaticamente.</p></div>
-                <button className="primary" onClick={importarVideosOriginais} disabled={importandoVideosOriginais}>
-                  {importandoVideosOriginais ? "PROCURANDO VÍDEOS..." : "🎬 IMPORTAR VÍDEOS DOS ANÚNCIOS"}
-                </button>
-              </div>
-            )}
+            <div className="panel" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px",flexWrap:"wrap"}}>
+              <div><strong>Importar vídeos originais</strong><p style={{margin:"4px 0 0"}}>Verifica até 12 anúncios da Shopee e do Mercado Livre por tentativa. Só salva arquivos de vídeo encontrados na fonte; não publica automaticamente.</p></div>
+              <button className="primary" onClick={importarVideosOriginais} disabled={importandoVideosOriginais}>
+                {importandoVideosOriginais ? "PROCURANDO VÍDEOS..." : "🎬 IMPORTAR VÍDEOS DOS ANÚNCIOS"}
+              </button>
+            </div>
 
             <div className="content-tabs">
               <button className={abaConteudo === "controle" ? "tab-ativo" : ""} onClick={() => setAbaConteudo("controle")}>
