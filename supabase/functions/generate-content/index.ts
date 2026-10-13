@@ -76,7 +76,7 @@ Deno.serve(async (req) => {
     // a fila enquanto o processamento de vídeo estiver pendente.
     // Busca candidatos além dos primeiros já usados, para não ficar sem vídeo
     // quando as ofertas de maior pontuação já têm conteúdo cadastrado.
-    const candidateLimit = selectedOfferIds.length ? selectedOfferIds.length : 100;
+    const candidateLimit = selectedOfferIds.length ? selectedOfferIds.length : 500;
     const contentLimit = selectedOfferIds.length ? selectedOfferIds.length : 20;
 
     const { data: offers, error } = await offersQuery
