@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-13-shopee-links-report";
+const FRONTEND_BUILD_VERSION = "2026-10-09-ml-affiliate-save-fix";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -43,8 +43,6 @@ export default function App() {
   const [carregandoAfiliadas, setCarregandoAfiliadas] = useState(false);
   const [mensagemOferta, setMensagemOferta] = useState("");
   const [mensagemShopee, setMensagemShopee] = useState("");
-  const [filtroLinksShopee, setFiltroLinksShopee] = useState("");
-  const [mensagemLinksShopee, setMensagemLinksShopee] = useState("");
   const [carregandoShopee, setCarregandoShopee] = useState(false);
   const [mensagemAfiliadas, setMensagemAfiliadas] = useState("");
   const [config, setConfig] = useState({ativo:true,busca_automatica:true,publicar_automaticamente:true,aprovacao_antes_publicar:false,instagram:false,youtube:false,whatsapp:false,tiktok:false,kwai:false,facebook:false,pinterest:false,intervalo_minutos:30,modo_conteudo:"post"});
@@ -1442,21 +1440,10 @@ export default function App() {
       : moeda(oferta.comissao_estimada);
   }
 
-  async function copiarLinkRelatorioShopee(url, tipo) {
-    if (!url) return;
-    try {
-      await navigator.clipboard.writeText(url);
-      setMensagemLinksShopee(tipo + " copiado para a área de transferência.");
-    } catch {
-      setMensagemLinksShopee("Não foi possível copiar automaticamente. Selecione e copie o link exibido.");
-    }
-  }
-
   const menu = [
     ["inicio", "Inicio"],
     ["ofertas-ml", "Ofertas Mercado Livre"],
     ["ofertas-shopee", "Ofertas Shopee"],
-    ["links-shopee", "Links Shopee"],
     ["cupons", "Cupons"],
     ["conteudo", "Conteudo"],
     ["resultados", "Resultados"],
@@ -1666,70 +1653,6 @@ export default function App() {
             </div>
           </>
         )}
-
-        {pagina === "links-shopee" && (() => {
-          const ofertasShopee = listaOfertas.filter((o) =>
-            String(o.store_provider || "").toLowerCase() === "shopee" ||
-            String(o.platforms?.nome || "").toLowerCase() === "shopee"
-          );
-          const termo = filtroLinksShopee.trim().toLocaleLowerCase("pt-BR");
-          const filtradas = ofertasShopee.filter((o) =>
-            !termo || String(o.titulo || "").toLocaleLowerCase("pt-BR").includes(termo) ||
-            String(o.product_external_id || "").toLocaleLowerCase("pt-BR").includes(termo)
-          );
-          const comLink = ofertasShopee.filter((o) => String(o.affiliate_url || "").trim()).length;
-          const semLink = ofertasShopee.length - comLink;
-          const publicadas = ofertasShopee.filter((o) => ofertaEhPublicada(o)).length;
-          return (
-            <>
-              <h2>Relatório de links — Shopee</h2>
-              <p style={{color:"#aaa"}}>Confira o link original e o link de afiliada lado a lado. Este relatório usa as ofertas já cadastradas na sua conta e não altera a busca nem a publicação.</p>
-              <div className="cards">
-                <div className="card"><span>Total de ofertas Shopee</span><strong>{ofertasShopee.length}</strong></div>
-                <div className="card"><span>Com link de afiliada</span><strong>{comLink}</strong></div>
-                <div className="card"><span>Sem link de afiliada</span><strong>{semLink}</strong></div>
-                <div className="card"><span>Já publicadas</span><strong>{publicadas}</strong></div>
-              </div>
-              <div className="panel">
-                <div className="filters">
-                  <input value={filtroLinksShopee} onChange={(e) => setFiltroLinksShopee(e.target.value)} placeholder="Buscar produto pelo nome ou código" aria-label="Buscar produto pelo nome ou código" />
-                  <button className="secondary" onClick={() => { setMensagemLinksShopee(""); carregarOfertas(); carregarOfertasPublicadas(); }}>↻ Atualizar relatório</button>
-                </div>
-                {mensagemLinksShopee && <p>{mensagemLinksShopee}</p>}
-                {carregandoOfertas && <p>Atualizando ofertas e links...</p>}
-                {!carregandoOfertas && filtradas.length === 0 && <p>Nenhuma oferta Shopee encontrada para essa busca.</p>}
-                <div className="affiliate-report-list">
-                  {filtradas.map((o) => {
-                    const original = String(o.store_product_url || o.url_produto || "").trim();
-                    const afiliado = String(o.affiliate_url || "").trim();
-                    const publicada = ofertaEhPublicada(o);
-                    return (
-                      <div className="affiliate-report-row" key={o.id}>
-                        <div className="affiliate-report-heading">
-                          <div><h3>{o.titulo || "Produto sem nome"}</h3><small>{o.preco_atual == null ? "Preço não informado" : moeda(o.preco_atual)} · {publicada ? "Publicada" : "Ainda não publicada"}</small></div>
-                          <span className={afiliado ? "affiliate-report-status ok" : "affiliate-report-status missing"}>{afiliado ? "Link de afiliada salvo" : "Falta link de afiliada"}</span>
-                        </div>
-                        <div className="affiliate-report-links">
-                          <div className="affiliate-report-link">
-                            <strong>Link original</strong>
-                            {original ? <a href={original} target="_blank" rel="noreferrer">{original}</a> : <span className="affiliate-report-missing">Link original não cadastrado</span>}
-                            {original && <button className="secondary" onClick={() => copiarLinkRelatorioShopee(original, "Link original")}>Copiar original</button>}
-                          </div>
-                          <div className="affiliate-report-link">
-                            <strong>Link de afiliada</strong>
-                            {afiliado ? <a href={afiliado} target="_blank" rel="noreferrer">{afiliado}</a> : <span className="affiliate-report-missing">Ainda não há link de afiliada salvo</span>}
-                            {afiliado && <button className="secondary" onClick={() => copiarLinkRelatorioShopee(afiliado, "Link de afiliada")}>Copiar afiliado</button>}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <p style={{color:"#999",fontSize:"12px"}}>Exibindo {filtradas.length} de {ofertasShopee.length} ofertas Shopee cadastradas.</p>
-              </div>
-            </>
-          );
-        })()}
 
         {pagina === "cupons" && (
           <>
@@ -2036,7 +1959,7 @@ export default function App() {
       </main>
 
       <nav>
-        {menu.map(([id, nome]) => <button key={id} className={pagina === id ? "ativo" : ""} onClick={() => setPagina(id)}><span>{id === "inicio" && "🏠"}{id === "ofertas-ml" && "🔎"}{id === "ofertas-shopee" && "🔎"}{id === "links-shopee" && "🔗"}{id === "conteudo" && "🎬"}{id === "resultados" && "📊"}{id === "config" && "⚙️"}</span><small>{nome}</small></button>)}
+        {menu.map(([id, nome]) => <button key={id} className={pagina === id ? "ativo" : ""} onClick={() => setPagina(id)}><span>{id === "inicio" && "🏠"}{id === "ofertas-ml" && "🔎"}{id === "ofertas-shopee" && "🔎"}{id === "conteudo" && "🎬"}{id === "resultados" && "📊"}{id === "config" && "⚙️"}</span><small>{nome}</small></button>)}
       </nav>
     </div>
   );
