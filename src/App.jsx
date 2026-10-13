@@ -499,7 +499,8 @@ export default function App() {
       }
 
       const ids = Array.isArray(importacao.imported_offer_ids) ? importacao.imported_offer_ids : [];
-      setMensagemConteudo(`${importacao.message || "Importação finalizada."}${importacao.failed ? ` ${importacao.failed} falha(s) na consulta ou no salvamento.` : ""}`);
+      const diagnosticos = Array.isArray(importacao.details) ? importacao.details.filter((item) => item?.status === "falha_consulta" || item?.status === "erro_ao_salvar" || item?.status === "erro_ao_marcar_consulta").map((item) => `${String(item.provider || "fonte")}:${String(item.motivo || item.status || "falha")}`).slice(0, 4) : [];
+      setMensagemConteudo(`${importacao.message || "Importação finalizada."}${importacao.failed ? ` ${importacao.failed} falha(s) na consulta ou no salvamento.${diagnosticos.length ? " Diagnóstico: " + diagnosticos.join(" | ") : ""}` : ""}`);
       await Promise.all([carregarOfertas(), carregarConteudos()]);
 
       if (ids.length) {
