@@ -388,23 +388,3 @@ nav button small {
 }
 
 
-/* Relatório de links de afiliada Shopee */
-.affiliate-report-list { display: grid; gap: 12px; }
-.affiliate-report-row { border: 1px solid #29292e; border-radius: 12px; padding: 14px; background: #101014; }
-.affiliate-report-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.affiliate-report-heading h3 { margin: 0 0 6px; overflow-wrap: anywhere; }
-.affiliate-report-heading small { color: #999; }
-.affiliate-report-status { display: inline-block; border-radius: 8px; padding: 6px 9px; font-size: 12px; white-space: nowrap; }
-.affiliate-report-status.ok { color: #35d879; background: #123021; }
-.affiliate-report-status.missing { color: #ffcc80; background: #3a2a14; }
-.affiliate-report-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.affiliate-report-link { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px; border-radius: 10px; background: #17171c; }
-.affiliate-report-link a { color: #9cc7ff; overflow-wrap: anywhere; word-break: break-word; font-size: 13px; }
-.affiliate-report-link strong { font-size: 14px; }
-.affiliate-report-link .secondary { width: auto; margin-top: 2px; }
-.affiliate-report-missing { color: #aaa; font-size: 13px; }
-@media (max-width: 650px) {
-  .affiliate-report-heading { flex-direction: column; }
-  .affiliate-report-links { grid-template-columns: minmax(0, 1fr); }
-  .affiliate-report-link .secondary { width: 100%; }
-}
