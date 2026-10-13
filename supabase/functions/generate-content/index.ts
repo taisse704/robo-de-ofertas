@@ -161,8 +161,13 @@ Deno.serve(async (req) => {
         ? offer.video_url.trim()
         : null;
 
-      const usarVideo = !!originalVideo && (modoConteudo === "video" || modoConteudo === "automatico");
-      const videoFallbackParaPost = modoConteudo === "video" && !originalVideo;
+      // No modo vídeo/automático, usa o vídeo original quando a fonte fornece um.
+      // Se não houver vídeo original, enfileira a geração por FFmpeg a partir da imagem
+      // do produto, desde que a geração de vídeo esteja ativada nas configurações.
+      const modoVideoSolicitado = modoConteudo === "video" || modoConteudo === "automatico";
+      const geracaoVideoAtiva = settings?.gerar_video === true;
+      const usarVideo = modoVideoSolicitado && (!!originalVideo || geracaoVideoAtiva);
+      const videoFallbackParaPost = modoVideoSolicitado && !usarVideo;
 
       const videoSource = usarVideo
         ? (originalVideo ? (offer.video_source || "original") : "gerado")
@@ -205,6 +210,8 @@ Deno.serve(async (req) => {
       if (ce) throw ce;
 
       if (usarVideo && content) {
+        // Vídeo original: registra a origem existente. Sem vídeo original:
+        // cria uma tarefa pendente para scripts/render-videos.mjs produzir o MP4.
         const { error: jobError } = await db.from("video_jobs").insert({
           user_id: userId,
           offer_id: offer.id,
@@ -217,7 +224,7 @@ Deno.serve(async (req) => {
             formato: "9:16",
             largura: 1080,
             altura: 1920,
-            duracao_segundos: 10,
+            duracao_segundos: 9,
             titulo: title,
             preco: price,
             desconto: discount,
