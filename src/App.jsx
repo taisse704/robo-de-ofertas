@@ -509,8 +509,21 @@ export default function App() {
       // Somente anúncios com vídeo original confirmado podem entrar na fila de vídeo.
       // Não encaminha todos os anúncios verificados para geração a partir de fotos.
       const idsParaConteudo = [...new Set(idsImportados)];
-      const diagnosticos = Array.isArray(importacao.details) ? importacao.details.filter((item) => item?.status === "falha_consulta" || item?.status === "erro_ao_salvar" || item?.status === "erro_ao_marcar_consulta").map((item) => `${String(item.provider || "fonte")}:${String(item.motivo || item.status || "falha")}`).slice(0, 4) : [];
-      const resumoImportacao = `${importacao.message || "Importação finalizada."}${importacao.failed ? ` ${importacao.failed} falha(s) na consulta ou no salvamento.${diagnosticos.length ? " Diagnóstico: " + diagnosticos.join(" | ") : ""}` : ""}`;
+      const detalhes = Array.isArray(importacao.details) ? importacao.details : [];
+      const nomeFonte = (provider) => provider === "mercadolivre" ? "Mercado Livre" : provider === "shopee" ? "Shopee" : String(provider || "Fonte");
+      const nomeStatus = (status) => ({
+        video_original_importado: "vídeo original importado",
+        video_original_nao_disponivel_na_fonte: "URL de vídeo não localizada",
+        falha_consulta: "falha ao consultar",
+        erro_ao_salvar: "falha ao salvar vídeo",
+        erro_ao_marcar_consulta: "falha ao registrar consulta"
+      }[status] || String(status || "sem diagnóstico"));
+      const linhasDiagnostico = detalhes.slice(0, 12).map((item) => {
+        const titulo = String(item.title || item.id || "Anúncio").slice(0, 100);
+        const motivo = item.motivo ? ` — ${String(item.motivo).slice(0, 180)}` : "";
+        return `• ${nomeFonte(item.provider)} | ${titulo}: ${nomeStatus(item.status)}${motivo}`;
+      });
+      const resumoImportacao = `${importacao.message || "Importação finalizada."}${importacao.failed ? ` ${importacao.failed} falha(s) na consulta ou no salvamento.` : ""}${linhasDiagnostico.length ? "\\n\\nDiagnóstico por anúncio:\\n" + linhasDiagnostico.join("\\n") : ""}`;
       setMensagemConteudo(resumoImportacao);
       await Promise.all([carregarOfertas(), carregarConteudos()]);
 
@@ -1843,7 +1856,7 @@ export default function App() {
         {pagina === "conteudo" && (
           <>
             <h2>Gestão de Conteúdo</h2>
-            {mensagemConteudo && <div className="panel"><p>{mensagemConteudo}</p></div>}
+            {mensagemConteudo && <div className="panel"><p style={{whiteSpace:"pre-wrap"}}>{mensagemConteudo}</p></div>}
             <div className="panel" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px",flexWrap:"wrap"}}>
               <div><strong>Vídeos dos anúncios</strong><p style={{margin:"4px 0 0"}}>Verifica até 12 anúncios por tentativa e encaminha somente vídeos originais encontrados. Se não houver vídeo original, a oferta fica fora da fila de vídeos. Não cria vídeos a partir de fotos nem publica por este botão.</p></div>
               <button className="primary" onClick={importarVideosOriginais} disabled={importandoVideosOriginais}>
