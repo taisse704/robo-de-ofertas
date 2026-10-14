@@ -51,10 +51,6 @@
       try { walk(JSON.parse(script.textContent || "")); } catch {}
     });
 
-    // Recursos de rede só são aceitos quando a URL parece ser mídia de vídeo.
-    try {
-      performance.getEntriesByType("resource").forEach((entry) => add(entry.name, "video_resource"));
-    } catch {}
 
     return [...candidates.entries()].slice(0, 8).map(([video_url, method]) => ({ video_url, method }));
   }
