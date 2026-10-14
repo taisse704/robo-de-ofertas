@@ -575,7 +575,8 @@ export default function App() {
             if (captura.extensionMissing) {
               resumoImportacao += "\n\nA extensão do navegador não respondeu. É necessário instalar/atualizar a extensão e permitir acesso às páginas da Shopee e do Mercado Livre.";
             } else if (captura.timeout) {
-              resumoImportacao += "\n\nA captura pelo navegador demorou demais. Nenhum vídeo não confirmado foi enviado à fila.";
+              window.postMessage({ source: "robo-de-ofertas", type: "ROBO_VIDEO_CAPTURE_CANCEL" }, "*");
+              resumoImportacao += "\n\nA captura pelo navegador demorou demais e foi solicitada a interrupção. Nenhum vídeo não confirmado foi enviado à fila.";
             } else {
               const videosEncontrados = (captura.results || [])
                 .filter((item) => item && item.video_url && item.offer_id)
