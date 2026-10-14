@@ -109,6 +109,11 @@ async function recuperarJobsComImagemDisponivel() {
 }
 
 async function main() {
+  // Geração de vídeos a partir de fotos foi desativada por preferência do usuário.
+  // Os vídeos originais são usados diretamente pela função generate-content.
+  console.log("Renderização por imagem desativada; nenhum MP4 será criado a partir de fotos.");
+  return;
+
   await recuperarJobsComImagemDisponivel();
 
   const videoUsers = await usuariosComVideoAtivo();
