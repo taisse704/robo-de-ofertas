@@ -182,8 +182,8 @@ async function capturarVideosOriginais(offers) {
     try {
       if (!offerId || !productUrl) throw new Error("Oferta sem ID ou URL de produto.");
       const url = new URL(productUrl);
-      const hostPermitido = /(^|\\.)mercadolivre\\.com\\.br$/i.test(url.hostname) ||
-        /(^|\\.)shopee\\.com\\.br$/i.test(url.hostname);
+      const hostPermitido = /(^|\.)mercadolivre\.com\.br$/i.test(url.hostname) ||
+        /(^|\.)shopee\.com\.br$/i.test(url.hostname);
       if (url.protocol !== "https:" || !hostPermitido) throw new Error("URL do produto fora dos domínios permitidos.");
       const tab = await chrome.tabs.create({ url: url.href, active: false });
       if (!tab?.id) throw new Error("Não foi possível abrir o anúncio no navegador.");
