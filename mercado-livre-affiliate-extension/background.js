@@ -189,23 +189,26 @@ async function capturarVideosOriginais(offers) {
       if (!tab?.id) throw new Error("Não foi possível abrir o anúncio no navegador.");
       tabId = tab.id;
       created = true;
-      await new Promise((resolve, reject) => {
-        let finished = false;
-        const timeout = setTimeout(() => {
-          if (finished) return;
-          finished = true;
-          chrome.tabs.onUpdated.removeListener(listener);
-          reject(new Error("Tempo esgotado ao carregar a página do anúncio."));
-        }, 25000);
-        const listener = (updatedTabId, info) => {
-          if (updatedTabId !== tabId || info.status !== "complete" || finished) return;
-          finished = true;
-          clearTimeout(timeout);
-          chrome.tabs.onUpdated.removeListener(listener);
-          resolve(true);
-        };
-        chrome.tabs.onUpdated.addListener(listener);
-      });
+      const openedTab = await chrome.tabs.get(tabId);
+      if (openedTab.status !== "complete") {
+        await new Promise((resolve, reject) => {
+          let finished = false;
+          const timeout = setTimeout(() => {
+            if (finished) return;
+            finished = true;
+            chrome.tabs.onUpdated.removeListener(listener);
+            reject(new Error("Tempo esgotado ao carregar a página do anúncio."));
+          }, 25000);
+          const listener = (updatedTabId, info) => {
+            if (updatedTabId !== tabId || info.status !== "complete" || finished) return;
+            finished = true;
+            clearTimeout(timeout);
+            chrome.tabs.onUpdated.removeListener(listener);
+            resolve(true);
+          };
+          chrome.tabs.onUpdated.addListener(listener);
+        });
+      }
       let scan = null;
       for (let attempt = 0; attempt < 8; attempt++) {
         try {
