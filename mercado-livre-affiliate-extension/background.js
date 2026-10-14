@@ -179,6 +179,7 @@ async function aguardarPaginaCompleta(tabId, urlEsperada, estado, navegar = fals
   if (!navegar && atual?.status === "complete") return;
   if (navegar && atual?.status === "complete" && atual.url === urlEsperada) return;
   let listener = null;
+  let removidoListener = null;
   let timeout = null;
   let finalizar;
   const carregamento = new Promise((resolve, reject) => {
@@ -187,28 +188,33 @@ async function aguardarPaginaCompleta(tabId, urlEsperada, estado, navegar = fals
       if (concluido) return;
       concluido = true;
       if (listener) chrome.tabs.onUpdated.removeListener(listener);
+      if (removidoListener) chrome.tabs.onRemoved.removeListener(removidoListener);
       if (timeout) clearTimeout(timeout);
       erro ? reject(erro) : resolve(true);
     };
     listener = (id, info, tab) => {
       if (id !== tabId) return;
       if (estado.cancelada) return finalizar(new Error("Captura cancelada."));
-      if (info.status === "complete" && (!urlEsperada || !tab?.url || tab.url === urlEsperada)) finalizar();
+      if (info.status === "complete") finalizar();
     };
     chrome.tabs.onUpdated.addListener(listener);
+    removidoListener = (id) => { if (id === tabId) finalizar(new Error("Captura cancelada.")); };
+    chrome.tabs.onRemoved.addListener(removidoListener);
     timeout = setTimeout(() => finalizar(new Error("Tempo esgotado ao carregar a página do anúncio.")), 15000);
   });
   try {
     if (navegar) await chrome.tabs.update(tabId, { url: urlEsperada });
     const depois = await chrome.tabs.get(tabId).catch(() => null);
-    if (depois?.status === "complete" && (!urlEsperada || depois.url === urlEsperada)) {
+    if (depois?.status === "complete") {
       if (listener) chrome.tabs.onUpdated.removeListener(listener);
+      if (removidoListener) chrome.tabs.onRemoved.removeListener(removidoListener);
       if (timeout) clearTimeout(timeout);
       return true;
     }
     await carregamento;
   } finally {
     if (listener) chrome.tabs.onUpdated.removeListener(listener);
+    if (removidoListener) chrome.tabs.onRemoved.removeListener(removidoListener);
     if (timeout) clearTimeout(timeout);
   }
 }
