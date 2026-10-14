@@ -268,6 +268,13 @@ export default function App() {
     return () => clearInterval(timer);
   }, [usuario, pagina]);
 
+  // Ao abrir Gestão de Conteúdo, procurar vídeos originais automaticamente.
+  // Ofertas sem vídeo original continuam fora da fila; nenhuma foto vira vídeo.
+  useEffect(() => {
+    if (!usuario || pagina !== "conteudo") return;
+    void importarVideosOriginais();
+  }, [usuario, pagina]);
+
   async function verificarSessao() {
     try {
       const { data, error } = await supabase.auth.getSession();
