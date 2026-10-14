@@ -165,21 +165,18 @@ Deno.serve(async (req) => {
         ? offer.video_url.trim()
         : null;
 
-      // No modo vídeo/automático, usa o vídeo original quando a fonte fornece um.
-      // Se não houver vídeo original, enfileira a geração por FFmpeg a partir da imagem
-      // do produto, desde que a geração de vídeo esteja ativada nas configurações.
+      // No modo vídeo/automático, só aceita um vídeo original fornecido pela fonte.
+      // Não transforma imagem de produto em vídeo e não cria conteúdo de vídeo sem mídia original.
       const modoVideoSolicitado = modoConteudo === "video" || modoConteudo === "automatico";
-      const geracaoVideoAtiva = settings?.gerar_video === true;
-      const usarVideo = modoVideoSolicitado && (!!originalVideo || geracaoVideoAtiva);
-      const videoFallbackParaPost = modoVideoSolicitado && !usarVideo;
+      if (modoVideoSolicitado && !originalVideo) {
+        console.log("Oferta ignorada: nenhum vídeo original disponível.", offer.id);
+        continue;
+      }
+      const usarVideo = modoVideoSolicitado && !!originalVideo;
+      const videoFallbackParaPost = false;
 
-      const videoSource = usarVideo
-        ? (originalVideo ? (offer.video_source || "original") : "gerado")
-        : null;
-
-      const videoStatus = usarVideo
-        ? (originalVideo ? "original_disponivel" : "aguardando_geracao")
-        : "nao_solicitado";
+      const videoSource = usarVideo ? (offer.video_source || "original") : null;
+      const videoStatus = usarVideo ? "original_disponivel" : "nao_solicitado";
 
       const { data: content, error: ce } = await db
         .from("contents")
@@ -214,14 +211,13 @@ Deno.serve(async (req) => {
       if (ce) throw ce;
 
       if (usarVideo && content) {
-        // Vídeo original: registra a origem existente. Sem vídeo original:
-        // cria uma tarefa pendente para scripts/render-videos.mjs produzir o MP4.
+        // Registra somente a URL do vídeo original; não cria jobs de renderização por imagem.
         const { error: jobError } = await db.from("video_jobs").insert({
           user_id: userId,
           offer_id: offer.id,
           content_id: content.id,
-          status: originalVideo ? "concluido" : "pendente",
-          source_type: originalVideo ? "original" : "gerar",
+          status: "concluido",
+          source_type: "original",
           source_video_url: originalVideo,
           output_url: originalVideo,
           dados: {
