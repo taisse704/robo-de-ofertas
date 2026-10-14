@@ -120,7 +120,7 @@ async function main() {
   const pendingJobs = await rest("video_jobs?status=eq.pendente&order=created_at.asc&limit=50&select=*");
   const jobs = (Array.isArray(pendingJobs) ? pendingJobs : [])
     .filter(job => videoUsers.has(job.user_id))
-    .slice(0, 6);
+    .slice(0, 15);
   if (!jobs.length) {
     console.log("Nenhum vídeo pendente.");
     return;
