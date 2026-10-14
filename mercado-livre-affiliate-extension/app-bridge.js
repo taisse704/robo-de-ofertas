@@ -43,7 +43,7 @@ window.addEventListener("message", (event) => {
 if (contextoValido()) {
   try {
     chrome.runtime.onMessage.addListener((message) => {
-      if (!message || !["ML_AFFILIATE_RESULT", "ROBO_VIDEO_CAPTURE_RESULT"].includes(message.type)) return;
+      if (!message || !["ML_AFFILIATE_RESULT", "ROBO_VIDEO_CAPTURE_RESULT", "ROBO_VIDEO_CAPTURE_STARTED"].includes(message.type)) return;
 
       window.postMessage(
         {
