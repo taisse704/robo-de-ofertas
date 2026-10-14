@@ -479,7 +479,7 @@ export default function App() {
     }
   }
 
-  async function importarVideosOriginais() {
+  async function importarVideosOriginais({ forcarNovaVerificacao = false } = {}) {
     if (importandoVideosOriginais) return;
     setImportandoVideosOriginais(true);
     setMensagemConteudo("Conectando ao Supabase e procurando vídeos originais (lote de até 12 anúncios)...");
@@ -497,7 +497,7 @@ export default function App() {
           apikey: SUPABASE_ANON_KEY,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ limit: 12 }),
+        body: JSON.stringify({ limit: 12, force_retry: !!forcarNovaVerificacao }),
         signal: AbortSignal.timeout(90000)
       });
       const importacao = await response.json().catch(() => ({}));
@@ -1859,7 +1859,7 @@ export default function App() {
             {mensagemConteudo && <div className="panel"><p style={{whiteSpace:"pre-wrap"}}>{mensagemConteudo}</p></div>}
             <div className="panel" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px",flexWrap:"wrap"}}>
               <div><strong>Vídeos dos anúncios</strong><p style={{margin:"4px 0 0"}}>Verifica até 12 anúncios por tentativa e encaminha somente vídeos originais encontrados. Se não houver vídeo original, a oferta fica fora da fila de vídeos. Não cria vídeos a partir de fotos nem publica por este botão.</p></div>
-              <button className="primary" onClick={importarVideosOriginais} disabled={importandoVideosOriginais}>
+              <button className="primary" onClick={() => importarVideosOriginais({ forcarNovaVerificacao: true })} disabled={importandoVideosOriginais}>
                 {importandoVideosOriginais ? "VERIFICANDO E PREPARANDO..." : "🎬 BUSCAR / PREPARAR VÍDEOS"}
               </button>
             </div>
