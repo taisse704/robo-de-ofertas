@@ -235,13 +235,13 @@ async function capturarVideosOriginais(offers, estado) {
   let tabId = null;
   try {
     // Reutiliza a mesma aba de captura entre tentativas e entre reinícios do service worker.
-    const armazenado = await chrome.storage.session.get(CAPTURE_TAB_KEY).catch(() => ({}));
+    const armazenado = await chrome.storage.local.get(CAPTURE_TAB_KEY).catch(() => ({}));
     const idArmazenado = Number(armazenado?.[CAPTURE_TAB_KEY] || capturaTabIdPersistente || 0);
     let tab = idArmazenado ? await chrome.tabs.get(idArmazenado).catch(() => null) : null;
     if (!tab?.id) {
       tab = await chrome.tabs.create({ url: "about:blank", active: false });
       if (!tab?.id) throw new Error("Não foi possível criar a aba de captura.");
-      await chrome.storage.session.set({ [CAPTURE_TAB_KEY]: tab.id }).catch(() => {});
+      await chrome.storage.local.set({ [CAPTURE_TAB_KEY]: tab.id }).catch(() => {});
     }
     tabId = tab.id;
     capturaTabIdPersistente = tabId;
@@ -280,12 +280,12 @@ async function capturarVideosOriginais(offers, estado) {
       if (estado.cancelada) {
         await chrome.tabs.remove(tabId).catch(() => {});
         if (capturaTabIdPersistente === tabId) capturaTabIdPersistente = null;
-        await chrome.storage.session.remove(CAPTURE_TAB_KEY).catch(() => {});
+        await chrome.storage.local.remove(CAPTURE_TAB_KEY).catch(() => {});
       } else {
         await chrome.tabs.update(tabId, { url: "about:blank", active: false }).catch(() => {});
       }
     }
-    await chrome.storage.session.remove(CAPTURE_LOCK_KEY).catch(() => {});
+    await chrome.storage.local.remove(CAPTURE_LOCK_KEY).catch(() => {});
     if (capturaVideoAtual === estado) capturaVideoAtual = null;
     enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_RESULT", results: resultados, cancelled: !!estado.cancelada, error: estado.cancelada ? "Captura interrompida." : null });
   }
@@ -309,18 +309,18 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   // A trava fica em storage.session para impedir uma segunda captura se o service worker reiniciar.
   capturaVideoAtual = estado;
   (async () => {
-    const stored = await chrome.storage.session.get(CAPTURE_LOCK_KEY).catch(() => ({}));
+    const stored = await chrome.storage.local.get(CAPTURE_LOCK_KEY).catch(() => ({}));
     const lock = stored?.[CAPTURE_LOCK_KEY];
     if (lock?.active && Date.now() - Number(lock.startedAt || 0) < 10 * 60 * 1000) {
       if (capturaVideoAtual === estado) capturaVideoAtual = null;
       enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_RESULT", results: [], error: "Já existe uma captura ativa. Aguarde ela terminar; nenhuma nova aba será aberta." });
       return;
     }
-    await chrome.storage.session.set({ [CAPTURE_LOCK_KEY]: { active: true, startedAt: Date.now() } }).catch(() => {});
+    await chrome.storage.local.set({ [CAPTURE_LOCK_KEY]: { active: true, startedAt: Date.now() } }).catch(() => {});
     enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_STARTED" });
     await capturarVideosOriginais(message.offers, estado);
   })().catch(async (error) => {
-    await chrome.storage.session.remove(CAPTURE_LOCK_KEY).catch(() => {});
+    await chrome.storage.local.remove(CAPTURE_LOCK_KEY).catch(() => {});
     if (capturaVideoAtual === estado) capturaVideoAtual = null;
     enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_RESULT", error: String(error?.message || error), results: [] });
   });
