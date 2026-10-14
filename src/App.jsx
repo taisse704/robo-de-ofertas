@@ -490,26 +490,18 @@ export default function App() {
       if (!token) throw new Error("Sua sessão expirou. Entre novamente no Robô de Ofertas e tente de novo.");
       if (!SUPABASE_URL || !SUPABASE_ANON_KEY) throw new Error("A configuração de conexão com o Supabase está incompleta.");
 
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/import-product-videos`, {
+      const response = await fetch(SUPABASE_URL + "/functions/v1/import-product-videos", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          apikey: SUPABASE_ANON_KEY,
-          "Content-Type": "application/json"
-        },
+        headers: { Authorization: "Bearer " + token, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
         body: JSON.stringify({ limit: 12, force_retry: !!forcarNovaVerificacao }),
         signal: AbortSignal.timeout(90000)
       });
       const importacao = await response.json().catch(() => ({}));
-      if (!response.ok || !importacao?.ok) {
-        throw new Error(importacao?.error || importacao?.message || `A importação respondeu HTTP ${response.status}. Tente novamente.`);
-      }
+      if (!response.ok || !importacao?.ok) throw new Error(importacao?.error || importacao?.message || ("A importação respondeu HTTP " + response.status + ". Tente novamente."));
 
-      const idsImportados = Array.isArray(importacao.imported_offer_ids) ? importacao.imported_offer_ids : [];
-      // Somente anúncios com vídeo original confirmado podem entrar na fila de vídeo.
-      // Não encaminha todos os anúncios verificados para geração a partir de fotos.
-      const idsParaConteudo = [...new Set(idsImportados)];
-      const detalhes = Array.isArray(importacao.details) ? importacao.details : [];
+      const detalhesServidor = Array.isArray(importacao.details) ? importacao.details : [];
+      let idsParaConteudo = [...new Set(Array.isArray(importacao.imported_offer_ids) ? importacao.imported_offer_ids : [])];
+      let resumoImportacao = importacao.message || "Consulta do servidor finalizada.";
       const nomeFonte = (provider) => provider === "mercadolivre" ? "Mercado Livre" : provider === "shopee" ? "Shopee" : String(provider || "Fonte");
       const nomeStatus = (status) => ({
         video_original_importado: "vídeo original importado",
@@ -518,32 +510,113 @@ export default function App() {
         erro_ao_salvar: "falha ao salvar vídeo",
         erro_ao_marcar_consulta: "falha ao registrar consulta"
       }[status] || String(status || "sem diagnóstico"));
-      const linhasDiagnostico = detalhes.slice(0, 12).map((item) => {
+      const linhasServidor = detalhesServidor.slice(0, 12).map((item) => {
         const titulo = String(item.title || item.id || "Anúncio").slice(0, 100);
-        const motivo = item.motivo ? ` — ${String(item.motivo).slice(0, 180)}` : "";
-        return `• ${nomeFonte(item.provider)} | ${titulo}: ${nomeStatus(item.status)}${motivo}`;
+        const motivo = item.motivo ? " — " + String(item.motivo).slice(0, 180) : "";
+        return "• " + nomeFonte(item.provider) + " | " + titulo + ": " + nomeStatus(item.status) + motivo;
       });
-      const resumoImportacao = `${importacao.message || "Importação finalizada."}${importacao.failed ? ` ${importacao.failed} falha(s) na consulta ou no salvamento.` : ""}${linhasDiagnostico.length ? "\n\nDiagnóstico por anúncio:\n" + linhasDiagnostico.join("\n") : ""}`;
+      if (linhasServidor.length) resumoImportacao += "\n\nDiagnóstico do servidor:\n" + linhasServidor.join("\n");
+
+      // Se o servidor não encontrar mídia, tenta a página real do anúncio via extensão.
+      if (!idsParaConteudo.length) {
+        const idsVerificados = [...new Set(detalhesServidor.map((item) => String(item.offer_id || item.id || "").trim()).filter(Boolean))];
+        if (idsVerificados.length) {
+          const { data: ofertasVerificadas, error: erroOfertas } = await supabase
+            .from("offers")
+            .select("id,titulo,store_provider,store_product_url,url_produto,product_external_id,video_url")
+            .eq("user_id", usuario.id)
+            .in("id", idsVerificados)
+            .limit(12);
+          if (erroOfertas) throw new Error("Não consegui recuperar as URLs dos anúncios para a captura no navegador: " + erroOfertas.message);
+          const ofertasParaNavegador = (ofertasVerificadas || [])
+            .filter((o) => !o.video_url && ["shopee", "mercadolivre"].includes(String(o.store_provider || "").toLowerCase()))
+            .map((o) => ({
+              offer_id: String(o.id),
+              title: o.titulo || "Anúncio",
+              provider: String(o.store_provider || "").toLowerCase(),
+              product_url: String(o.store_product_url || o.url_produto || "").trim(),
+              product_external_id: o.product_external_id || null
+            }))
+            .filter((o) => o.product_url)
+            .slice(0, 12);
+
+          if (ofertasParaNavegador.length) {
+            setMensagemConteudo(resumoImportacao + "\n\nTentando capturar mídia original nas páginas dos anúncios pelo navegador...");
+            const captura = await new Promise((resolve) => {
+              let finalizado = false;
+              let timerInicial = null;
+              let timerCaptura = null;
+              const limpar = () => {
+                window.removeEventListener("message", receber);
+                if (timerInicial) clearTimeout(timerInicial);
+                if (timerCaptura) clearTimeout(timerCaptura);
+              };
+              const terminar = (valor) => {
+                if (finalizado) return;
+                finalizado = true;
+                limpar();
+                resolve(valor);
+              };
+              const receber = (event) => {
+                const data = event?.data;
+                if (event.source !== window || data?.source !== "robo-de-ofertas") return;
+                if (data.type === "ROBO_VIDEO_CAPTURE_STARTED") {
+                  if (timerInicial) clearTimeout(timerInicial);
+                  timerCaptura = setTimeout(() => terminar({ timeout: true }), 240000);
+                } else if (data.type === "ROBO_VIDEO_CAPTURE_RESULT") {
+                  terminar({ results: Array.isArray(data.results) ? data.results : [], error: data.error || null });
+                }
+              };
+              window.addEventListener("message", receber);
+              timerInicial = setTimeout(() => terminar({ extensionMissing: true }), 5000);
+              window.postMessage({ source: "robo-de-ofertas", type: "ROBO_VIDEO_CAPTURE_REQUEST", offers: ofertasParaNavegador }, "*");
+            });
+
+            if (captura.extensionMissing) {
+              resumoImportacao += "\n\nA extensão do navegador não respondeu. É necessário instalar/atualizar a extensão e permitir acesso às páginas da Shopee e do Mercado Livre.";
+            } else if (captura.timeout) {
+              resumoImportacao += "\n\nA captura pelo navegador demorou demais. Nenhum vídeo não confirmado foi enviado à fila.";
+            } else {
+              const videosEncontrados = (captura.results || [])
+                .filter((item) => item && item.video_url && item.offer_id)
+                .slice(0, 12)
+                .map((item) => ({ offer_id: String(item.offer_id), video_url: item.video_url, method: item.method || "page_media" }));
+              if (videosEncontrados.length) {
+                const salvarResponse = await fetch(SUPABASE_URL + "/functions/v1/save-browser-product-videos", {
+                  method: "POST",
+                  headers: { Authorization: "Bearer " + token, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+                  body: JSON.stringify({ videos: videosEncontrados }),
+                  signal: AbortSignal.timeout(30000)
+                });
+                const salvamento = await salvarResponse.json().catch(() => ({}));
+                if (!salvarResponse.ok || !salvamento?.ok) throw new Error(salvamento?.error || "Não foi possível salvar os vídeos identificados pelo navegador.");
+                idsParaConteudo = Array.isArray(salvamento.imported_offer_ids) ? salvamento.imported_offer_ids : [];
+                resumoImportacao += "\n\nCaptura no navegador: " + (salvamento.message || (salvamento.imported || 0) + " vídeo(s) salvo(s).");
+              } else {
+                const falhas = (captura.results || []).filter((item) => item?.status === "scan_error").length;
+                resumoImportacao += "\n\nCaptura no navegador: nenhum vídeo original identificável foi exposto pelas páginas nesta rodada." +
+                  (falhas ? " " + falhas + " página(s) apresentaram falha de carregamento." : "");
+              }
+            }
+          } else {
+            resumoImportacao += "\n\nNão havia URL de produto válida entre os anúncios verificados para abrir no navegador.";
+          }
+        }
+      }
+
       setMensagemConteudo(resumoImportacao);
       await Promise.all([carregarOfertas(), carregarConteudos()]);
-
       if (idsParaConteudo.length) {
-        setMensagemConteudo(`${resumoImportacao} Encaminhando somente os vídeos originais encontrados...`);
-        try {
-          const { data: geracao, error: erroGeracao } = await supabase.functions.invoke("generate-content", { body: { offer_ids: idsParaConteudo } });
-          if (erroGeracao) {
-            setMensagemConteudo(`${resumoImportacao} Não consegui encaminhar os anúncios para geração de conteúdo: ${erroGeracao.message || "erro desconhecido"}.`);
-          } else {
-            await carregarConteudos();
-            const quantidade = Number(geracao?.count || 0);
-            if (quantidade > 0) {
-              setMensagemConteudo(`${resumoImportacao} ${quantidade} conteúdo(s) com vídeo original encaminhado(s) para a fila. Nenhum vídeo será criado a partir de fotos.`);
-            } else {
-              setMensagemConteudo(`${resumoImportacao} Nenhum conteúdo novo com vídeo original foi criado. Anúncios sem vídeo original permanecem fora da fila de vídeos.`);
-            }
-          }
-        } catch (erroGeracao) {
-          setMensagemConteudo(`${resumoImportacao} Falha ao encaminhar os anúncios para geração de vídeo: ${erroGeracao?.message || "erro desconhecido"}.`);
+        setMensagemConteudo(resumoImportacao + "\n\nEncaminhando somente vídeos originais confirmados...");
+        const { data: geracao, error: erroGeracao } = await supabase.functions.invoke("generate-content", { body: { offer_ids: idsParaConteudo } });
+        if (erroGeracao) {
+          setMensagemConteudo(resumoImportacao + "\nNão consegui preparar os conteúdos: " + (erroGeracao.message || "erro desconhecido") + ".");
+        } else {
+          await carregarConteudos();
+          const quantidade = Number(geracao?.count || 0);
+          setMensagemConteudo(resumoImportacao + "\n" + (quantidade > 0
+            ? quantidade + " conteúdo(s) com vídeo original encaminhado(s) para preparação. Nenhum vídeo foi criado a partir de fotos."
+            : "Nenhum conteúdo novo foi criado; anúncios sem vídeo original confirmado permanecem fora da fila."));
         }
       }
     } catch (error) {
