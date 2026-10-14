@@ -4,7 +4,8 @@
   "version": "1.3.0",
   "description": "Geração de links oficiais do Mercado Livre e captura de vídeos originais de anúncios compatíveis.",
   "permissions": [
-    "tabs"
+    "tabs",
+    "storage"
   ],
   "host_permissions": [
     "https://*.mercadolivre.com.br/*",
