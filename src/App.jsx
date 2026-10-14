@@ -1947,7 +1947,12 @@ export default function App() {
 
                     {c.video_url && (
                       <small style={{display:"block",marginTop:"6px"}}>
-                        Vídeo pronto para publicação.
+                        {c.video_source === "original"
+                          ? "Vídeo original confirmado."
+                          : "Arquivo de vídeo gerado anteriormente — não confirmado como vídeo original."}
+                        {conteudoNaFila(c)
+                          ? " Está na fila para publicação."
+                          : " Está em rascunho e não será publicado até entrar na fila."}
                       </small>
                     )}
 
