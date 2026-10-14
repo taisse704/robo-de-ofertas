@@ -71,9 +71,9 @@
     document.querySelectorAll("script:not([src])").forEach((script) => {
       const raw = script.textContent || "";
       if (raw.length > 2_000_000 || !/(video_url|videoUrl|play_url|playUrl|video_info|videoInfo|playback_url)/i.test(raw)) return;
-      const matches = raw.match(/https?:\\\\?\\?\/\\?\/[^"'\\s<>]+/g) || [];
+      const matches = raw.match(/https?:[^"'\\s<>]+/g) || [];
       for (const value of matches.slice(0, 100)) {
-        const cleaned = value.replace(/\\\\u0026/g, "&").replace(/\\\\\\//g, "/").replace(/[\\\\\\]\\),;]+$/g, "");
+        const cleaned = value.replace(/\\\\u0026/g, "&").replace(/\\\\\\//g, "/").replace(/[),;]+$/g, "");
         add(cleaned, "structured_video_field");
       }
     });
