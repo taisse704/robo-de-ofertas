@@ -5,6 +5,9 @@ let processando = false;
 let timeoutProcessamento = null;
 const abasCapturaVideo = new Set();
 let capturaVideoAtual = null;
+let capturaTabIdPersistente = null;
+const CAPTURE_TAB_KEY = "roboVideoCaptureTabId";
+const CAPTURE_LOCK_KEY = "roboVideoCaptureLock";
 
 function enviarResultadoParaApp(message) {
   chrome.tabs.query({ url: ["https://taisse704.github.io/robo-de-ofertas/*"] })
@@ -231,10 +234,17 @@ async function capturarVideosOriginais(offers, estado) {
   }).slice(0, 12);
   let tabId = null;
   try {
-    // Reutiliza uma única aba temporária para evitar abrir várias abas do Mercado Livre.
-    const tab = await chrome.tabs.create({ url: "about:blank", active: false });
-    if (!tab?.id) throw new Error("Não foi possível criar a aba temporária de captura.");
+    // Reutiliza a mesma aba de captura entre tentativas e entre reinícios do service worker.
+    const armazenado = await chrome.storage.session.get(CAPTURE_TAB_KEY).catch(() => ({}));
+    const idArmazenado = Number(armazenado?.[CAPTURE_TAB_KEY] || capturaTabIdPersistente || 0);
+    let tab = idArmazenado ? await chrome.tabs.get(idArmazenado).catch(() => null) : null;
+    if (!tab?.id) {
+      tab = await chrome.tabs.create({ url: "about:blank", active: false });
+      if (!tab?.id) throw new Error("Não foi possível criar a aba de captura.");
+      await chrome.storage.session.set({ [CAPTURE_TAB_KEY]: tab.id }).catch(() => {});
+    }
     tabId = tab.id;
+    capturaTabIdPersistente = tabId;
     estado.tabId = tabId;
     abasCapturaVideo.add(tabId);
     for (const offer of lista) {
@@ -267,8 +277,15 @@ async function capturarVideosOriginais(offers, estado) {
   } finally {
     if (tabId !== null) {
       abasCapturaVideo.delete(tabId);
-      await chrome.tabs.remove(tabId).catch(() => {});
+      if (estado.cancelada) {
+        await chrome.tabs.remove(tabId).catch(() => {});
+        if (capturaTabIdPersistente === tabId) capturaTabIdPersistente = null;
+        await chrome.storage.session.remove(CAPTURE_TAB_KEY).catch(() => {});
+      } else {
+        await chrome.tabs.update(tabId, { url: "about:blank", active: false }).catch(() => {});
+      }
     }
+    await chrome.storage.session.remove(CAPTURE_LOCK_KEY).catch(() => {});
     if (capturaVideoAtual === estado) capturaVideoAtual = null;
     enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_RESULT", results: resultados, cancelled: !!estado.cancelada, error: estado.cancelada ? "Captura interrompida." : null });
   }
@@ -289,9 +306,21 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     return;
   }
   const estado = { cancelada: false, tabId: null };
+  // A trava fica em storage.session para impedir uma segunda captura se o service worker reiniciar.
   capturaVideoAtual = estado;
-  enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_STARTED" });
-  capturarVideosOriginais(message.offers, estado).catch((error) => {
+  (async () => {
+    const stored = await chrome.storage.session.get(CAPTURE_LOCK_KEY).catch(() => ({}));
+    const lock = stored?.[CAPTURE_LOCK_KEY];
+    if (lock?.active && Date.now() - Number(lock.startedAt || 0) < 10 * 60 * 1000) {
+      if (capturaVideoAtual === estado) capturaVideoAtual = null;
+      enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_RESULT", results: [], error: "Já existe uma captura ativa. Aguarde ela terminar; nenhuma nova aba será aberta." });
+      return;
+    }
+    await chrome.storage.session.set({ [CAPTURE_LOCK_KEY]: { active: true, startedAt: Date.now() } }).catch(() => {});
+    enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_STARTED" });
+    await capturarVideosOriginais(message.offers, estado);
+  })().catch(async (error) => {
+    await chrome.storage.session.remove(CAPTURE_LOCK_KEY).catch(() => {});
     if (capturaVideoAtual === estado) capturaVideoAtual = null;
     enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_RESULT", error: String(error?.message || error), results: [] });
   });
