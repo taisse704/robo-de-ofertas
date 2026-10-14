@@ -28,7 +28,8 @@ window.addEventListener("message", (event) => {
     !data ||
     data.source !== SOURCE ||
     !["ML_AFFILIATE_GENERATE", "ROBO_VIDEO_CAPTURE_REQUEST"].includes(data.type) ||
-    !data.offer
+    (data.type === "ML_AFFILIATE_GENERATE" && !data.offer) ||
+    (data.type === "ROBO_VIDEO_CAPTURE_REQUEST" && !Array.isArray(data.offers))
   ) {
     return;
   }
