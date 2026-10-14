@@ -19,7 +19,7 @@
       const url = canonicalVideo(raw);
       if (!url) return;
       const path = new URL(url).pathname;
-      const looksVideo = /\.(mp4|m3u8|webm|mov|m4v|mpd)(?:$|[?#])/i.test(url) ||
+      const looksVideo = ["video_element", "video_source"].includes(method) || /\.(mp4|m3u8|webm|mov|m4v|mpd)(?:$|[?#])/i.test(url) ||
         /video|vod|playback|media.*stream/i.test(url);
       if (!looksVideo) return;
       if (!candidates.has(url)) candidates.set(url, method);
