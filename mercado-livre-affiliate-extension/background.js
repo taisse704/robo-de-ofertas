@@ -178,6 +178,7 @@ async function aguardarPaginaCompleta(tabId, urlEsperada, estado, navegar = fals
   const atual = await chrome.tabs.get(tabId).catch(() => null);
   if (!navegar && atual?.status === "complete") return;
   if (navegar && atual?.status === "complete" && atual.url === urlEsperada) return;
+  const urlAnterior = atual?.url || "";
   let listener = null;
   let removidoListener = null;
   let timeout = null;
@@ -195,7 +196,7 @@ async function aguardarPaginaCompleta(tabId, urlEsperada, estado, navegar = fals
     listener = (id, info, tab) => {
       if (id !== tabId) return;
       if (estado.cancelada) return finalizar(new Error("Captura cancelada."));
-      if (info.status === "complete") finalizar();
+      if (info.status === "complete" && (!navegar || (tab?.url && tab.url !== urlAnterior))) finalizar();
     };
     chrome.tabs.onUpdated.addListener(listener);
     removidoListener = (id) => { if (id === tabId) finalizar(new Error("Captura cancelada.")); };
@@ -205,7 +206,7 @@ async function aguardarPaginaCompleta(tabId, urlEsperada, estado, navegar = fals
   try {
     if (navegar) await chrome.tabs.update(tabId, { url: urlEsperada });
     const depois = await chrome.tabs.get(tabId).catch(() => null);
-    if (depois?.status === "complete") {
+    if (depois?.status === "complete" && (!navegar || (depois.url && depois.url !== urlAnterior))) {
       if (listener) chrome.tabs.onUpdated.removeListener(listener);
       if (removidoListener) chrome.tabs.onRemoved.removeListener(removidoListener);
       if (timeout) clearTimeout(timeout);
