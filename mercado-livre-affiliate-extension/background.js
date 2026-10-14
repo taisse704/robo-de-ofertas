@@ -234,6 +234,7 @@ async function capturarVideosOriginais(offers) {
 
 chrome.runtime.onMessage.addListener((message, sender) => {
   if (sender.tab?.url?.startsWith(APP_MATCH) && message?.type === "ROBO_VIDEO_CAPTURE_REQUEST") {
+    enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_STARTED" });
     capturarVideosOriginais(message.offers).catch((error) => {
       enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_RESULT", error: String(error?.message || error), results: [] });
     });
