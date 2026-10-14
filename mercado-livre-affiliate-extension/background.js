@@ -3,6 +3,8 @@ let mlTabId = null;
 let fila = [];
 let processando = false;
 let timeoutProcessamento = null;
+const abasCapturaVideo = new Set();
+let capturaVideoAtual = null;
 
 function enviarResultadoParaApp(message) {
   chrome.tabs.query({ url: ["https://taisse704.github.io/robo-de-ofertas/*"] })
@@ -140,7 +142,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   }
 
   if (message.type === "ML_AFFILIATE_READY") {
-    if (!sender.tab?.id) return;
+    if (!sender.tab?.id || abasCapturaVideo.has(sender.tab.id)) return;
     mlTabId = sender.tab.id;
     if (fila.length) {
       processando = false;
@@ -171,79 +173,122 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 });
 
 
-async function capturarVideosOriginais(offers) {
-  const resultados = [];
-  const lista = Array.isArray(offers) ? offers.slice(0, 12) : [];
-  for (const offer of lista) {
-    const offerId = String(offer?.offer_id || "").trim();
-    const productUrl = String(offer?.product_url || "").trim();
-    let tabId = null;
-    let created = false;
-    try {
-      if (!offerId || !productUrl) throw new Error("Oferta sem ID ou URL de produto.");
-      const url = new URL(productUrl);
-      const hostPermitido = /(^|\.)mercadolivre\.com\.br$/i.test(url.hostname) ||
-        /(^|\.)shopee\.com\.br$/i.test(url.hostname);
-      if (url.protocol !== "https:" || !hostPermitido) throw new Error("URL do produto fora dos domínios permitidos.");
-      const tab = await chrome.tabs.create({ url: url.href, active: false });
-      if (!tab?.id) throw new Error("Não foi possível abrir o anúncio no navegador.");
-      tabId = tab.id;
-      created = true;
-      const openedTab = await chrome.tabs.get(tabId);
-      if (openedTab.status !== "complete") {
-        await new Promise((resolve, reject) => {
-          let finished = false;
-          const timeout = setTimeout(() => {
-            if (finished) return;
-            finished = true;
-            chrome.tabs.onUpdated.removeListener(listener);
-            reject(new Error("Tempo esgotado ao carregar a página do anúncio."));
-          }, 25000);
-          const listener = (updatedTabId, info) => {
-            if (updatedTabId !== tabId || info.status !== "complete" || finished) return;
-            finished = true;
-            clearTimeout(timeout);
-            chrome.tabs.onUpdated.removeListener(listener);
-            resolve(true);
-          };
-          chrome.tabs.onUpdated.addListener(listener);
-        });
-      }
-      let scan = null;
-      for (let attempt = 0; attempt < 8; attempt++) {
-        try {
-          scan = await chrome.tabs.sendMessage(tabId, {
-            type: "ROBO_VIDEO_CAPTURE_SCAN",
-            offer_id: offerId,
-            request_id: offerId + "-" + Date.now()
-          });
-          if (scan) break;
-        } catch {}
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-      const candidates = Array.isArray(scan?.videos) ? scan.videos : [];
-      const valid = candidates.find((v) => typeof v?.video_url === "string" && /^https:\/\//i.test(v.video_url));
-      resultados.push(valid
-        ? { offer_id: offerId, video_url: valid.video_url, method: valid.method || "page_media", title: offer.title || "" }
-        : { offer_id: offerId, status: "not_found", title: offer.title || "", reason: "A página carregou, mas nenhum URL de vídeo reconhecível foi exposto." });
-    } catch (error) {
-      resultados.push({ offer_id: offerId, status: "scan_error", title: offer?.title || "", reason: String(error?.message || error) });
-    } finally {
-      if (created && tabId !== null) chrome.tabs.remove(tabId).catch(() => {});
+async function aguardarPaginaCompleta(tabId, urlEsperada, estado, navegar = false) {
+  if (estado.cancelada) throw new Error("Captura cancelada.");
+  const atual = await chrome.tabs.get(tabId).catch(() => null);
+  if (!navegar && atual?.status === "complete") return;
+  if (navegar && atual?.status === "complete" && atual.url === urlEsperada) return;
+  let listener = null;
+  let timeout = null;
+  let finalizar;
+  const carregamento = new Promise((resolve, reject) => {
+    let concluido = false;
+    finalizar = (erro) => {
+      if (concluido) return;
+      concluido = true;
+      if (listener) chrome.tabs.onUpdated.removeListener(listener);
+      if (timeout) clearTimeout(timeout);
+      erro ? reject(erro) : resolve(true);
+    };
+    listener = (id, info, tab) => {
+      if (id !== tabId) return;
+      if (estado.cancelada) return finalizar(new Error("Captura cancelada."));
+      if (info.status === "complete" && (!urlEsperada || !tab?.url || tab.url === urlEsperada)) finalizar();
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+    timeout = setTimeout(() => finalizar(new Error("Tempo esgotado ao carregar a página do anúncio.")), 15000);
+  });
+  try {
+    if (navegar) await chrome.tabs.update(tabId, { url: urlEsperada });
+    const depois = await chrome.tabs.get(tabId).catch(() => null);
+    if (depois?.status === "complete" && (!urlEsperada || depois.url === urlEsperada)) {
+      if (listener) chrome.tabs.onUpdated.removeListener(listener);
+      if (timeout) clearTimeout(timeout);
+      return true;
     }
+    await carregamento;
+  } finally {
+    if (listener) chrome.tabs.onUpdated.removeListener(listener);
+    if (timeout) clearTimeout(timeout);
   }
-  enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_RESULT", results: resultados });
+}
+
+async function capturarVideosOriginais(offers, estado) {
+  const resultados = [];
+  const vistos = new Set();
+  const lista = (Array.isArray(offers) ? offers : []).filter((offer) => {
+    const id = String(offer?.offer_id || "").trim();
+    if (!id || vistos.has(id)) return false;
+    vistos.add(id);
+    return true;
+  }).slice(0, 12);
+  let tabId = null;
+  try {
+    // Reutiliza uma única aba temporária para evitar abrir várias abas do Mercado Livre.
+    const tab = await chrome.tabs.create({ url: "about:blank", active: false });
+    if (!tab?.id) throw new Error("Não foi possível criar a aba temporária de captura.");
+    tabId = tab.id;
+    estado.tabId = tabId;
+    abasCapturaVideo.add(tabId);
+    for (const offer of lista) {
+      if (estado.cancelada) break;
+      const offerId = String(offer?.offer_id || "").trim();
+      const productUrl = String(offer?.product_url || "").trim();
+      try {
+        if (!offerId || !productUrl) throw new Error("Oferta sem ID ou URL de produto.");
+        const url = new URL(productUrl);
+        const host = url.hostname.toLowerCase();
+        const hostPermitido = host === "mercadolivre.com.br" || host.endsWith(".mercadolivre.com.br") || host === "shopee.com.br" || host.endsWith(".shopee.com.br");
+        if (url.protocol !== "https:" || !hostPermitido) throw new Error("URL do produto fora dos domínios permitidos.");
+        await aguardarPaginaCompleta(tabId, url.href, estado, true);
+        if (estado.cancelada) break;
+        let scan = null;
+        for (let attempt = 0; attempt < 4 && !estado.cancelada; attempt++) {
+          try {
+            scan = await chrome.tabs.sendMessage(tabId, { type: "ROBO_VIDEO_CAPTURE_SCAN", offer_id: offerId, request_id: offerId + "-" + Date.now() });
+            if (scan) break;
+          } catch {}
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+        const candidates = Array.isArray(scan?.videos) ? scan.videos : [];
+        const valid = candidates.find((v) => typeof v?.video_url === "string" && v.video_url.startsWith("https://"));
+        resultados.push(valid ? { offer_id: offerId, video_url: valid.video_url, method: valid.method || "page_media", title: offer.title || "" } : { offer_id: offerId, status: "not_found", title: offer.title || "", reason: "A página carregou, mas nenhum URL de vídeo reconhecível foi exposto." });
+      } catch (error) {
+        resultados.push({ offer_id: offerId, status: "scan_error", title: offer?.title || "", reason: String(error?.message || error) });
+      }
+    }
+  } finally {
+    if (tabId !== null) {
+      abasCapturaVideo.delete(tabId);
+      await chrome.tabs.remove(tabId).catch(() => {});
+    }
+    if (capturaVideoAtual === estado) capturaVideoAtual = null;
+    enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_RESULT", results: resultados, cancelled: !!estado.cancelada, error: estado.cancelada ? "Captura interrompida." : null });
+  }
 }
 
 chrome.runtime.onMessage.addListener((message, sender) => {
-  if (sender.tab?.url?.startsWith(APP_MATCH) && message?.type === "ROBO_VIDEO_CAPTURE_REQUEST") {
-    enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_STARTED" });
-    capturarVideosOriginais(message.offers).catch((error) => {
-      enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_RESULT", error: String(error?.message || error), results: [] });
-    });
+  if (!sender.tab?.url?.startsWith(APP_MATCH) || !message) return;
+  if (message.type === "ROBO_VIDEO_CAPTURE_CANCEL") {
+    if (capturaVideoAtual) {
+      capturaVideoAtual.cancelada = true;
+      if (capturaVideoAtual.tabId !== null) chrome.tabs.remove(capturaVideoAtual.tabId).catch(() => {});
+    }
+    return;
   }
+  if (message.type !== "ROBO_VIDEO_CAPTURE_REQUEST") return;
+  if (capturaVideoAtual) {
+    enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_RESULT", results: [], error: "Já existe uma captura em andamento. Aguarde o encerramento antes de iniciar outra." });
+    return;
+  }
+  const estado = { cancelada: false, tabId: null };
+  capturaVideoAtual = estado;
+  enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_STARTED" });
+  capturarVideosOriginais(message.offers, estado).catch((error) => {
+    if (capturaVideoAtual === estado) capturaVideoAtual = null;
+    enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_RESULT", error: String(error?.message || error), results: [] });
+  });
 });
-
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (tabId !== mlTabId) return;
   if (changeInfo.status === "complete" && fila.length && !processando) {
