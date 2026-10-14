@@ -499,20 +499,16 @@ export default function App() {
       }
 
       const idsImportados = Array.isArray(importacao.imported_offer_ids) ? importacao.imported_offer_ids : [];
-      const idsVerificados = Array.isArray(importacao.details)
-        ? importacao.details.map((item) => String(item?.id || "").trim()).filter((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
-        : [];
-      // Também encaminha os anúncios sem vídeo original para o renderizador existente,
-      // que cria um vídeo vertical a partir da imagem do produto. A função de conteúdo
-      // evita duplicar conteúdos que já estejam ativos na fila ou publicados.
-      const idsParaConteudo = [...new Set([...idsImportados, ...idsVerificados])];
+      // Somente anúncios com vídeo original confirmado podem entrar na fila de vídeo.
+      // Não encaminha todos os anúncios verificados para geração a partir de fotos.
+      const idsParaConteudo = [...new Set(idsImportados)];
       const diagnosticos = Array.isArray(importacao.details) ? importacao.details.filter((item) => item?.status === "falha_consulta" || item?.status === "erro_ao_salvar" || item?.status === "erro_ao_marcar_consulta").map((item) => `${String(item.provider || "fonte")}:${String(item.motivo || item.status || "falha")}`).slice(0, 4) : [];
       const resumoImportacao = `${importacao.message || "Importação finalizada."}${importacao.failed ? ` ${importacao.failed} falha(s) na consulta ou no salvamento.${diagnosticos.length ? " Diagnóstico: " + diagnosticos.join(" | ") : ""}` : ""}`;
       setMensagemConteudo(resumoImportacao);
       await Promise.all([carregarOfertas(), carregarConteudos()]);
 
       if (idsParaConteudo.length) {
-        setMensagemConteudo(`${resumoImportacao} Encaminhando os anúncios verificados para criação de vídeos...`);
+        setMensagemConteudo(`${resumoImportacao} Encaminhando somente os vídeos originais encontrados...`);
         try {
           const { data: geracao, error: erroGeracao } = await supabase.functions.invoke("generate-content", { body: { offer_ids: idsParaConteudo } });
           if (erroGeracao) {
@@ -520,12 +516,10 @@ export default function App() {
           } else {
             await carregarConteudos();
             const quantidade = Number(geracao?.count || 0);
-            if (idsImportados.length) {
-              setMensagemConteudo(`${resumoImportacao} Solicitei a criação dos conteúdos. Os anúncios sem vídeo original poderão usar o vídeo gerado a partir da imagem do produto.`);
-            } else if (quantidade > 0) {
-              setMensagemConteudo(`${resumoImportacao} Como não foi encontrado vídeo original, ${quantidade} conteúdo(s) foi/foram encaminhado(s) para gerar vídeo a partir das imagens dos produtos. A publicação automática segue as configurações do robô.`);
+            if (quantidade > 0) {
+              setMensagemConteudo(`${resumoImportacao} ${quantidade} conteúdo(s) com vídeo original encaminhado(s) para a fila. Nenhum vídeo será criado a partir de fotos.`);
             } else {
-              setMensagemConteudo(`${resumoImportacao} Não havia conteúdo novo para criar: os anúncios podem já estar na fila ou não atender aos critérios de divulgação.`);
+              setMensagemConteudo(`${resumoImportacao} Nenhum conteúdo novo com vídeo original foi criado. Anúncios sem vídeo original permanecem fora da fila de vídeos.`);
             }
           }
         } catch (erroGeracao) {
@@ -1844,7 +1838,7 @@ export default function App() {
             <h2>Gestão de Conteúdo</h2>
             {mensagemConteudo && <div className="panel"><p>{mensagemConteudo}</p></div>}
             <div className="panel" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px",flexWrap:"wrap"}}>
-              <div><strong>Vídeos dos anúncios</strong><p style={{margin:"4px 0 0"}}>Verifica até 12 anúncios por tentativa. Se a fonte não fornecer um vídeo original, encaminha a oferta para gerar um vídeo vertical com a imagem do produto. Não publica por este botão.</p></div>
+              <div><strong>Vídeos dos anúncios</strong><p style={{margin:"4px 0 0"}}>Verifica até 12 anúncios por tentativa e encaminha somente vídeos originais encontrados. Se não houver vídeo original, a oferta fica fora da fila de vídeos. Não cria vídeos a partir de fotos nem publica por este botão.</p></div>
               <button className="primary" onClick={importarVideosOriginais} disabled={importandoVideosOriginais}>
                 {importandoVideosOriginais ? "VERIFICANDO E PREPARANDO..." : "🎬 BUSCAR / PREPARAR VÍDEOS"}
               </button>
