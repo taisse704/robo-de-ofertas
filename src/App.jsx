@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-13-show-video-import-button";
+const FRONTEND_BUILD_VERSION = "2026-10-14-instagram-reels-and-single-capture-tab";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -2021,10 +2021,12 @@ export default function App() {
 
                     {c.video_url && (
                       <small style={{display:"block",marginTop:"6px"}}>
-                        {c.video_source === "original"
+                        {c.video_status === "original_disponivel" && ["original","shopee_public_listing","mercadolivre_public_listing"].includes(String(c.video_source || "").toLowerCase())
                           ? "Vídeo original confirmado."
-                          : "Arquivo de vídeo gerado anteriormente — não confirmado como vídeo original."}
-                        {conteudoNaFila(c)
+                          : "Vídeo não confirmado como original; não deve ser publicado como vídeo."}
+                        {["publicado","publicada"].includes(String(c.status || "").toLowerCase())
+                          ? " Já consta como publicado no histórico."
+                          : conteudoNaFila(c)
                           ? " Está na fila para publicação."
                           : " Está em rascunho e não será publicado até entrar na fila."}
                       </small>
@@ -2046,7 +2048,7 @@ export default function App() {
                         <div style={{width:"100%",padding:"10px 0 4px",borderTop:"1px solid #eee",marginTop:"8px"}}>
                           <strong style={{display:"block",marginBottom:"8px"}}>📢 PUBLICAÇÕES</strong>
                           <div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}>
-                            <button type="button" className="primary action-button" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); publicarAgora(c.id,"instagram"); }}>📸 PUBLICAR INSTAGRAM</button>
+                            <button type="button" className="primary action-button" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); publicarAgora(c.id,"instagram"); }}>{conteudoEhVideo(c) ? "📸 PUBLICAR REEL" : "📸 PUBLICAR INSTAGRAM (POST)"}</button>
                             <button type="button" className="primary action-button" disabled={processandoConteudo === c.id || !conteudoEhVideo(c)} title={!conteudoEhVideo(c) ? "TikTok exige vídeo." : ""} onClick={(e) => { e.preventDefault(); publicarAgora(c.id,"tiktok"); }}>🎵 PUBLICAR TIKTOK</button>
                             <button type="button" className="primary action-button" disabled={processandoConteudo === c.id || !conteudoEhVideo(c)} title={!conteudoEhVideo(c) ? "YouTube Shorts exige vídeo." : ""} onClick={(e) => { e.preventDefault(); publicarAgora(c.id,"youtube"); }}>▶️ PUBLICAR YOUTUBE</button>
                           </div>
