@@ -27,7 +27,7 @@ window.addEventListener("message", (event) => {
   if (
     !data ||
     data.source !== SOURCE ||
-    !["ML_AFFILIATE_GENERATE", "ROBO_VIDEO_CAPTURE_REQUEST"].includes(data.type) ||
+    !["ML_AFFILIATE_GENERATE", "ROBO_VIDEO_CAPTURE_REQUEST", "ROBO_VIDEO_CAPTURE_CANCEL"].includes(data.type) ||
     (data.type === "ML_AFFILIATE_GENERATE" && !data.offer) ||
     (data.type === "ROBO_VIDEO_CAPTURE_REQUEST" && !Array.isArray(data.offers))
   ) {
