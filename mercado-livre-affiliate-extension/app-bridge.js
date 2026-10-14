@@ -27,31 +27,33 @@ window.addEventListener("message", (event) => {
   if (
     !data ||
     data.source !== SOURCE ||
-    data.type !== "ML_AFFILIATE_GENERATE" ||
+    !["ML_AFFILIATE_GENERATE", "ROBO_VIDEO_CAPTURE_REQUEST"].includes(data.type) ||
     !data.offer
   ) {
     return;
   }
 
   enviarParaBackground({
-    type: "ML_AFFILIATE_GENERATE",
-    offer: data.offer
+    type: data.type,
+    offer: data.offer,
+    offers: data.offers
   });
 });
 
 if (contextoValido()) {
   try {
     chrome.runtime.onMessage.addListener((message) => {
-      if (!message || message.type !== "ML_AFFILIATE_RESULT") return;
+      if (!message || !["ML_AFFILIATE_RESULT", "ROBO_VIDEO_CAPTURE_RESULT"].includes(message.type)) return;
 
       window.postMessage(
         {
           source: SOURCE,
-          type: "ML_AFFILIATE_RESULT",
+          type: message.type,
           offer_id: message.offer_id || null,
           affiliate_url: message.affiliate_url || null,
           error: message.error || null,
-          ok: message.ok !== false
+          ok: message.ok !== false,
+          results: message.results || []
         },
         "*"
       );
