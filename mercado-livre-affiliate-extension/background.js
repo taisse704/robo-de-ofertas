@@ -260,16 +260,23 @@ async function capturarVideosOriginais(offers, estado) {
         await aguardarPaginaCompleta(tabId, url.href, estado, true);
         if (estado.cancelada) break;
         let scan = null;
-        for (let attempt = 0; attempt < 4 && !estado.cancelada; attempt++) {
+        // O player da Shopee pode carregar a mídia depois do carregamento inicial.
+        // Repetimos a varredura quando a resposta existe, mas ainda não há vídeo.
+        for (let attempt = 0; attempt < 5 && !estado.cancelada; attempt++) {
           try {
             scan = await chrome.tabs.sendMessage(tabId, { type: "ROBO_VIDEO_CAPTURE_SCAN", offer_id: offerId, request_id: offerId + "-" + Date.now() });
-            if (scan) break;
+            if (Array.isArray(scan?.videos) && scan.videos.length) break;
           } catch {}
-          await new Promise((resolve) => setTimeout(resolve, 400));
+          if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, 900));
         }
         const candidates = Array.isArray(scan?.videos) ? scan.videos : [];
         const valid = candidates.find((v) => typeof v?.video_url === "string" && v.video_url.startsWith("https://"));
-        resultados.push(valid ? { offer_id: offerId, video_url: valid.video_url, method: valid.method || "page_media", title: offer.title || "" } : { offer_id: offerId, status: "not_found", title: offer.title || "", reason: "A página carregou, mas nenhum URL de vídeo reconhecível foi exposto." });
+        const reason = scan?.blob_player_detected
+          ? "O anúncio tem player, mas a página só expôs um endereço blob temporário; o arquivo original direto não ficou acessível para captura."
+          : scan?.player_detected
+            ? "O anúncio tem elemento de vídeo, mas não expôs um endereço HTTPS direto compatível após várias tentativas."
+            : "A página não expôs player nem URL direta de vídeo. Pode ser anúncio sem vídeo ou mídia carregada por mecanismo não identificado.";
+        resultados.push(valid ? { offer_id: offerId, video_url: valid.video_url, method: valid.method || "page_media", title: offer.title || "" } : { offer_id: offerId, status: "not_found", title: offer.title || "", reason });
       } catch (error) {
         resultados.push({ offer_id: offerId, status: "scan_error", title: offer?.title || "", reason: String(error?.message || error) });
       }
