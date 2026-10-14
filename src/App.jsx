@@ -523,7 +523,7 @@ export default function App() {
         const motivo = item.motivo ? ` — ${String(item.motivo).slice(0, 180)}` : "";
         return `• ${nomeFonte(item.provider)} | ${titulo}: ${nomeStatus(item.status)}${motivo}`;
       });
-      const resumoImportacao = `${importacao.message || "Importação finalizada."}${importacao.failed ? ` ${importacao.failed} falha(s) na consulta ou no salvamento.` : ""}${linhasDiagnostico.length ? "\\n\\nDiagnóstico por anúncio:\\n" + linhasDiagnostico.join("\\n") : ""}`;
+      const resumoImportacao = `${importacao.message || "Importação finalizada."}${importacao.failed ? ` ${importacao.failed} falha(s) na consulta ou no salvamento.` : ""}${linhasDiagnostico.length ? "\n\nDiagnóstico por anúncio:\n" + linhasDiagnostico.join("\n") : ""}`;
       setMensagemConteudo(resumoImportacao);
       await Promise.all([carregarOfertas(), carregarConteudos()]);
 
