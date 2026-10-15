@@ -10,6 +10,11 @@ on:
 permissions:
   contents: write
 
+# Evita empacotamentos concorrentes atualizando o mesmo ZIP.
+concurrency:
+  group: package-extension-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   package:
     runs-on: ubuntu-latest
@@ -32,4 +37,5 @@ jobs:
             exit 0
           fi
           git commit -m "Gera ZIP atualizado da extensão"
+          git pull --rebase origin main
           git push
