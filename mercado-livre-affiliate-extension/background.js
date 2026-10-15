@@ -250,10 +250,20 @@ async function capturarVideosOriginais(offers, estado) {
         if (!offerId || !productUrl) throw new Error("Oferta sem ID ou URL de produto.");
         const url = new URL(productUrl);
         const host = url.hostname.toLowerCase();
-        const hostPermitido = host === "mercadolivre.com.br" || host.endsWith(".mercadolivre.com.br") || host === "shopee.com.br" || host.endsWith(".shopee.com.br");
+        const hostPermitido = host === "mercadolivre.com.br" || host.endsWith(".mercadolivre.com.br") || host === "shopee.com.br" || host.endsWith(".shopee.com.br") || host === "meli.la";
         if (url.protocol !== "https:" || !hostPermitido) throw new Error("URL do produto fora dos domínios permitidos.");
         await aguardarPaginaCompleta(tabId, url.href, estado, true);
         if (estado.cancelada) break;
+        // Links afiliados do Mercado Livre podem usar o encurtador meli.la.
+        // Após a navegação, confirme o destino real antes de tentar ler a galeria.
+        const paginaFinal = await chrome.tabs.get(tabId).catch(() => null);
+        let hostFinal = "";
+        try { hostFinal = new URL(paginaFinal?.url || "").hostname.toLowerCase(); } catch {}
+        const destinoMercadoLivre = hostFinal === "mercadolivre.com.br" || hostFinal.endsWith(".mercadolivre.com.br");
+        const destinoShopee = hostFinal === "shopee.com.br" || hostFinal.endsWith(".shopee.com.br");
+        if (!destinoMercadoLivre && !destinoShopee) {
+          throw new Error("O link do anúncio não redirecionou para uma página de produto da Shopee ou do Mercado Livre.");
+        }
         let scan = null;
         // O player da Shopee pode carregar a mídia depois do carregamento inicial.
         // Repetimos a varredura quando a resposta existe, mas ainda não há vídeo.
