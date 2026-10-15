@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Robô de Ofertas — Afiliados e Vídeos Originais",
-  "version": "1.3.2",
-  "description": "Geração de links oficiais do Mercado Livre e captura aprimorada de vídeos originais em anúncios compatíveis.",
+  "name": "Robô de Ofertas — Shopee + Mercado Livre",
+  "version": "1.4.0",
+  "description": "Extensão única para captura de vídeos originais em anúncios Shopee/Mercado Livre e geração de links oficiais de afiliado do Mercado Livre.",
   "permissions": [
     "tabs",
     "storage"
