@@ -164,18 +164,23 @@ Deno.serve(async (req) => {
       const originalVideo = typeof offer.video_url === "string" && offer.video_url.trim()
         ? offer.video_url.trim()
         : null;
+      const sourceVideo = String(offer.video_source || "").trim().toLowerCase();
+      const fontesVideoConfiaveis = new Set(["original", "shopee_public_listing", "mercadolivre_public_listing"]);
+      const videoOriginalConfirmado = !!originalVideo &&
+        String(offer.video_status || "").toLowerCase() === "original_disponivel" &&
+        fontesVideoConfiaveis.has(sourceVideo);
 
-      // No modo vídeo/automático, só aceita um vídeo original fornecido pela fonte.
-      // Não transforma imagem de produto em vídeo e não cria conteúdo de vídeo sem mídia original.
+      // Não basta existir uma URL: a oferta precisa ter sido validada como mídia original.
+      // Isso impede que uma URL desconhecida ou um vídeo gerado seja rotulado como original.
       const modoVideoSolicitado = modoConteudo === "video" || modoConteudo === "automatico";
-      if (modoVideoSolicitado && !originalVideo) {
-        console.log("Oferta ignorada: nenhum vídeo original disponível.", offer.id);
+      if (modoVideoSolicitado && !videoOriginalConfirmado) {
+        console.log("Oferta ignorada: vídeo original não confirmado pela origem.", offer.id);
         continue;
       }
-      const usarVideo = modoVideoSolicitado && !!originalVideo;
+      const usarVideo = modoVideoSolicitado && videoOriginalConfirmado;
       const videoFallbackParaPost = false;
 
-      const videoSource = usarVideo ? (offer.video_source || "original") : null;
+      const videoSource = usarVideo ? sourceVideo : null;
       const videoStatus = usarVideo ? "original_disponivel" : "nao_solicitado";
 
       const { data: content, error: ce } = await db
