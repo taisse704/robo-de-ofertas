@@ -11,7 +11,8 @@ const json = (data: unknown, status = 200) => new Response(JSON.stringify(data),
 });
 const BASE_METHODS = new Set(["video_element", "video_source", "structured_video_field", "inline_video_data", "video_resource"]);
 const IMAGE_OR_DOCUMENT_EXT = /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp|json|js|css|html|htm|txt|xml)(?:$|[?#])/i;
-const VIDEO_EXT = /\.(mp4|m4v|mov|webm|m3u8|mpd)(?:$|[?#])/i;
+const VIDEO_EXT = /\.(mp4|m4v|mov|webm)(?:$|[?#])/i;
+const PREVIEW_PATH = /\/(preview|thumbnail|thumb|poster|sprite|cover)(?:\/|$)/i;
 const VIDEO_HINT = /video|videos|vod|playback|media-stream|stream-media|play_url|playable/i;
 const isHostOrSubdomain = (host: string, domain: string) => host === domain || host.endsWith("." + domain);
 function hostAllowed(host: string, provider: string) {
@@ -28,7 +29,9 @@ function videoUrlAllowed(raw: unknown, provider: string, method: string): raw is
   try {
     const u = new URL(raw), host = u.hostname.toLowerCase();
     if (u.protocol !== "https:" || u.username || u.password || !hostAllowed(host, provider) || IMAGE_OR_DOCUMENT_EXT.test(u.pathname)) return false;
-    if (VIDEO_EXT.test(u.href) || VIDEO_HINT.test(host + u.pathname)) return true;
+    // Salva somente arquivo de vídeo direto; previews, miniaturas e streams não são o original.
+    if (PREVIEW_PATH.test(u.pathname) || !VIDEO_EXT.test(u.href)) return false;
+    if (VIDEO_EXT.test(u.href)) return true;
     const cdn = ["mlstatic.com", "susercontent.com", "shopeemobile.com"].some(d => isHostOrSubdomain(host, d));
     const explicitField = ["video_element", "video_source", "structured_video_field"].includes(method) ||
       (method.startsWith("page_json_response:") && VIDEO_HINT.test(method.slice("page_json_response:".length)));
