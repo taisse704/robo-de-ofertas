@@ -25,6 +25,15 @@
     return url.href;
   }
 
+  function isCommentOrReviewVideo(video) {
+    const excluded = [
+      '[class*="comment" i]', '[id*="comment" i]', '[data-testid*="comment" i]',
+      '[class*="review" i]', '[id*="review" i]', '[data-testid*="review" i]',
+      '[class*="feedback" i]', '[class*="rating" i]', '[class*="ugc" i]'
+    ].join(",");
+    try { return !!video.closest(excluded); } catch { return false; }
+  }
+
   function scanVideos() {
     const candidates = new Map();
     let playerDetected = false;
@@ -53,6 +62,8 @@
     };
 
     document.querySelectorAll("video").forEach((video) => {
+      // Ignora players localizados em comentários, avaliações e conteúdo de usuários.
+      if (isCommentOrReviewVideo(video)) return;
       playerDetected = true;
       add(video.currentSrc, "video_element", true);
       add(video.src, "video_element", true);
