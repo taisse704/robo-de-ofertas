@@ -34,23 +34,26 @@
     }, location.origin);
   }
 
-  function walk(value, depth = 0, context = false, keyName = "") {
-    if (depth > 12 || value == null) return;
+  function walk(value, depth = 0, context = false, keyName = "", blocked = false) {
+    if (depth > 12 || value == null || blocked) return;
     if (typeof value === "string") {
       if (context) report(value, keyName);
       return;
     }
     if (Array.isArray(value)) {
-      value.slice(0, 300).forEach((item) => walk(item, depth + 1, context, keyName));
+      value.slice(0, 300).forEach((item) => walk(item, depth + 1, context, keyName, blocked));
       return;
     }
     if (typeof value !== "object") return;
     for (const [key, child] of Object.entries(value).slice(0, 500)) {
+      // Evita coletar URLs que pertençam a payloads de comentários, avaliações ou conteúdo UGC.
+      const blockedBranch = blocked || /comment|review|feedback|rating|ugc|customer_review|buyer_review/i.test(key);
+      if (blockedBranch) continue;
       const nextContext = context || VIDEO_KEY.test(key);
       if (typeof child === "string") {
         if (nextContext) report(child, key);
       } else if (child && typeof child === "object") {
-        walk(child, depth + 1, nextContext, key);
+        walk(child, depth + 1, nextContext, key, blockedBranch);
       }
     }
   }
