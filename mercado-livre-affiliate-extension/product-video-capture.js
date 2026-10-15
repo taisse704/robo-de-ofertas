@@ -4,7 +4,7 @@
 
   const IMAGE_EXT = /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)(?:$|[?#])/i;
   const VIDEO_EXT = /\.(mp4|m4v|webm|mov|m3u8|mpd)(?:$|[?#])/i;
-  const VIDEO_KEYS = /^(video|videos|video_url|videoUrl|video_urls|videoUrls|video_play_url|videoPlayUrl|video_stream_url|videoStreamUrl|play_url|playUrl|playable_url|playableUrl|playback_url|playbackUrl|media_url|mediaUrl|download_url|downloadUrl|video_info|videoInfo|video_info_list|videoInfoList|video_list|videoList|video_model|videoModel|video_data|videoData|main_url|mainUrl|default_url|defaultUrl|backup_url|backupUrl|url_list|urlList|video_id|videoId)$/i;
+  const VIDEO_KEYS = /^(video|videos|video_url|videoUrl|video_urls|videoUrls|video_play_url|videoPlayUrl|video_stream_url|videoStreamUrl|play_url|playUrl|playable_url|playableUrl|playback_url|playbackUrl|media_url|mediaUrl|download_url|downloadUrl|video_info|videoInfo|video_info_list|videoInfoList|video_list|videoList|video_model|videoModel|video_data|videoData)$/i;
 
   function canonicalVideo(raw) {
     if (typeof raw !== "string" || raw.length > 8192) return null;
@@ -62,7 +62,7 @@
       for (const [key, value] of Object.entries(node)) {
         const context = inVideoContext || VIDEO_KEYS.test(key) || /video|playback/i.test(key);
         if (typeof value === "string") {
-          if (VIDEO_KEYS.test(key) || inVideoContext || /video|playback/i.test(key)) {
+          if (VIDEO_KEYS.test(key) || inVideoContext) {
             add(value, "structured_video_field", context);
           }
         } else if (value && typeof value === "object") {
