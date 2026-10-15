@@ -70,24 +70,26 @@
       video.querySelectorAll("source").forEach((source) => add(source.src, "video_source", true));
     });
 
-    const walk = (node, depth = 0, inVideoContext = false) => {
-      if (!node || depth > 14) return;
+    const BLOCKED_KEYS = /comment|review|feedback|rating|ugc|customer_review|buyer_review|user_content|buyer_video/i;
+
+    const walk = (node, depth = 0, inVideoContext = false, blocked = false) => {
+      if (!node || depth > 14 || blocked) return;
       if (Array.isArray(node)) {
         node.slice(0, 500).forEach((value) => {
           if (typeof value === "string" && inVideoContext) add(value, "structured_video_field", true);
-          else walk(value, depth + 1, inVideoContext);
+          else walk(value, depth + 1, inVideoContext, false);
         });
         return;
       }
       if (typeof node !== "object") return;
       for (const [key, value] of Object.entries(node)) {
+        // Exclui ramos inteiros de comentários/avaliações, não apenas elementos <video>.
+        if (BLOCKED_KEYS.test(key)) continue;
         const context = inVideoContext || VIDEO_KEYS.test(key) || /video|playback/i.test(key);
         if (typeof value === "string") {
-          if (VIDEO_KEYS.test(key) || inVideoContext) {
-            add(value, "structured_video_field", context);
-          }
+          if (VIDEO_KEYS.test(key) || inVideoContext) add(value, "structured_video_field", context);
         } else if (value && typeof value === "object") {
-          walk(value, depth + 1, context);
+          walk(value, depth + 1, context, false);
         }
       }
     };
@@ -100,8 +102,13 @@
     document.querySelectorAll("script:not([src])").forEach((script) => {
       const raw = script.textContent || "";
       if (raw.length > 2_000_000 || !/(video|playback|play_url|video_info)/i.test(raw)) return;
-      const matches = raw.match(/https?:[^"'\s<>]+/g) || [];
-      for (const value of matches.slice(0, 250)) {
+      const matches = [...raw.matchAll(/https?:[^"'\s<>]+/g)];
+      for (const match of matches.slice(0, 250)) {
+        const value = match[0];
+        // Scripts inline podem conter mídia de avaliações. Ignora URLs cujo contexto
+        // próximo identifica comentários, reviews, UGC ou vídeos enviados por compradores.
+        const around = raw.slice(Math.max(0, match.index - 900), Math.min(raw.length, match.index + value.length + 900));
+        if (BLOCKED_KEYS.test(around)) continue;
         const cleaned = value.replace(/\\u0026/gi, "&").replace(/\\\//g, "/").replace(/[),;]+$/g, "");
         add(cleaned, "inline_video_data", false);
       }
