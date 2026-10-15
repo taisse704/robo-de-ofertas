@@ -267,19 +267,28 @@ async function capturarVideosOriginais(offers, estado) {
         const candidates = Array.isArray(scan?.videos) ? scan.videos : [];
         // Preferimos arquivo de vídeo direto ou URL estruturada de vídeo.
         // Manifestos HLS/DASH não são tratados como arquivo pronto para publicação no Instagram.
-        const valid = candidates.find((v) =>
-          typeof v?.video_url === "string" &&
-          v.video_url.startsWith("https://") &&
-          v.media_type !== "stream"
-        );
+        const valid = candidates.find((v) => {
+          if (typeof v?.video_url !== "string" || !v.video_url.startsWith("https://") || v.media_type !== "file") return false;
+          try {
+            const media = new URL(v.video_url);
+            if (/\/(preview|thumbnail|thumb|poster|sprite|cover)(?:\/|$)/i.test(media.pathname)) return false;
+            return /\.(mp4|m4v|webm|mov)(?:$|[?#])/i.test(media.href);
+          } catch { return false; }
+        });
         const onlyStream = candidates.some((v) => v?.media_type === "stream");
-        const reason = scan?.blob_player_detected
-          ? "O anúncio tem player, mas só expôs um endereço blob temporário; o arquivo original direto não ficou acessível."
-          : onlyStream
-            ? "Foi detectado apenas um manifesto de transmissão (HLS/DASH), não um arquivo de vídeo direto pronto para publicação. O anúncio precisa expor o arquivo original."
-            : scan?.player_detected
-              ? "O anúncio tem elemento de vídeo, mas não expôs um endereço HTTPS direto compatível após várias tentativas."
-              : "A página não expôs player nem URL direta de vídeo. Pode ser anúncio sem vídeo ou mídia carregada por mecanismo não identificado.";
+        const hasPreview = candidates.some((v) => {
+          try { return /\/(preview|thumbnail|thumb|poster|sprite|cover)(?:\/|$)/i.test(new URL(v.video_url).pathname); }
+          catch { return false; }
+        });
+        const reason = hasPreview
+          ? "Só foram encontrados previews/miniaturas; eles não serão salvos como vídeo original da publicação."
+          : scan?.blob_player_detected
+            ? "O player da galeria do produto usa um endereço blob temporário; não foi possível confirmar um arquivo original direto."
+            : onlyStream
+              ? "A galeria expôs apenas transmissão HLS/DASH, não um arquivo de vídeo direto pronto para publicação."
+              : scan?.player_detected
+                ? "Foi detectado um player na galeria, mas não foi exposto um arquivo MP4/WebM/MOV direto."
+                : "Não foi confirmado vídeo direto na galeria principal do produto. Vídeos de comentários, avaliações e módulos externos são ignorados.";
         resultados.push(valid
           ? { offer_id: offerId, video_url: valid.video_url, method: valid.method || "page_media", media_type: valid.media_type || "unknown", platform: scan?.platform || (host.includes("shopee") ? "shopee" : "mercado_livre"), title: offer.title || "" }
           : { offer_id: offerId, status: "not_found", platform: host.includes("shopee") ? "shopee" : "mercado_livre", title: offer.title || "", reason });
