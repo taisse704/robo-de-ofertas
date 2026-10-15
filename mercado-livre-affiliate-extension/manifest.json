@@ -45,22 +45,22 @@
         "https://shopee.com.br/*"
       ],
       "js": [
-        "product-video-capture.js"
-      ],
-      "run_at": "document_idle"
-    }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": [
         "page-video-hook.js"
       ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
       "matches": [
         "https://*.mercadolivre.com.br/*",
         "https://mercadolivre.com.br/*",
         "https://*.shopee.com.br/*",
         "https://shopee.com.br/*"
-      ]
+      ],
+      "js": [
+        "product-video-capture.js"
+      ],
+      "run_at": "document_start"
     }
   ]
 }
