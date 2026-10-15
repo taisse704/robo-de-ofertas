@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Robô de Ofertas — Shopee + Mercado Livre",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Extensão única para captura de vídeos originais em anúncios Shopee/Mercado Livre e geração de links oficiais de afiliado do Mercado Livre.",
   "permissions": [
     "tabs",
@@ -48,6 +48,19 @@
         "product-video-capture.js"
       ],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "page-video-hook.js"
+      ],
+      "matches": [
+        "https://*.mercadolivre.com.br/*",
+        "https://mercadolivre.com.br/*",
+        "https://*.shopee.com.br/*",
+        "https://shopee.com.br/*"
+      ]
     }
   ]
 }
