@@ -18,7 +18,7 @@ A extensão reúne em um só pacote:
 
 ## Como a captura funciona
 
-A extensão reutiliza uma aba da Shopee ou do Mercado Livre que já esteja aberta e não cria abas automaticamente. Durante a captura, essa aba é navegada entre os anúncios selecionados. Se não houver uma aba de marketplace aberta, a extensão informa isso e interrompe a captura.
+A extensão reutiliza uma aba da Shopee ou do Mercado Livre que já esteja aberta e não cria abas automaticamente. Durante a captura, essa aba é navegada entre os anúncios selecionados e, ao terminar ou cancelar, a extensão tenta restaurar o endereço que estava aberto antes. A extensão nunca cria nem fecha abas. Se não houver uma aba de marketplace aberta, informa isso e interrompe a captura.
 
 A captura procura vídeos nos elementos de vídeo, fontes de mídia e dados estruturados do anúncio, tanto na Shopee quanto no Mercado Livre. Players encontrados dentro de áreas identificadas como comentários, avaliações, feedback ou conteúdo UGC são ignorados. Dá preferência a arquivos de vídeo diretos. Fotos nunca são convertidas em vídeo. Um endereço `blob:` ou um manifesto HLS/DASH não é tratado como arquivo pronto para publicação no Instagram.
 
