@@ -270,13 +270,24 @@ async function capturarVideosOriginais(offers, estado) {
           if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, 900));
         }
         const candidates = Array.isArray(scan?.videos) ? scan.videos : [];
-        const valid = candidates.find((v) => typeof v?.video_url === "string" && v.video_url.startsWith("https://"));
+        // Preferimos arquivo de vídeo direto ou URL estruturada de vídeo.
+        // Manifestos HLS/DASH não são tratados como arquivo pronto para publicação no Instagram.
+        const valid = candidates.find((v) =>
+          typeof v?.video_url === "string" &&
+          v.video_url.startsWith("https://") &&
+          v.media_type !== "stream"
+        );
+        const onlyStream = candidates.some((v) => v?.media_type === "stream");
         const reason = scan?.blob_player_detected
-          ? "O anúncio tem player, mas a página só expôs um endereço blob temporário; o arquivo original direto não ficou acessível para captura."
-          : scan?.player_detected
-            ? "O anúncio tem elemento de vídeo, mas não expôs um endereço HTTPS direto compatível após várias tentativas."
-            : "A página não expôs player nem URL direta de vídeo. Pode ser anúncio sem vídeo ou mídia carregada por mecanismo não identificado.";
-        resultados.push(valid ? { offer_id: offerId, video_url: valid.video_url, method: valid.method || "page_media", title: offer.title || "" } : { offer_id: offerId, status: "not_found", title: offer.title || "", reason });
+          ? "O anúncio tem player, mas só expôs um endereço blob temporário; o arquivo original direto não ficou acessível."
+          : onlyStream
+            ? "Foi detectado apenas um manifesto de transmissão (HLS/DASH), não um arquivo de vídeo direto pronto para publicação. O anúncio precisa expor o arquivo original."
+            : scan?.player_detected
+              ? "O anúncio tem elemento de vídeo, mas não expôs um endereço HTTPS direto compatível após várias tentativas."
+              : "A página não expôs player nem URL direta de vídeo. Pode ser anúncio sem vídeo ou mídia carregada por mecanismo não identificado.";
+        resultados.push(valid
+          ? { offer_id: offerId, video_url: valid.video_url, method: valid.method || "page_media", media_type: valid.media_type || "unknown", platform: scan?.platform || (host.includes("shopee") ? "shopee" : "mercado_livre"), title: offer.title || "" }
+          : { offer_id: offerId, status: "not_found", platform: host.includes("shopee") ? "shopee" : "mercado_livre", title: offer.title || "", reason });
       } catch (error) {
         resultados.push({ offer_id: offerId, status: "scan_error", title: offer?.title || "", reason: String(error?.message || error) });
       }
