@@ -1,0 +1,29 @@
+name: Validate browser extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "mercado-livre-affiliate-extension/**"
+      - ".github/workflows/validate-video-extension.yml"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate manifest JSON and supported version
+        run: |
+          node -e "const m=require('./mercado-livre-affiliate-extension/manifest.json'); if(m.manifest_version!==3) throw new Error('Manifest V3 required'); if(!m.content_scripts.some(s=>s.js.includes('page-video-hook.js') && s.world==='MAIN')) throw new Error('Main-world video hook missing'); if(!m.content_scripts.some(s=>s.js.includes('product-video-capture.js'))) throw new Error('Video scanner missing'); if(!m.host_permissions.some(x=>x.includes('shopee.com.br')) || !m.host_permissions.some(x=>x.includes('mercadolivre.com.br'))) throw new Error('Both marketplaces must be supported'); console.log('Manifest valid:', m.version)"
+      - name: Check JavaScript syntax
+        run: |
+          for file in mercado-livre-affiliate-extension/*.js; do
+            echo "Checking $file"
+            node --check "$file"
+          done
