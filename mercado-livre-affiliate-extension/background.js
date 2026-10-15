@@ -220,6 +220,7 @@ async function capturarVideosOriginais(offers, estado) {
   }).slice(0, 12);
   let tabId = null;
   let originalTabUrl = null;
+  let erroCaptura = null;
   try {
     // Não cria abas automaticamente. Usa uma aba de marketplace que já esteja aberta.
     // Guarda a URL original para restaurar a aba ao terminar ou cancelar.
@@ -286,6 +287,8 @@ async function capturarVideosOriginais(offers, estado) {
         resultados.push({ offer_id: offerId, status: "scan_error", title: offer?.title || "", reason: String(error?.message || error) });
       }
     }
+  } catch (error) {
+    erroCaptura = String(error?.message || error || "Falha inesperada durante a captura dos anúncios.");
   } finally {
     if (tabId !== null) {
       abasCapturaVideo.delete(tabId);
@@ -301,7 +304,7 @@ async function capturarVideosOriginais(offers, estado) {
     }
     await chrome.storage.local.remove([CAPTURE_LOCK_KEY, CAPTURE_TAB_KEY]).catch(() => {});
     if (capturaVideoAtual === estado) capturaVideoAtual = null;
-    enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_RESULT", results: resultados, cancelled: !!estado.cancelada, error: estado.cancelada ? "Captura interrompida." : null });
+    enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_RESULT", results: resultados, cancelled: !!estado.cancelada, error: erroCaptura || (estado.cancelada ? "Captura interrompida." : null) });
   }
 }
 
