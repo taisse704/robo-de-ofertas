@@ -592,6 +592,9 @@ export default function App() {
               } else {
                 const resultadosCaptura = Array.isArray(captura.results) ? captura.results : [];
                 const falhas = resultadosCaptura.filter((item) => item?.status === "scan_error").length;
+                if (captura.error) {
+                  resumoImportacao += "\n\nErro informado pela extensão: " + String(captura.error).slice(0, 400);
+                }
                 resumoImportacao += "\n\nCaptura no navegador: nenhum vídeo original identificável foi exposto pelas páginas nesta rodada." +
                   (falhas ? " " + falhas + " página(s) apresentaram falha de carregamento." : "");
                 const diagnosticosNavegador = resultadosCaptura.slice(0, 12).map((item) => {
@@ -602,6 +605,10 @@ export default function App() {
                 });
                 if (diagnosticosNavegador.length) {
                   resumoImportacao += "\n\nDetalhes da captura no navegador:\n" + diagnosticosNavegador.join("\n");
+                } else if (captura.error) {
+                  resumoImportacao += "\n\nA extensão não retornou resultados individuais porque a captura foi interrompida antes da análise dos anúncios.";
+                } else {
+                  resumoImportacao += "\n\nA extensão respondeu, mas não retornou resultados individuais dos anúncios. Isso indica uma falha no retorno da captura, não confirma que os anúncios estejam sem vídeo.";
                 }
               }
             }
