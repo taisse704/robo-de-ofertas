@@ -268,12 +268,8 @@ export default function App() {
     return () => clearInterval(timer);
   }, [usuario, pagina]);
 
-  // Ao abrir Gestão de Conteúdo, procurar vídeos originais automaticamente.
-  // Ofertas sem vídeo original continuam fora da fila; nenhuma foto vira vídeo.
-  useEffect(() => {
-    if (!usuario || pagina !== "conteudo") return;
-    void importarVideosOriginais();
-  }, [usuario, pagina]);
+  // A captura de vídeos só começa quando a usuária clica no botão.
+  // Entrar na Gestão de Conteúdo ou pesquisar ofertas não deve abrir páginas de marketplaces.
 
   async function verificarSessao() {
     try {
