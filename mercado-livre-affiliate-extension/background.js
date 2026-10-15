@@ -57,33 +57,19 @@ async function enviarMensagemComTentativas(tabId, message) {
   throw lastError || new Error("A extensão não conseguiu comunicar com a página do Mercado Livre.");
 }
 
-async function encontrarOuCriarAbaMercadoLivre(destino) {
-  if (mlTabId !== null) {
-    try {
-      const tab = await chrome.tabs.get(mlTabId);
-      if (tab?.id) return tab.id;
-    } catch {
-      mlTabId = null;
-    }
-  }
-
+async function encontrarAbaMercadoLivreExistente() {
+  // A extensão nunca abre uma aba de produto durante buscas ou solicitações de link.
+  // Reutiliza somente uma aba do Mercado Livre que a usuária já deixou aberta.
   const tabs = await chrome.tabs.query({
     url: ["https://*.mercadolivre.com.br/*", "https://mercadolivre.com.br/*"]
   });
-
-  if (tabs.length && tabs[0]?.id) {
-    mlTabId = tabs[0].id;
-    return mlTabId;
+  const existing = tabs.find((tab) => tab?.id && !abasCapturaVideo.has(tab.id));
+  if (existing?.id) {
+    mlTabId = existing.id;
+    return existing.id;
   }
-
-  const urlProduto = String(destino || "").trim();
-  if (!urlProduto) throw new Error("Oferta sem URL do produto do Mercado Livre.");
-
-  const tab = await chrome.tabs.create({ url: urlProduto, active: false });
-  if (!tab?.id) throw new Error("Não foi possível abrir a página do produto do Mercado Livre.");
-
-  mlTabId = tab.id;
-  return tab.id;
+  mlTabId = null;
+  throw new Error("Para gerar o link oficial, abra o Mercado Livre em outra aba e entre na sua conta de afiliada. A extensão não abrirá abas automaticamente.");
 }
 
 async function enviarItemAtual() {
@@ -108,7 +94,7 @@ async function enviarItemAtual() {
   processando = true;
 
   try {
-    const tabId = await encontrarOuCriarAbaMercadoLivre(destino);
+    const tabId = await encontrarAbaMercadoLivreExistente();
     // A geração usa a sessão autenticada da aba do Mercado Livre e envia
     // a URL do produto no payload. Não exigimos que a aba esteja exatamente
     // na mesma URL, porque o Mercado Livre pode redirecionar /p/MLB... para
