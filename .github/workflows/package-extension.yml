@@ -1,0 +1,35 @@
+name: Package Robô de Ofertas extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "mercado-livre-affiliate-extension/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build extension ZIP
+        run: |
+          mkdir -p downloads
+          cd mercado-livre-affiliate-extension
+          zip -r ../downloads/robo-de-ofertas-extensao-corrigida.zip . -x "*.DS_Store"
+          cd ..
+      - name: Commit ZIP package
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add downloads/robo-de-ofertas-extensao-corrigida.zip
+          if git diff --cached --quiet; then
+            echo "ZIP já está atualizado."
+            exit 0
+          fi
+          git commit -m "Gera ZIP atualizado da extensão"
+          git push
