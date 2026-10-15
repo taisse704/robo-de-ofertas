@@ -29,13 +29,18 @@ function videoUrlAllowed(raw: unknown, provider: string, method: string): raw is
   try {
     const u = new URL(raw), host = u.hostname.toLowerCase();
     if (u.protocol !== "https:" || u.username || u.password || !hostAllowed(host, provider) || IMAGE_OR_DOCUMENT_EXT.test(u.pathname)) return false;
-    // Salva somente arquivo de vídeo direto; previews, miniaturas e streams não são o original.
-    if (PREVIEW_PATH.test(u.pathname) || !VIDEO_EXT.test(u.href)) return false;
+    // Nunca aceita previews/miniaturas nem manifestos de transmissão como arquivo original.
+    if (PREVIEW_PATH.test(u.pathname) || /\.(m3u8|mpd)(?:$|[?#])/i.test(u.href)) return false;
     if (VIDEO_EXT.test(u.href)) return true;
+    if (IMAGE_OR_DOCUMENT_EXT.test(u.pathname)) return false;
+    // Alguns CDNs usam URLs assinadas sem extensão. Só aceita isso quando a origem
+    // é um campo explícito do player/da mídia do produto, em host CDN reconhecido.
     const cdn = ["mlstatic.com", "susercontent.com", "shopeemobile.com"].some(d => isHostOrSubdomain(host, d));
     const explicitField = ["video_element", "video_source", "structured_video_field"].includes(method) ||
       (method.startsWith("page_json_response:") && VIDEO_HINT.test(method.slice("page_json_response:".length)));
-    return cdn && explicitField;
+    const methodHasProductProvenance = ["video_element", "video_source", "structured_video_field"].includes(method) ||
+      method.startsWith("page_json_response:");
+    return cdn && explicitField && methodHasProductProvenance;
   } catch { return false; }
 }
 Deno.serve(async (req: Request) => {
