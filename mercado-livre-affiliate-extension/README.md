@@ -33,3 +33,8 @@ O endpoint usado é interno do portal, não uma API pública documentada. Se o M
 ## Limite importante
 
 A versão reúne os dois marketplaces, mas a captura final depende de cada anúncio disponibilizar uma URL de vídeo acessível. Não é possível prometer que todos os anúncios tenham um arquivo extraível. A confirmação definitiva exige testar pelo menos um anúncio com vídeo de cada marketplace no navegador em que a extensão será usada.
+
+
+## Captura segura de vídeos (versão 1.5.4)
+
+A captura aceita somente arquivos de vídeo diretos (MP4, M4V, WebM ou MOV) associados à galeria principal do anúncio. Vídeos de comentários/avaliações, miniaturas, previews e manifestos HLS/DASH não são salvos como vídeo original. Se não for possível confirmar um arquivo direto da publicação do produto, o anúncio fica sem vídeo importado para evitar publicar mídia errada.
