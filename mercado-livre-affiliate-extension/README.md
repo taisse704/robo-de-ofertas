@@ -38,3 +38,6 @@ A versão reúne os dois marketplaces, mas a captura final depende de cada anún
 ## Captura segura de vídeos (versão 1.5.4)
 
 A captura aceita somente arquivos de vídeo diretos (MP4, M4V, WebM ou MOV) associados à galeria principal do anúncio. Vídeos de comentários/avaliações, miniaturas, previews e manifestos HLS/DASH não são salvos como vídeo original. Se não for possível confirmar um arquivo direto da publicação do produto, o anúncio fica sem vídeo importado para evitar publicar mídia errada.
+
+
+Pacote da extensão atualizado após ajuste para reconhecer URLs assinadas de vídeo vinculadas à galeria do produto.
