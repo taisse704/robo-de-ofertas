@@ -219,9 +219,10 @@ async function capturarVideosOriginais(offers, estado) {
     return true;
   }).slice(0, 12);
   let tabId = null;
+  let originalTabUrl = null;
   try {
     // Não cria abas automaticamente. Usa uma aba de marketplace que já esteja aberta.
-    // A captura navega essa mesma aba entre os anúncios; nenhuma nova aba é criada.
+    // Guarda a URL original para restaurar a aba ao terminar ou cancelar.
     const tabs = await chrome.tabs.query({
       url: [
         "https://*.mercadolivre.com.br/*",
@@ -235,6 +236,8 @@ async function capturarVideosOriginais(offers, estado) {
       throw new Error("Nenhuma aba da Shopee ou do Mercado Livre está aberta. Abra um dos marketplaces primeiro; a extensão não abrirá abas automaticamente.");
     }
     tabId = tab.id;
+    originalTabUrl = typeof tab.url === "string" ? tab.url : null;
+    estado.originalTabUrl = originalTabUrl;
     capturaTabIdPersistente = tabId;
     estado.tabId = tabId;
     abasCapturaVideo.add(tabId);
@@ -286,13 +289,15 @@ async function capturarVideosOriginais(offers, estado) {
   } finally {
     if (tabId !== null) {
       abasCapturaVideo.delete(tabId);
-      if (estado.cancelada) {
-        await chrome.tabs.remove(tabId).catch(() => {});
-        if (capturaTabIdPersistente === tabId) capturaTabIdPersistente = null;
-        await chrome.storage.local.remove(CAPTURE_TAB_KEY).catch(() => {});
-      } else {
-        // Deixa a aba existente no último anúncio visitado; não cria nem limpa abas.
+      // A aba pertence à usuária: nunca fechá-la, nem mesmo ao cancelar.
+      // Restauramos a página que estava aberta antes da captura.
+      if (originalTabUrl) {
+        const current = await chrome.tabs.get(tabId).catch(() => null);
+        if (current?.id && current.url !== originalTabUrl) {
+          await chrome.tabs.update(tabId, { url: originalTabUrl }).catch(() => {});
+        }
       }
+      if (capturaTabIdPersistente === tabId) capturaTabIdPersistente = null;
     }
     await chrome.storage.local.remove([CAPTURE_LOCK_KEY, CAPTURE_TAB_KEY]).catch(() => {});
     if (capturaVideoAtual === estado) capturaVideoAtual = null;
@@ -304,8 +309,8 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   if (!sender.tab?.url?.startsWith(APP_MATCH) || !message) return;
   if (message.type === "ROBO_VIDEO_CAPTURE_CANCEL") {
     if (capturaVideoAtual) {
+      // Cancelar interrompe a fila, mas nunca fecha a aba que já era da usuária.
       capturaVideoAtual.cancelada = true;
-      if (capturaVideoAtual.tabId !== null) chrome.tabs.remove(capturaVideoAtual.tabId).catch(() => {});
     }
     return;
   }
