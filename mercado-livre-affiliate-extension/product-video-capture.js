@@ -71,7 +71,7 @@
     });
 
     const BLOCKED_KEYS = /comment|review|feedback|rating|ugc|customer_review|buyer_review|user_content|buyer_video/i;
-    const BLOCKED_INLINE_CONTEXT = /\\b(comments?|reviews?|feedback|ugc|customer_review|buyer_review|user_content|buyer_video)\\b\\s*:/i;
+    const BLOCKED_INLINE_CONTEXT = /\b(comments?|reviews?|feedback|ugc|customer_review|buyer_review|user_content|buyer_video)\b\s*:/i;
 
     const walk = (node, depth = 0, inVideoContext = false, blocked = false) => {
       if (!node || depth > 14 || blocked) return;
