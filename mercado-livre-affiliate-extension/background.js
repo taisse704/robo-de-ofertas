@@ -220,14 +220,19 @@ async function capturarVideosOriginais(offers, estado) {
   }).slice(0, 12);
   let tabId = null;
   try {
-    // Reutiliza a mesma aba de captura entre tentativas e entre reinícios do service worker.
-    const armazenado = await chrome.storage.local.get(CAPTURE_TAB_KEY).catch(() => ({}));
-    const idArmazenado = Number(armazenado?.[CAPTURE_TAB_KEY] || capturaTabIdPersistente || 0);
-    let tab = idArmazenado ? await chrome.tabs.get(idArmazenado).catch(() => null) : null;
+    // Não cria abas automaticamente. Usa uma aba de marketplace que já esteja aberta.
+    // A captura navega essa mesma aba entre os anúncios; nenhuma nova aba é criada.
+    const tabs = await chrome.tabs.query({
+      url: [
+        "https://*.mercadolivre.com.br/*",
+        "https://mercadolivre.com.br/*",
+        "https://*.shopee.com.br/*",
+        "https://shopee.com.br/*"
+      ]
+    });
+    const tab = tabs.find((item) => item?.id && !abasCapturaVideo.has(item.id));
     if (!tab?.id) {
-      tab = await chrome.tabs.create({ url: "about:blank", active: false });
-      if (!tab?.id) throw new Error("Não foi possível criar a aba de captura.");
-      await chrome.storage.local.set({ [CAPTURE_TAB_KEY]: tab.id }).catch(() => {});
+      throw new Error("Nenhuma aba da Shopee ou do Mercado Livre está aberta. Abra um dos marketplaces primeiro; a extensão não abrirá abas automaticamente.");
     }
     tabId = tab.id;
     capturaTabIdPersistente = tabId;
@@ -286,10 +291,10 @@ async function capturarVideosOriginais(offers, estado) {
         if (capturaTabIdPersistente === tabId) capturaTabIdPersistente = null;
         await chrome.storage.local.remove(CAPTURE_TAB_KEY).catch(() => {});
       } else {
-        await chrome.tabs.update(tabId, { url: "about:blank", active: false }).catch(() => {});
+        // Deixa a aba existente no último anúncio visitado; não cria nem limpa abas.
       }
     }
-    await chrome.storage.local.remove(CAPTURE_LOCK_KEY).catch(() => {});
+    await chrome.storage.local.remove([CAPTURE_LOCK_KEY, CAPTURE_TAB_KEY]).catch(() => {});
     if (capturaVideoAtual === estado) capturaVideoAtual = null;
     enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_RESULT", results: resultados, cancelled: !!estado.cancelada, error: estado.cancelada ? "Captura interrompida." : null });
   }
