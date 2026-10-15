@@ -590,9 +590,19 @@ export default function App() {
                 idsParaConteudo = Array.isArray(salvamento.imported_offer_ids) ? salvamento.imported_offer_ids : [];
                 resumoImportacao += "\n\nCaptura no navegador: " + (salvamento.message || (salvamento.imported || 0) + " vídeo(s) salvo(s).");
               } else {
-                const falhas = (captura.results || []).filter((item) => item?.status === "scan_error").length;
+                const resultadosCaptura = Array.isArray(captura.results) ? captura.results : [];
+                const falhas = resultadosCaptura.filter((item) => item?.status === "scan_error").length;
                 resumoImportacao += "\n\nCaptura no navegador: nenhum vídeo original identificável foi exposto pelas páginas nesta rodada." +
                   (falhas ? " " + falhas + " página(s) apresentaram falha de carregamento." : "");
+                const diagnosticosNavegador = resultadosCaptura.slice(0, 12).map((item) => {
+                  const titulo = String(item?.title || item?.offer_id || "Anúncio").slice(0, 90);
+                  const motivo = String(item?.reason || (item?.status === "scan_error" ? "Falha ao abrir ou analisar a página." : "A extensão não retornou motivo adicional.")).slice(0, 220);
+                  const plataforma = item?.platform === "shopee" ? "Shopee" : item?.platform === "mercado_livre" ? "Mercado Livre" : "Anúncio";
+                  return "• " + plataforma + " | " + titulo + ": " + motivo;
+                });
+                if (diagnosticosNavegador.length) {
+                  resumoImportacao += "\n\nDetalhes da captura no navegador:\n" + diagnosticosNavegador.join("\n");
+                }
               }
             }
           } else {
