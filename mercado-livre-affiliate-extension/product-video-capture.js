@@ -29,9 +29,31 @@
     const excluded = [
       '[class*="comment" i]', '[id*="comment" i]', '[data-testid*="comment" i]',
       '[class*="review" i]', '[id*="review" i]', '[data-testid*="review" i]',
-      '[class*="feedback" i]', '[class*="rating" i]', '[class*="ugc" i]'
+      '[class*="feedback" i]', '[class*="rating" i]', '[class*="ugc" i]',
+      '[class*="buyer" i]', '[class*="customer" i]'
     ].join(",");
-    try { return !!video.closest(excluded); } catch { return false; }
+    try { return !!video.closest(excluded); } catch { return true; }
+  }
+
+  // O player precisa pertencer à galeria/mídia principal do produto.
+  function isProductGalleryVideo(video) {
+    const gallerySelectors = [
+      '[data-testid*="gallery" i]', '[class*="gallery" i]', '[id*="gallery" i]',
+      '[class*="media-gallery" i]', '[class*="product-media" i]',
+      '[class*="ui-pdp-gallery" i]', '[class*="product-detail" i]',
+      '[class*="product-briefing" i]', '[class*="image-list" i]'
+    ].join(",");
+    try {
+      if (isCommentOrReviewVideo(video)) return false;
+      return !!video.closest(gallerySelectors);
+    } catch { return false; }
+  }
+
+  function isPreviewOrThumbnail(rawUrl) {
+    try {
+      const url = new URL(rawUrl);
+      return /\/(preview|thumbnail|thumb|poster|sprite|cover)(?:\/|$)/i.test(url.pathname);
+    } catch { return true; }
   }
 
   function scanVideos() {
@@ -47,7 +69,7 @@
         return;
       }
       const url = canonicalVideo(value);
-      if (!url) return;
+      if (!url || isPreviewOrThumbnail(url)) return;
       const parsed = new URL(url);
       const looksVideo = forceVideoContext ||
         VIDEO_EXT.test(parsed.pathname) ||
@@ -62,8 +84,8 @@
     };
 
     document.querySelectorAll("video").forEach((video) => {
-      // Ignora players localizados em comentários, avaliações e conteúdo de usuários.
-      if (isCommentOrReviewVideo(video)) return;
+      // Aceita apenas o player da galeria principal do produto.
+      if (!isProductGalleryVideo(video)) return;
       playerDetected = true;
       add(video.currentSrc, "video_element", true);
       add(video.src, "video_element", true);
@@ -115,14 +137,8 @@
       }
     });
 
-    // Recurso de rede somente quando o próprio endereço identifica claramente vídeo.
-    try {
-      performance.getEntriesByType("resource").slice(-1500).forEach((entry) => {
-        if (VIDEO_EXT.test(entry.name) || /video|vod|playback/i.test(entry.name)) {
-          add(entry.name, "video_resource", false);
-        }
-      });
-    } catch {}
+    // Não varre recursos de rede globalmente: isso pode capturar vídeos de avaliações,
+    // recomendações ou outros módulos sem vínculo confirmado com a galeria do produto.
 
     for (const item of discoveredPageUrls.values()) {
       add(item.url, "page_json_response:" + item.key, true);
