@@ -12,16 +12,6 @@
     if (discoveredPageUrls.size > 500) discoveredPageUrls.delete(discoveredPageUrls.keys().next().value);
   });
 
-  // Captura em contexto da página permite observar metadados de respostas JSON
-  // sem consumir nem alterar as respostas utilizadas pelo marketplace.
-  try {
-    const hook = document.createElement("script");
-    hook.src = chrome.runtime.getURL("page-video-hook.js");
-    hook.async = false;
-    hook.onload = () => hook.remove();
-    (document.documentElement || document.head).appendChild(hook);
-  } catch {}
-
   const IMAGE_EXT = /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)(?:$|[?#])/i;
   const VIDEO_EXT = /\.(mp4|m4v|webm|mov|m3u8|mpd)(?:$|[?#])/i;
   const VIDEO_KEYS = /^(video|videos|video_url|videoUrl|video_urls|videoUrls|video_play_url|videoPlayUrl|video_stream_url|videoStreamUrl|play_url|playUrl|playable_url|playableUrl|playback_url|playbackUrl|media_url|mediaUrl|download_url|downloadUrl|video_info|videoInfo|video_info_list|videoInfoList|video_list|videoList|video_model|videoModel|video_data|videoData)$/i;
