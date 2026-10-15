@@ -79,7 +79,7 @@
     document.querySelectorAll("script:not([src])").forEach((script) => {
       const raw = script.textContent || "";
       if (raw.length > 2_000_000 || !/(video|playback|play_url|video_info)/i.test(raw)) return;
-      const matches = raw.match(/https?:[^"'\\s<>]+/g) || [];
+      const matches = raw.match(/https?:[^"'\s<>]+/g) || [];
       for (const value of matches.slice(0, 250)) {
         const cleaned = value.replace(/\\u0026/gi, "&").replace(/\\\//g, "/").replace(/[),;]+$/g, "");
         add(cleaned, "inline_video_data", false);
