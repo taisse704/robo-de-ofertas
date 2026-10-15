@@ -21,6 +21,19 @@ jobs:
       - name: Validate manifest JSON and supported version
         run: |
           node -e "const m=require('./mercado-livre-affiliate-extension/manifest.json'); if(m.manifest_version!==3) throw new Error('Manifest V3 required'); if(!m.content_scripts.some(s=>s.js.includes('page-video-hook.js') && s.world==='MAIN')) throw new Error('Main-world video hook missing'); if(!m.content_scripts.some(s=>s.js.includes('product-video-capture.js'))) throw new Error('Video scanner missing'); if(!m.host_permissions.some(x=>x.includes('shopee.com.br')) || !m.host_permissions.some(x=>x.includes('mercadolivre.com.br'))) throw new Error('Both marketplaces must be supported'); console.log('Manifest valid:', m.version)"
+      - name: Guard against tab creation and review-video capture regressions
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const bg = fs.readFileSync('mercado-livre-affiliate-extension/background.js', 'utf8');
+          const scan = fs.readFileSync('mercado-livre-affiliate-extension/product-video-capture.js', 'utf8');
+          if (/chrome\\.tabs\\.create\\s*\\(/.test(bg)) throw new Error('The extension must not create browser tabs.');
+          if (/chrome\\.tabs\\.remove\\s*\\(/.test(bg)) throw new Error('The extension must not close user tabs.');
+          if (!bg.includes('originalTabUrl')) throw new Error('Capture must preserve/restore the original tab URL.');
+          if (!scan.includes('BLOCKED_KEYS.test(key)')) throw new Error('Structured review/comment payloads must be excluded.');
+          if (!scan.includes('isCommentOrReviewVideo(video)')) throw new Error('Review/comment DOM video exclusion missing.');
+          console.log('Safety guards passed: no tab creation/closure; review videos excluded.');
+          NODE
       - name: Check JavaScript syntax
         run: |
           for file in mercado-livre-affiliate-extension/*.js; do
