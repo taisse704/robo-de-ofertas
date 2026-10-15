@@ -268,11 +268,19 @@ async function capturarVideosOriginais(offers, estado) {
         // Preferimos arquivo de vídeo direto ou URL estruturada de vídeo.
         // Manifestos HLS/DASH não são tratados como arquivo pronto para publicação no Instagram.
         const valid = candidates.find((v) => {
-          if (typeof v?.video_url !== "string" || !v.video_url.startsWith("https://") || v.media_type !== "file") return false;
+          if (typeof v?.video_url !== "string" || !v.video_url.startsWith("https://")) return false;
           try {
             const media = new URL(v.video_url);
             if (/\/(preview|thumbnail|thumb|poster|sprite|cover)(?:\/|$)/i.test(media.pathname)) return false;
-            return /\.(mp4|m4v|webm|mov)(?:$|[?#])/i.test(media.href);
+            if (/\.(m3u8|mpd)(?:$|[?#])/i.test(media.href)) return false;
+            if (/\.(jpg|jpeg|png|gif|webp|avif|svg|bmp|json|js|css|html|htm)(?:$|[?#])/i.test(media.pathname)) return false;
+            if (/\.(mp4|m4v|webm|mov)(?:$|[?#])/i.test(media.href)) return v.media_type === "file";
+            // CDNs can serve signed video URLs without a visible file extension.
+            // Only trust explicit player/source or product video fields, never generic inline resources.
+            const trustedMethod = ["video_element", "video_source", "structured_video_field"].includes(String(v.method || "")) ||
+              (/^page_json_response:/i.test(String(v.method || "")) && /video|playback|play_url|playable|vod|media/i.test(String(v.method || "")));
+            const cdnHost = /(^|\.)((mlstatic\.com)|(susercontent\.com)|(shopeemobile\.com))$/i.test(media.hostname);
+            return v.media_type === "unknown" && trustedMethod && cdnHost;
           } catch { return false; }
         });
         const onlyStream = candidates.some((v) => v?.media_type === "stream");
