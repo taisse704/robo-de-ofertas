@@ -71,6 +71,7 @@
     });
 
     const BLOCKED_KEYS = /comment|review|feedback|rating|ugc|customer_review|buyer_review|user_content|buyer_video/i;
+    const BLOCKED_INLINE_CONTEXT = /\\b(comments?|reviews?|feedback|ugc|customer_review|buyer_review|user_content|buyer_video)\\b\\s*:/i;
 
     const walk = (node, depth = 0, inVideoContext = false, blocked = false) => {
       if (!node || depth > 14 || blocked) return;
@@ -108,7 +109,7 @@
         // Scripts inline podem conter mídia de avaliações. Ignora URLs cujo contexto
         // próximo identifica comentários, reviews, UGC ou vídeos enviados por compradores.
         const around = raw.slice(Math.max(0, match.index - 900), Math.min(raw.length, match.index + value.length + 900));
-        if (BLOCKED_KEYS.test(around)) continue;
+        if (BLOCKED_INLINE_CONTEXT.test(around)) continue;
         const cleaned = value.replace(/\\u0026/gi, "&").replace(/\\\//g, "/").replace(/[),;]+$/g, "");
         add(cleaned, "inline_video_data", false);
       }
