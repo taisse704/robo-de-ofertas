@@ -16,14 +16,14 @@ function isTrustedVideoUrl(raw: unknown, provider: string): raw is string {
     const u = new URL(raw);
     const host = u.hostname.toLowerCase();
     if (u.protocol !== "https:" || u.username || u.password) return false;
-    if (/\\.(jpg|jpeg|png|gif|webp|avif|svg|bmp|json|js|html|htm|css|txt|xml)(?:$|[?#])/i.test(u.pathname)) return false;
+    if (/\.(jpg|jpeg|png|gif|webp|avif|svg|bmp|json|js|html|htm|css|txt|xml)(?:$|[?#])/i.test(u.pathname)) return false;
     const trustedDomains = provider === "mercadolivre"
       ? ["mercadolivre.com.br", "mercadolibre.com", "mlstatic.com"]
       : provider === "shopee"
         ? ["shopee.com.br", "shopee.com", "susercontent.com", "shopeemobile.com"]
         : [];
     if (!trustedDomains.some(domain => host === domain || host.endsWith("." + domain))) return false;
-    if (/\\.(mp4|m4v|mov|webm|m3u8|mpd)(?:$|[?#])/i.test(u.href) || /video|videos|vod|playback|media-stream|stream-media/i.test(host + u.pathname)) return true;
+    if (/\.(mp4|m4v|mov|webm|m3u8|mpd)(?:$|[?#])/i.test(u.href) || /video|videos|vod|playback|media-stream|stream-media/i.test(host + u.pathname)) return true;
     // URLs assinadas de CDN podem não ter extensão; a URL de produto nunca é tratada como vídeo.
     return ["mlstatic.com", "susercontent.com", "shopeemobile.com"]
       .some(domain => host === domain || host.endsWith("." + domain));
