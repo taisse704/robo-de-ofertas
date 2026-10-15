@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  const ALLOWED = /(^|\.)((shopee\.com\.br)|(mercadolivre\.com\.br))$/i;
+  const ALLOWED = /(^|\.)(shopee\.com\.br|mercadolivre\.com\.br|mercadolibre\.com|mlstatic\.com|susercontent\.com|shopee\.com)$/i;
   const VIDEO_KEY = /video|playback|play_url|playable|media_url|download_url|vod/i;
   const SENT = new Set();
 
