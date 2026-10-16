@@ -58,6 +58,18 @@ const getVideoUrl = (...sources: any[]): string | null => {
   return null;
 };
 
+const getRating = (...sources: any[]): number => {
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue;
+    const raw = source.rating_average ?? source.ratingAverage ??
+      source.reviews?.rating_average ?? source.reviews?.ratingAverage ??
+      source.rating ?? source.reviews?.rating;
+    const value = Number(raw);
+    if (Number.isFinite(value) && value > 0 && value <= 5) return value;
+  }
+  return 0;
+};
+
 const REQUEST_TIMEOUT_MS = 8000;
 
 // Categorias usadas somente como fonte de ranking "Mais vendidos".
@@ -971,21 +983,12 @@ Deno.serve(async (req) => {
         .map((item: any) => String(item?.product_external_id || ""))
         .filter(Boolean)
     );
-    const historyRows: any[] = [];
-    for (let offset = 0; ; offset += 1000) {
-      const { data: batch, error: historyError } = await db
-        .from("offer_product_history")
-        .select("external_product_id,external_item_id,product_title")
-        .eq("user_id", userId)
-        .eq("provider", "mercadolivre")
-        .range(offset, offset + 999);
-      if (historyError) throw historyError;
-      if (!batch?.length) break;
-      historyRows.push(...batch);
-      if (batch.length < 1000) break;
-    }
-    const historicalProductIds = new Set(historyRows.map((x: any) => String(x.external_product_id || "")));
-    const historicalItemIds = new Set(historyRows.map((x: any) => String(x.external_item_id || "")).filter(Boolean));
+    // O histórico é apenas registro de auditoria, não uma lista de bloqueio permanente.
+    // A busca anterior gravava todo candidato visto no histórico, inclusive produtos
+    // nunca cadastrados; depois, ao limpar as ofertas, esses mesmos IDs bloqueavam
+    // todas as novidades. A deduplicação agora usa somente ofertas ainda cadastradas.
+    const historicalProductIds = new Set<string>();
+    const historicalItemIds = new Set<string>();
 
     const existingItemIds = new Set(
       (existingOffers || [])
@@ -1262,6 +1265,7 @@ Deno.serve(async (req) => {
           external_id: String(item.id || item.item_id || item.itemId || ""),
           product_external_id: productId,
           title: item.title || r.product?.name || "Produto Mercado Livre",
+          rating: getRating(item, r.product),
           current,
           original,
           discount,
@@ -1343,6 +1347,7 @@ Deno.serve(async (req) => {
           external_id: externalItemId,
           product_external_id: String(product.id),
           title: itemDetails.title || product.name || product.family_name || r.highlight?.categoria_nome || "Produto Mercado Livre",
+          rating: getRating(itemDetails, r.publicItem, winner, product),
           current,
           original,
           discount,
@@ -1419,6 +1424,7 @@ Deno.serve(async (req) => {
         external_id: String(item.id || item.item_id || item.itemId || ""),
         product_external_id: String(item.catalog_product_id || item.user_product_id || item.id || item.item_id || item.itemId || ""),
         title: item.title || r.highlight?.categoria_nome || "Produto Mercado Livre",
+        rating: getRating(item, r.product),
         current,
         original,
         discount,
@@ -1496,6 +1502,7 @@ Deno.serve(async (req) => {
           external_id: itemId,
           product_external_id: catalogId,
           title: String(item?.title || category.nome || "Produto Mercado Livre"),
+          rating: getRating(item),
           current: price,
           original,
           discount,
@@ -1559,6 +1566,7 @@ Deno.serve(async (req) => {
           external_id: itemId,
           product_external_id: catalogId,
           title: String(item?.title || keyword),
+          rating: getRating(item),
           current: price,
           original,
           discount,
@@ -1721,11 +1729,12 @@ Deno.serve(async (req) => {
       imagensEnriquecidas++;
     }
 
-    // Prioridade: posição no ranking de mais vendidos, depois promoção/desconto.
-    // Comissão não está disponível de forma confiável neste endpoint; não inventamos valores.
+    // Prioridade: posição no ranking de mais vendidos, depois avaliação,
+    // depois promoção/desconto. Só usamos avaliação real quando a API a fornece.
     candidates.sort(
       (a, b) =>
         a.position - b.position ||
+        Number(b.rating || 0) - Number(a.rating || 0) ||
         b.discount - a.discount ||
         Number(Boolean(b.promotion_id)) - Number(Boolean(a.promotion_id)) ||
         Number(Boolean(b.free_shipping)) - Number(Boolean(a.free_shipping)) ||
@@ -1903,7 +1912,7 @@ Deno.serve(async (req) => {
       atualizadas++;
     }
 
-    const historyPayload = candidates
+    const historyPayload = unique
       .filter((o: any) => String(o.product_external_id || "").trim())
       .map((o: any) => ({
         user_id: userId,
