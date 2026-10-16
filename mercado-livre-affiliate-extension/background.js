@@ -1,4 +1,4 @@
-const APP_MATCH = "https://taisse704.github.io/robo-de-ofertas/";
+const APP_MATCH = "https://taisse704.github.io/";
 let mlTabId = null;
 let fila = [];
 let processando = false;
@@ -10,7 +10,7 @@ const CAPTURE_TAB_KEY = "roboVideoCaptureTabId";
 const CAPTURE_LOCK_KEY = "roboVideoCaptureLock";
 
 function enviarResultadoParaApp(message) {
-  chrome.tabs.query({ url: ["https://taisse704.github.io/robo-de-ofertas/*"] })
+  chrome.tabs.query({ url: ["https://taisse704.github.io/*"] })
     .then((tabs) => {
       for (const tab of tabs) {
         if (tab.id) chrome.tabs.sendMessage(tab.id, message).catch(() => {});
