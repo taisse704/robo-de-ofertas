@@ -1240,7 +1240,10 @@ export default function App() {
           ["candidatos com preço", diagnosticos.candidatos_com_preco],
           ["duplicados ignorados", diagnosticos.duplicados_ignorados],
           ["ofertas existentes ignoradas", diagnosticos.existentes_ignorados],
-          ["produtos em promoção", diagnosticos.em_promocao]
+          ["produtos em promoção", diagnosticos.em_promocao],
+          ["buscas públicas", Array.isArray(diagnosticos.buscas_publicas_categorias) ? diagnosticos.buscas_publicas_categorias.length : undefined],
+          ["resultados públicos", diagnosticos.buscas_publicas_resultados],
+          ["candidatos complementares", diagnosticos.candidatos_complementares]
         ].filter(([, value]) => value !== undefined && value !== null)
           .map(([label, value]) => `${label}: ${value}`);
 
@@ -1252,6 +1255,12 @@ export default function App() {
               const err = d?.erro ? `, erro: ${d.erro}` : "";
               return `${category}: HTTP ${status}, ${count} destaques${err}`;
             })
+          : [];
+
+        const publicKeywordSearches = Array.isArray(diagnosticos.buscas_publicas_categorias)
+          ? diagnosticos.buscas_publicas_categorias
+              .filter((d) => d?.origem === "palavra-chave")
+              .map((d) => `${d?.categoria || "busca pública"}: HTTP ${d?.status ?? "—"}, ${d?.resultados ?? 0} resultados`)
           : [];
 
         const errors = Array.isArray(diagnosticos.erros_resolucao)
@@ -1266,7 +1275,7 @@ export default function App() {
               .map((d) => `imagem ${d?.item_id || d?.product_id || "produto"}: item HTTP ${d?.direct_item_status ?? "—"}, catálogo HTTP ${d?.product_status ?? "—"}, busca HTTP ${d?.search_status ?? "—"}`)
           : [];
 
-        diagnosticoTexto = [...counts, ...categories, ...errors, ...imageErrors].join(" | ");
+        diagnosticoTexto = [...counts, ...categories, ...publicKeywordSearches, ...errors, ...imageErrors].join(" | ");
       }
 
       let mensagem =
