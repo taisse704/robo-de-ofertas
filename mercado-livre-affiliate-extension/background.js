@@ -361,7 +361,13 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       return;
     }
     await chrome.storage.local.set({ [CAPTURE_LOCK_KEY]: { active: true, startedAt: Date.now() } }).catch(() => {});
-    enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_STARTED" });
+    // Confirma diretamente à aba que pediu a captura. Evita depender da consulta
+    // global de abas para o ACK inicial que o app espera receber em 5 segundos.
+    if (sender.tab?.id) {
+      chrome.tabs.sendMessage(sender.tab.id, { type: "ROBO_VIDEO_CAPTURE_STARTED" }).catch(() => {});
+    } else {
+      enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_STARTED" });
+    }
     await capturarVideosOriginais(message.offers, estado);
   })().catch(async (error) => {
     await chrome.storage.local.remove(CAPTURE_LOCK_KEY).catch(() => {});
