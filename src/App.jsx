@@ -1249,6 +1249,12 @@ export default function App() {
         ].filter(([, value]) => value !== undefined && value !== null)
           .map(([label, value]) => `${label}: ${value}`);
 
+        const rejectionCounts = diagnosticos.rejeitados_por_motivo && typeof diagnosticos.rejeitados_por_motivo === "object"
+          ? Object.entries(diagnosticos.rejeitados_por_motivo)
+              .filter(([, value]) => Number(value) > 0)
+              .map(([reason, value]) => `seleção ${reason}: ${value}`)
+          : [];
+
         const categories = Array.isArray(diagnosticos.categorias_consultadas)
           ? diagnosticos.categorias_consultadas.map((d) => {
               const category = d?.categoria || d?.categoria_nome || d?.categoria_id || "categoria";
@@ -1277,7 +1283,7 @@ export default function App() {
               .map((d) => `imagem ${d?.item_id || d?.product_id || "produto"}: item HTTP ${d?.direct_item_status ?? "—"}, catálogo HTTP ${d?.product_status ?? "—"}, busca HTTP ${d?.search_status ?? "—"}`)
           : [];
 
-        diagnosticoTexto = [...counts, ...categories, ...publicKeywordSearches, ...errors, ...imageErrors].join(" | ");
+        diagnosticoTexto = [...counts, ...rejectionCounts, ...categories, ...publicKeywordSearches, ...errors, ...imageErrors].join(" | ");
       }
 
       let mensagem =
