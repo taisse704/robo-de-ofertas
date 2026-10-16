@@ -845,15 +845,25 @@ Deno.serve(async (req) => {
           { id: "MLB5726", nome: "Eletrodomésticos" }
         ];
 
-    const highlightCategories: any[] = [];
+    const categoriesByGroup: any[][] = [];
     for (const root of roots) {
       const leaves = await discoverLeafCategories(root);
-      highlightCategories.push(...leaves);
+      if (leaves.length) categoriesByGroup.push(leaves);
+    }
+
+    // Intercala as categorias entre os nichos em vez de percorrer todas as
+    // subcategorias de um único grupo primeiro. Assim, o limite global de
+    // 360 destaques não fica concentrado em eletrônicos/eletrodomésticos.
+    const highlightCategories: any[] = [];
+    const maxLeaves = Math.max(0, ...categoriesByGroup.map((group) => group.length));
+    for (let depth = 0; depth < maxLeaves; depth++) {
+      for (const group of categoriesByGroup) {
+        if (group[depth]) highlightCategories.push(group[depth]);
+      }
     }
 
     // Alterna o ponto de início da varredura em janelas de 5 minutos.
-    // Isso evita consultar sempre as mesmas primeiras categorias e ajuda a
-    // descobrir ofertas novas sem perder a ordenação por ranking depois.
+    // A ordem continua equilibrada entre nichos em cada execução.
     const categoryRotation = highlightCategories.length
       ? Math.floor(Date.now() / (5 * 60 * 1000)) % highlightCategories.length
       : 0;
