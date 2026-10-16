@@ -45,56 +45,44 @@ function agendarTimeoutProcessamento() {
 
 async function enviarMensagemComTentativas(tabId, message) {
   let lastError = null;
-  const tentarEnviar = async (quantidade) => {
-    for (let tentativa = 0; tentativa < quantidade; tentativa++) {
-      try {
-        await chrome.tabs.sendMessage(tabId, message);
-        return true;
-      } catch (error) {
-        lastError = error;
-        await new Promise((resolve) => setTimeout(resolve, 350));
-      }
-    }
-    return false;
-  };
+  const tab = await chrome.tabs.get(tabId);
+  const url = String(tab?.url || "");
+  const hostPermitido = ["mercadolivre.com.br", "mercadolivre.com", "mercadolibre.com"].some((host) => {
+    try {
+      const atual = new URL(url);
+      return atual.protocol === "https:" &&
+        (atual.hostname === host || atual.hostname.endsWith("." + host));
+    } catch { return false; }
+  });
+  if (!hostPermitido) {
+    throw new Error("Abra uma página do Mercado Livre em HTTPS e entre na sua conta de afiliada.");
+  }
 
-  if (await tentarEnviar(4)) return;
+  // Injeta a versão atual do content script em toda solicitação. O próprio
+  // script tem proteção contra listeners duplicados, então a recuperação é segura.
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["mercado-livre.js"]
+  });
 
-  // Abas abertas antes de instalar/atualizar a extensão podem estar sem o script.
-  try {
-    const tab = await chrome.tabs.get(tabId);
-    const url = String(tab?.url || "");
-    const hostPermitido = [
-      "mercadolivre.com.br", "mercadolivre.com", "mercadolibre.com"
-    ].some((host) => {
-      try {
-        const atual = new URL(url);
-        return atual.protocol === "https:" &&
-          (atual.hostname === host || atual.hostname.endsWith("." + host));
-      } catch { return false; }
-    });
-    if (!hostPermitido) throw new Error("A aba aberta não está em um domínio compatível do Mercado Livre.");
+  // Aguarda confirmação do script nessa aba antes de enviar o pedido.
+  for (let tentativa = 0; tentativa < 20 && mlTabId !== tabId; tentativa++) {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
 
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ["mercado-livre.js"]
-    });
-    // Aguarda o content script confirmar que registrou o listener, em vez de
-    // depender de uma pausa fixa que pode falhar em abas lentas.
-    for (let tentativa = 0; tentativa < 15 && mlTabId !== tabId; tentativa++) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
+  for (let tentativa = 0; tentativa < 8; tentativa++) {
+    try {
+      await chrome.tabs.sendMessage(tabId, message);
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 300));
     }
-    if (mlTabId !== tabId) {
-      throw new Error("O script foi injetado, mas a aba não confirmou o canal de comunicação. Atualize a página do Mercado Livre e tente novamente.");
-    }
-    if (await tentarEnviar(8)) return;
-  } catch (error) {
-    lastError = error;
   }
 
   throw new Error(
-    "A extensão não conseguiu ativar o gerador na aba do Mercado Livre. " +
-    "Recarregue a extensão em edge://extensions, atualize a aba do Mercado Livre e tente novamente. " +
+    "O gerador foi ativado, mas a aba do Mercado Livre não recebeu o pedido. " +
+    "Atualize a página do Mercado Livre e tente novamente. " +
     String(lastError?.message || lastError || "")
   );
 }
