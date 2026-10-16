@@ -490,7 +490,7 @@ export default function App() {
         method: "POST",
         headers: { Authorization: "Bearer " + token, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
         body: JSON.stringify({ limit: 100, force_retry: !!forcarNovaVerificacao }),
-        signal: AbortSignal.timeout(90000)
+        signal: AbortSignal.timeout(240000)
       });
       const importacao = await response.json().catch(() => ({}));
       if (!response.ok || !importacao?.ok) throw new Error(importacao?.error || importacao?.message || ("A importação respondeu HTTP " + response.status + ". Tente novamente."));
