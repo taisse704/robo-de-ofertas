@@ -999,8 +999,9 @@ Deno.serve(async (req) => {
     }
 
     const resolved: any[] = [];
-    const targetResolved = Math.min(Math.max(limit * 15, 100), 300);
-    const RESOLUTION_BATCH_SIZE = 10;
+    // Limita a resolução para evitar dezenas de lotes lentos quando a API do ML bloqueia itens.
+    const targetResolved = Math.min(Math.max(limit * 4, 40), 80);
+    const RESOLUTION_BATCH_SIZE = 24;
 
     for (
       let offset = 0;
@@ -1015,7 +1016,7 @@ Deno.serve(async (req) => {
       const resolutionResults = await runWithConcurrency(
         resolutionBatch,
         (entry) => resolveHighlightEntry(entry),
-        3
+        8
       );
 
       for (let i = 0; i < resolutionResults.length; i++) {
@@ -1041,34 +1042,46 @@ Deno.serve(async (req) => {
 
         if (resolved.length >= targetResolved) break;
       }
+
+      // Se vários itens seguidos retornam 403, insistir nos outros destaques
+      // repete a mesma falha e deixa a busca presa por mais de um minuto.
+      const blocked403 = resolutionErrors.filter((x: any) => Number(x.status) === 403).length;
+      if (blocked403 >= 8 && resolved.length < targetResolved) break;
     }
 
     const catalogSearchDiagnostics: any[] = [];
-    const catalogKeywords = ["fone bluetooth", "air fryer", "organizador", "cozinha", "casa", "pet", "ventilador", "cafeteira"];
+    // Três termos variados em paralelo: limita a espera se a API estiver bloqueando buscas.
+    const catalogKeywords = ["fone bluetooth", "air fryer", "organizador"];
     const seenCatalogIds = new Set<string>(resolved.map((r: any) => String(r.sourceId || "")));
     let catalogResolvedCount = 0;
-    for (let k = 0; k < catalogKeywords.length && catalogResolvedCount < 30; k++) {
-      const keyword = catalogKeywords[k];
+    const catalogSearchResults = await runWithConcurrency(catalogKeywords, async (keyword: string) => {
       const query = new URLSearchParams({ status: "active", site_id: SITE_ID, q: keyword, limit: "10" });
       const search = await getCatalogJson(ML + "/products/search?" + query.toString());
       const products = search.ok && Array.isArray(search.data?.results) ? search.data.results as any[] : [];
-      catalogSearchDiagnostics.push({ palavra: keyword, status: search.status, resultados: products.length });
-      const fresh = products.filter((p: any) => {
+      return { keyword, search, products };
+    }, 3);
+    const catalogFreshBatches = await Promise.all(catalogSearchResults.map(async (result: any, k: number) => {
+      catalogSearchDiagnostics.push({ palavra: result.keyword, status: result.search.status, resultados: result.products.length });
+      const fresh = result.products.filter((p: any) => {
         const id = String(p?.id || "");
         return id.startsWith("MLB") && !seenCatalogIds.has(id) && !existingProductIds.has(id);
       }).slice(0, 4);
-      const batch = await runWithConcurrency(fresh, (p: any) => resolveHighlightEntry({ id: String(p.id), type: "PRODUCT" }), 3);
-      for (let i = 0; i < batch.length; i++) {
-        const item = batch[i];
+      const batch = await runWithConcurrency(fresh, (p: any) => resolveHighlightEntry({ id: String(p.id), type: "PRODUCT" }), 4);
+      return { k, keyword: result.keyword, fresh, batch };
+    }));
+    for (const result of catalogFreshBatches) {
+      for (let i = 0; i < result.batch.length; i++) {
+        const item = result.batch[i];
         if (!item || item.error || !item.itemId) continue;
         if (existingItemIds.has(String(item.itemId))) continue;
-        const sourceId = String(item.sourceId || fresh[i]?.id || "");
+        const sourceId = String(item.sourceId || result.fresh[i]?.id || "");
         if (seenCatalogIds.has(sourceId)) continue;
         seenCatalogIds.add(sourceId);
-        resolved.push({ ...item, highlight: { position: 2000 + k * 10 + i, categoria_id: keyword, categoria_nome: keyword, categoria_grupo: "busca_catalogo" } });
+        resolved.push({ ...item, highlight: { position: 2000 + result.k * 10 + i, categoria_id: result.keyword, categoria_nome: result.keyword, categoria_grupo: "busca_catalogo" } });
         catalogResolvedCount++;
         if (catalogResolvedCount >= 30) break;
       }
+      if (catalogResolvedCount >= 30) break;
     }
 
     if (!resolved.length) {
