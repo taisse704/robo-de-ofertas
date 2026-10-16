@@ -35,7 +35,7 @@ function directVideoUrl(...sources: any[]): string | null {
   const visit = (v: any, depth = 0) => {
     if (v == null || depth > 5) return;
     if (typeof v === "string") {
-      const s = v.trim().replaceAll("\\/", "/").replaceAll("\\u0026", "&").replaceAll("&amp;", "&");
+      const s = v.trim().replace(/\\u002f/gi, "/").replace(/\\u0026/gi, "&").replaceAll("\\/", "/").replaceAll("&amp;", "&");
       if (/^https?:\/\//i.test(s)) candidates.push(s);
       else if (s.startsWith("{") || s.startsWith("[")) {
         try { visit(JSON.parse(s), depth + 1); } catch { /* texto da página não é JSON puro */ }
@@ -60,7 +60,7 @@ function directVideoUrl(...sources: any[]): string | null {
 function explicitVideoUrl(value: any, depth = 0): string | null {
   if (value == null || depth > 6) return null;
   if (typeof value === "string") {
-    const s = value.trim().replaceAll("\\/", "/").replaceAll("\\u0026", "&").replaceAll("&amp;", "&");
+    const s = value.trim().replace(/\\u002f/gi, "/").replace(/\\u0026/gi, "&").replaceAll("\\/", "/").replaceAll("&amp;", "&");
     if (!/^https?:\/\//i.test(s)) return null;
     try {
       const u = new URL(s);
