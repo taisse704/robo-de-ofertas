@@ -99,6 +99,10 @@ const isRelevantPriorityProduct = (groupValue: unknown, titleValue: unknown, cat
   const title = String(titleValue || "").toLowerCase();
   const category = String(categoryValue || "").toLowerCase();
   const combined = title + " " + category;
+  // Aceita apenas os seis grupos definidos; exclui resultados genéricos de substituição.
+  if (!PRIORITY_GROUP_ORDER.includes(group)) return false;
+  // Categorias sem relação com as prioridades que apareceram na árvore do marketplace.
+  if (/(embalagens? antiest[aá]ticas?|jalecos? antiest[aá]ticos?|luvas? antiest[aá]ticas?|kits? de prote[cç][aã]o antiest[aá]tica|claquetes?|atualiza[cç][aã]o tv|^outros$)/i.test(category)) return false;
   // Cartões-presente e produtos digitais não são ofertas de eletrônicos físicos.
   if (group === "Eletrônicos e acessórios" &&
       /(gift\s?cards?|cart(?:ã|a)o(?:es)?[- ]?presente|recarga digital|moeda virtual|assinatura digital|licen[cç]a digital)/i.test(combined)) return false;
@@ -111,6 +115,8 @@ const isRelevantPriorityProduct = (groupValue: unknown, titleValue: unknown, cat
       !/(automot|carro|ve[ií]culo|moto)/i.test(title)) return false;
   return true;
 };
+
+const REQUEST_TIMEOUT_MS;
 
 const REQUEST_TIMEOUT_MS = 8000;
 
@@ -132,7 +138,10 @@ const CATEGORY_EXCLUDE = new Set([
 const INVALID_HIGHLIGHT_CATEGORY_IDS = new Set([
   "MLB73048", "MLB439348", "MLB459667", "MLB1902", "MLB186267",
   "MLB277607", "MLB33422", "MLB457041", "MLB1899", "MLB455719",
-  "MLB459710", "MLB1647", "MLB457530", "MLB429306"
+  "MLB459710", "MLB1647", "MLB457530", "MLB429306",
+  // IDs observados nos diagnósticos recentes como dimensão inexistente.
+  "MLB459686", "MLB457400", "MLB1915", "MLB431454", "MLB277792",
+  "MLB438074", "MLB271915", "MLB447813"
 ]);
 
 Deno.serve(async (req) => {
@@ -1851,10 +1860,8 @@ Deno.serve(async (req) => {
     // Eletrônicos e Ferramentas/Automotivo compartilham uma única vaga.
     const MAX_PER_CATEGORY = 2;
     const MAX_PER_CATEGORY_GROUP = 2;
-    const SINGLE_SLOT_GROUPS = new Set([
-      "Eletrônicos e acessórios",
-      "Ferramentas e acessórios automotivos"
-    ]);
+    // Distribui as até 20 vagas entre os seis grupos prioritários.
+    const MAX_PER_GROUP = 4;
     const normalizeTitleKey = (value: unknown) => String(value || "").trim().toLowerCase();
     const existingTitleKeys = new Set(
       (existingOffers || [])
@@ -1916,7 +1923,7 @@ Deno.serve(async (req) => {
       const categoryKey = String(item.categoria_id || item.categoria_nome || "sem_categoria");
       const groupKey = String(item.categoria_grupo || "sem_grupo");
       const categoryLimit = MAX_PER_CATEGORY;
-      const groupLimit = SINGLE_SLOT_GROUPS.has(groupKey) ? 1 : MAX_PER_CATEGORY_GROUP;
+      const groupLimit = MAX_PER_GROUP;
       if ((categoryCounts.get(categoryKey) || 0) >= categoryLimit) { rejeitar("vaga_categoria_ocupada"); continue; }
       if ((groupCounts.get(groupKey) || 0) >= groupLimit) { rejeitar("vaga_grupo_prioritario_ocupada"); continue; }
 
