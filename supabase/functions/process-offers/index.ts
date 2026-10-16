@@ -9,10 +9,10 @@ const MAX = 20;
 // compartilham a mesma vaga de grupo.
 const PRIORITY_GROUP_ORDER = [
   "Eletrônicos e acessórios",
-  "Eletrodomésticos",
+  "Beleza e cuidados pessoais",
   "Casa, cozinha e organização",
   "Moda, calçados e acessórios",
-  "Beleza e cuidados pessoais",
+  "Eletrodomésticos",
   "Ferramentas e acessórios automotivos"
 ];
 const PRIORITY_ROOTS: Record<string, string> = {
@@ -1034,7 +1034,6 @@ Deno.serve(async (req) => {
         .select("external_product_id,external_item_id,metadata")
         .eq("user_id", userId)
         .eq("provider", "mercadolivre")
-        .order("external_product_id", { ascending: true })
         .range(historyOffset, historyOffset + historyPageSize - 1);
       if (validHistoryError) throw validHistoryError;
       const page = historyPage || [];
@@ -1825,8 +1824,14 @@ Deno.serve(async (req) => {
     const seenItems = new Set<string>();
     const categoryCounts = new Map<string, number>();
     const groupCounts = new Map<string, number>();
-    const MAX_PER_CATEGORY = 1;
-    const MAX_PER_CATEGORY_GROUP = 1;
+    // Até dois produtos por categoria/grupo em cada busca.
+    // Eletrônicos e Ferramentas/Automotivo compartilham uma única vaga.
+    const MAX_PER_CATEGORY = 2;
+    const MAX_PER_CATEGORY_GROUP = 2;
+    const SINGLE_SLOT_GROUPS = new Set([
+      "Eletrônicos e acessórios",
+      "Ferramentas e acessórios automotivos"
+    ]);
     const normalizeTitleKey = (value: unknown) => String(value || "").trim().toLowerCase();
     const existingTitleKeys = new Set(
       (existingOffers || [])
@@ -1887,8 +1892,10 @@ Deno.serve(async (req) => {
       // do grupo prioritário. Categorias substitutas têm uma vaga própria.
       const categoryKey = String(item.categoria_id || item.categoria_nome || "sem_categoria");
       const groupKey = String(item.categoria_grupo || "sem_grupo");
-      if ((categoryCounts.get(categoryKey) || 0) >= MAX_PER_CATEGORY) { rejeitar("vaga_categoria_ocupada"); continue; }
-      if ((groupCounts.get(groupKey) || 0) >= MAX_PER_CATEGORY_GROUP) { rejeitar("vaga_grupo_prioritario_ocupada"); continue; }
+      const categoryLimit = MAX_PER_CATEGORY;
+      const groupLimit = SINGLE_SLOT_GROUPS.has(groupKey) ? 1 : MAX_PER_CATEGORY_GROUP;
+      if ((categoryCounts.get(categoryKey) || 0) >= categoryLimit) { rejeitar("vaga_categoria_ocupada"); continue; }
+      if ((groupCounts.get(groupKey) || 0) >= groupLimit) { rejeitar("vaga_grupo_prioritario_ocupada"); continue; }
 
       if (productId) seenProducts.add(productId);
       if (itemId) seenItems.add(itemId);
