@@ -442,6 +442,28 @@ Deno.serve(async (req) => {
       return common / Math.max(aa.size, bb.size);
     }
 
+    // Compara a família do produto, não só o título literal. Isso evita que
+    // variantes da mesma escova secadora/ar-condicionado voltem como ofertas novas.
+    function isNearDuplicateTitle(a: unknown, b: unknown) {
+      const aa = new Set(normalizeText(a).split(" ").filter((x) => x.length >= 3));
+      const bb = new Set(normalizeText(b).split(" ").filter((x) => x.length >= 3));
+      if (!aa.size || !bb.size) return false;
+      let common = 0;
+      const shared = new Set<string>();
+      for (const token of aa) {
+        if (bb.has(token)) { common++; shared.add(token); }
+      }
+      if (titleSimilarity(a, b) >= 0.72) return true;
+      const overlap = common / Math.min(aa.size, bb.size);
+      const families = [
+        ["escova", "secadora"], ["ar", "inverter"], ["ar", "condicionado"],
+        ["air", "fryer"], ["fone", "bluetooth"], ["furadeira", "impacto"],
+        ["cafeteira", "espresso"], ["maquina", "lavar"], ["smart", "tv"]
+      ];
+      if (common >= 3 && overlap >= 0.5) return true;
+      return overlap >= 0.4 && families.some((family) => family.every((token) => shared.has(token)));
+    }
+
     async function getCatalogJson(url: string) {
       // Algumas rotas do catálogo/busca retornam 401/403 sem autenticação.
       // Tentamos a sessão oficial do Mercado Livre e, por último, o token da aplicação.
@@ -1169,23 +1191,32 @@ Deno.serve(async (req) => {
 
     const catalogSearchDiagnostics: any[] = [];
     // Três termos variados em paralelo: limita a espera se a API estiver bloqueando buscas.
-    const catalogKeywords = ["fone bluetooth", "air fryer", "organizador"];
+    const catalogKeywords = [
+      { keyword: "fone bluetooth", group: "Eletrônicos e acessórios" },
+      { keyword: "carregador celular", group: "Eletrônicos e acessórios" },
+      { keyword: "air fryer", group: "Eletrodomésticos" },
+      { keyword: "organizador cozinha", group: "Casa, cozinha e organização" },
+      { keyword: "tenis casual", group: "Moda, calçados e acessórios" },
+      { keyword: "perfume feminino", group: "Beleza e cuidados pessoais" },
+      { keyword: "furadeira", group: "Ferramentas e acessórios automotivos" },
+      { keyword: "acessorios automotivos", group: "Ferramentas e acessórios automotivos" }
+    ];
     const seenCatalogIds = new Set<string>(resolved.map((r: any) => String(r.sourceId || "")));
     let catalogResolvedCount = 0;
-    const catalogSearchResults = await runWithConcurrency(catalogKeywords, async (keyword: string) => {
-      const query = new URLSearchParams({ status: "active", site_id: SITE_ID, q: keyword, limit: "10" });
+    const catalogSearchResults = await runWithConcurrency(catalogKeywords, async (entry: any) => {
+      const query = new URLSearchParams({ status: "active", site_id: SITE_ID, q: entry.keyword, limit: "10" });
       const search = await getCatalogJson(ML + "/products/search?" + query.toString());
       const products = search.ok && Array.isArray(search.data?.results) ? search.data.results as any[] : [];
-      return { keyword, search, products };
-    }, 3);
+      return { keyword: entry.keyword, group: entry.group, search, products };
+    }, 4);
     const catalogFreshBatches = await Promise.all(catalogSearchResults.map(async (result: any, k: number) => {
-      catalogSearchDiagnostics.push({ palavra: result.keyword, status: result.search.status, resultados: result.products.length });
+      catalogSearchDiagnostics.push({ palavra: result.keyword, grupo: result.group, status: result.search.status, resultados: result.products.length });
       const fresh = result.products.filter((p: any) => {
         const id = String(p?.id || "");
         return id.startsWith("MLB") && !seenCatalogIds.has(id) && !existingProductIds.has(id);
       }).slice(0, 4);
       const batch = await runWithConcurrency(fresh, (p: any) => resolveHighlightEntry({ id: String(p.id), type: "PRODUCT" }), 4);
-      return { k, keyword: result.keyword, fresh, batch };
+      return { k, keyword: result.keyword, group: result.group, fresh, batch };
     }));
     for (const result of catalogFreshBatches) {
       for (let i = 0; i < result.batch.length; i++) {
@@ -1195,7 +1226,7 @@ Deno.serve(async (req) => {
         const sourceId = String(item.sourceId || result.fresh[i]?.id || "");
         if (seenCatalogIds.has(sourceId)) continue;
         seenCatalogIds.add(sourceId);
-        resolved.push({ ...item, highlight: { position: 2000 + result.k * 10 + i, categoria_id: result.keyword, categoria_nome: result.keyword, categoria_grupo: "Substituição: busca de catálogo " + String(result.keyword || "geral") } });
+        resolved.push({ ...item, highlight: { position: 2000 + result.k * 10 + i, categoria_id: result.keyword, categoria_nome: result.keyword, categoria_grupo: result.group } });
         catalogResolvedCount++;
         if (catalogResolvedCount >= 30) break;
       }
@@ -1533,160 +1564,10 @@ Deno.serve(async (req) => {
     // Complementa o ranking de destaques com anúncios públicos pesquisáveis.
     // Quando as categorias de "Mais vendidos" já estão quase todas cadastradas,
     // essa segunda fonte permite descobrir anúncios novos sem apagar ofertas antigas.
+    // O endpoint /sites/MLB/search está retornando HTTP 403 nesta aplicação.
+    // Evitamos repetir até 32 chamadas bloqueadas; as palavras-chave agora usam
+    // /products/search acima, com grupo prioritário explícito.
     const publicSearchDiagnostics: any[] = [];
-    // Equilibra a busca pública: consulta as seis prioridades sem deixar
-    // eletrônicos consumir todas as vagas e reserva metade para substitutas.
-    const publicSearchCategories: any[] = [];
-    const publicSearchSeen = new Set<string>();
-    const addPublicCategory = (category: any) => {
-      const id = String(category?.id || "");
-      if (!id || publicSearchSeen.has(id) || publicSearchCategories.length >= 24) return;
-      publicSearchSeen.add(id);
-      publicSearchCategories.push(category);
-    };
-    for (const group of PRIORITY_GROUP_ORDER) {
-      categoriesToScan.filter((category: any) => category.grupo === group).slice(0, 2).forEach(addPublicCategory);
-    }
-    categoriesToScan.filter((category: any) => !PRIORITY_GROUP_ORDER.includes(String(category.grupo || ""))).slice(0, 12).forEach(addPublicCategory);
-    // Se não houver doze substitutas válidas, completa com as categorias prioritárias restantes.
-    categoriesToScan.forEach(addPublicCategory);
-    const publicSearchResults = await runWithConcurrency(
-      publicSearchCategories,
-      async (category: any) => {
-        const params = new URLSearchParams({
-          category: String(category.id),
-          limit: "50",
-          sort: "relevance"
-        });
-        const result = await getCatalogJson(
-          ML + "/sites/" + SITE_ID + "/search?" + params.toString()
-        );
-        const rows = result.ok && Array.isArray(result.data?.results)
-          ? result.data.results
-          : [];
-        publicSearchDiagnostics.push({
-          categoria: category.nome,
-          categoria_id: category.id,
-          status: result.status,
-          resultados: rows.length
-        });
-        return { category, status: result.status, rows };
-      },
-      5
-    );
-
-    const supplementalSeenItems = new Set<string>([...existingItemIds, ...candidates.map((candidate: any) => String(candidate.external_id || "")).filter(Boolean)]);
-    for (const searchResult of publicSearchResults) {
-      const category = searchResult.category;
-      for (const item of searchResult.rows) {
-        const itemId = String(item?.id || "");
-        const price = Number(item?.price || 0);
-        if (!itemId.startsWith("MLB") || !Number.isFinite(price) || price <= 0) continue;
-        if (!isRelevantPriorityProduct(category.grupo, item?.title, category.nome)) continue;
-        if (supplementalSeenItems.has(itemId) || existingItemIds.has(itemId)) continue;
-        supplementalSeenItems.add(itemId);
-
-        const catalogId = String(item?.catalog_product_id || itemId);
-        const originalNumber = Number(item?.original_price || 0);
-        const original = Number.isFinite(originalNumber) && originalNumber > price
-          ? originalNumber
-          : null;
-        const discount = original ? Math.round(((original - price) / original) * 100) : 0;
-        const dealIds = Array.isArray(item?.deal_ids) ? item.deal_ids : [];
-        const promotionId = dealIds.length ? String(dealIds[0]) : null;
-        if (somenteDescontos && discount <= 0 && !promotionId) continue;
-
-        candidates.push({
-          external_id: itemId,
-          product_external_id: catalogId,
-          title: String(item?.title || category.nome || "Produto Mercado Livre"),
-          rating: getRating(item),
-          current: price,
-          original,
-          discount,
-          image: getImageUrl(item?.thumbnail, item?.thumbnail_url, item?.pictures?.[0], item?.picture_id),
-          video_url: getVideoUrl(item?.video_url, item?.video, item?.videos, item?.media),
-          permalink: item?.permalink || null,
-          seller_id: item?.seller?.id ? String(item.seller.id) : null,
-          seller_name: item?.seller?.nickname ? String(item.seller.nickname) : null,
-          coupon_code: String(item?.coupon_code || item?.coupon?.code || "").trim() || null,
-          payment_method: null,
-          promotion_id: promotionId,
-          promotion_type: item?.listing_type_id || null,
-          free_shipping: item?.shipping?.free_shipping === true,
-          position: 1000 + (Number(item?.order_backend) || 0),
-          categoria_id: String(item?.category_id || category.id),
-          categoria_nome: category.nome,
-          categoria_grupo: category.grupo,
-          score: discount * 100 + (promotionId ? 25 : 0) +
-            (item?.shipping?.free_shipping === true ? 10 : 0),
-          oferta_tipo: discount > 0 || promotionId ? "promocao" : "mais_vendido"
-        });
-      }
-    }
-
-    // Se os destaques e as categorias só trouxerem produtos já cadastrados, complementa
-    // a busca por palavras-chave públicas para descobrir anúncios novos.
-    const contarCandidatosNovos = () => candidates.filter((item: any) => {
-      const productId = String(item.product_external_id || "");
-      const itemId = String(item.external_id || "");
-      return (!productId || !existingProductIds.has(productId)) &&
-        (!itemId || !existingItemIds.has(itemId));
-    }).length;
-    const publicKeywords = ["fone bluetooth", "air fryer", "organizador cozinha", "perfume feminino", "tenis casual", "furadeira", "carregador celular", "acessorios automotivos"];
-    for (let keywordIndex = 0; keywordIndex < publicKeywords.length && contarCandidatosNovos() < Math.max(limit * 2, 40); keywordIndex++) {
-      const keyword = publicKeywords[keywordIndex];
-      const params = new URLSearchParams({ q: keyword, limit: "50", sort: "relevance" });
-      const result = await getCatalogJson(ML + "/sites/" + SITE_ID + "/search?" + params.toString());
-      const rows = result.ok && Array.isArray(result.data?.results) ? result.data.results as any[] : [];
-      publicSearchDiagnostics.push({
-        categoria: "Busca por palavra-chave: " + keyword,
-        categoria_id: keyword,
-        status: result.status,
-        resultados: rows.length,
-        origem: "palavra-chave"
-      });
-      for (const item of rows) {
-        const itemId = String(item?.id || "");
-        const price = Number(item?.price || 0);
-        if (!itemId.startsWith("MLB") || !Number.isFinite(price) || price <= 0) continue;
-        if (supplementalSeenItems.has(itemId) || existingItemIds.has(itemId)) continue;
-        const catalogId = String(item?.catalog_product_id || itemId);
-        if (existingProductIds.has(catalogId)) { supplementalSeenItems.add(itemId); continue; }
-        const originalNumber = Number(item?.original_price || 0);
-        const original = Number.isFinite(originalNumber) && originalNumber > price ? originalNumber : null;
-        const discount = original ? Math.round(((original - price) / original) * 100) : 0;
-        const dealIds = Array.isArray(item?.deal_ids) ? item.deal_ids : [];
-        const promotionId = dealIds.length ? String(dealIds[0]) : null;
-        if (somenteDescontos && discount <= 0 && !promotionId) continue;
-        supplementalSeenItems.add(itemId);
-        candidates.push({
-          external_id: itemId,
-          product_external_id: catalogId,
-          title: String(item?.title || keyword),
-          rating: getRating(item),
-          current: price,
-          original,
-          discount,
-          image: getImageUrl(item?.thumbnail, item?.thumbnail_url, item?.pictures?.[0], item?.picture_id),
-          video_url: getVideoUrl(item?.video_url, item?.video, item?.videos, item?.media),
-          permalink: item?.permalink || null,
-          seller_id: item?.seller?.id ? String(item.seller.id) : null,
-          seller_name: item?.seller?.nickname ? String(item.seller.nickname) : null,
-          coupon_code: String(item?.coupon_code || item?.coupon?.code || "").trim() || null,
-          payment_method: null,
-          promotion_id: promotionId,
-          promotion_type: item?.listing_type_id || null,
-          free_shipping: item?.shipping?.free_shipping === true,
-          position: 2000 + keywordIndex * 50 + (Number(item?.order_backend) || 0),
-          categoria_id: String(item?.category_id || keyword),
-          categoria_nome: keyword,
-          categoria_grupo: "Substituição: busca pública " + keyword,
-          score: discount * 100 + (promotionId ? 25 : 0) + (item?.shipping?.free_shipping === true ? 10 : 0),
-          oferta_tipo: discount > 0 || promotionId ? "promocao" : "mais_vendido"
-        });
-      }
-    }
 
     // Alguns produtos de catálogo não expõem imagem no detalhe do produto nem
     // no buy_box_winner. Recuperamos a imagem por busca pública, aceitando apenas
@@ -1896,8 +1777,8 @@ Deno.serve(async (req) => {
       // toda a busca com erro PostgreSQL 23505.
       const titleKey = normalizeTitleKey(item.title);
       const fuzzyDuplicate = String(item.title || "").trim() && (
-        existingTitles.some((title: string) => titleSimilarity(title, item.title) >= 0.92) ||
-        seenTitles.some((title: string) => titleSimilarity(title, item.title) >= 0.92)
+        existingTitles.some((title: string) => isNearDuplicateTitle(title, item.title)) ||
+        seenTitles.some((title: string) => isNearDuplicateTitle(title, item.title))
       );
       if (titleKey && (existingTitleKeys.has(titleKey) || seenTitleKeys.has(titleKey) || fuzzyDuplicate)) {
         titulosDuplicadosIgnorados++;
