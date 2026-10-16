@@ -983,12 +983,21 @@ Deno.serve(async (req) => {
         .map((item: any) => String(item?.product_external_id || ""))
         .filter(Boolean)
     );
-    // O histórico é apenas registro de auditoria, não uma lista de bloqueio permanente.
-    // A busca anterior gravava todo candidato visto no histórico, inclusive produtos
-    // nunca cadastrados; depois, ao limpar as ofertas, esses mesmos IDs bloqueavam
-    // todas as novidades. A deduplicação agora usa somente ofertas ainda cadastradas.
-    const historicalProductIds = new Set<string>();
-    const historicalItemIds = new Set<string>();
+    // Só usamos histórico explicitamente marcado como oferta realmente cadastrada.
+    // Registros antigos eram gravados para candidatos apenas examinados e não podem
+    // bloquear produtos novos. O histórico válido impede reaparições após exclusão.
+    const { data: validHistoryRows, error: validHistoryError } = await db
+      .from("offer_product_history")
+      .select("external_product_id,external_item_id,metadata")
+      .eq("user_id", userId)
+      .eq("provider", "mercadolivre")
+      .limit(5000);
+    if (validHistoryError) throw validHistoryError;
+    const validHistory = (validHistoryRows || []).filter((row: any) =>
+      row?.metadata?.registered_offer === true
+    );
+    const historicalProductIds = new Set(validHistory.map((x: any) => String(x.external_product_id || "")).filter(Boolean));
+    const historicalItemIds = new Set(validHistory.map((x: any) => String(x.external_item_id || "")).filter(Boolean));
 
     const existingItemIds = new Set(
       (existingOffers || [])
@@ -1759,7 +1768,9 @@ Deno.serve(async (req) => {
         .map((item: any) => normalizeTitleKey(item?.titulo))
         .filter(Boolean)
     );
+    const existingTitles = (existingOffers || []).map((item: any) => String(item?.titulo || "")).filter(Boolean);
     const seenTitleKeys = new Set<string>();
+    const seenTitles: string[] = [];
     let duplicadosIgnorados = 0;
     let titulosDuplicadosIgnorados = 0;
     let existentesIgnorados = 0;
@@ -1782,7 +1793,11 @@ Deno.serve(async (req) => {
       // Ignoramos previamente o título repetido para uma oferta não abortar
       // toda a busca com erro PostgreSQL 23505.
       const titleKey = normalizeTitleKey(item.title);
-      if (titleKey && (existingTitleKeys.has(titleKey) || seenTitleKeys.has(titleKey))) {
+      const fuzzyDuplicate = String(item.title || "").trim() && (
+        existingTitles.some((title: string) => titleSimilarity(title, item.title) >= 0.92) ||
+        seenTitles.some((title: string) => titleSimilarity(title, item.title) >= 0.92)
+      );
+      if (titleKey && (existingTitleKeys.has(titleKey) || seenTitleKeys.has(titleKey) || fuzzyDuplicate)) {
         titulosDuplicadosIgnorados++;
         existentesIgnorados++;
         continue;
@@ -1809,6 +1824,7 @@ Deno.serve(async (req) => {
       if (productId) seenProducts.add(productId);
       if (itemId) seenItems.add(itemId);
       if (titleKey) seenTitleKeys.add(titleKey);
+      if (String(item.title || "").trim()) seenTitles.push(String(item.title));
       categoryCounts.set(categoryKey, (categoryCounts.get(categoryKey) || 0) + 1);
       groupCounts.set(groupKey, (groupCounts.get(groupKey) || 0) + 1);
       unique.push(item);
@@ -1921,7 +1937,7 @@ Deno.serve(async (req) => {
         external_item_id: String(o.external_id || ""),
         product_title: String(o.title || ""),
         last_seen_at: new Date().toISOString(),
-        metadata: { source: "mercadolivre-highlights", promotion_id: o.promotion_id || null }
+        metadata: { source: "mercadolivre-highlights", promotion_id: o.promotion_id || null, registered_offer: true }
       }));
     let novas = 0;
     const ofertas: any[] = [];
