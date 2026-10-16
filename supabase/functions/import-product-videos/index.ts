@@ -263,7 +263,10 @@ Deno.serve(async (req: Request) => {
   const importedOfferIds: string[] = [];
   // Cada clique deve movimentar o fluxo: reavaliar até 12 ofertas sem URL de vídeo,
   // mesmo que tenham sido consultadas recentemente. Isso evita lotes vazios por carimbo de data.
-  const priority = (status: string) => status === "nao_verificado" ? 0 : status === "falha_consulta_video" ? 1 : 2;
+  const priority = (status: string) =>
+    !status || status === "nao_verificado" ? 0 :
+    status === "falha_consulta_video" ? 1 :
+    status === "video_original_nao_disponivel" ? 2 : 3;
   const batch = (offers || [])
     // Reavalia qualquer anúncio sem arquivo de vídeo, inclusive os antigos com
     // status NULL ou status legado que o filtro anterior excluía sem perceber.
