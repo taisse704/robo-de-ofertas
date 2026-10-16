@@ -1454,7 +1454,7 @@ Deno.serve(async (req) => {
     for (let keywordIndex = 0; keywordIndex < publicKeywords.length && contarCandidatosNovos() < Math.max(limit * 2, 40); keywordIndex++) {
       const keyword = publicKeywords[keywordIndex];
       const params = new URLSearchParams({ q: keyword, limit: "50", sort: "relevance" });
-      const result = await getJson(ML + "/sites/" + SITE_ID + "/search?" + params.toString(), false);
+      const result = await getCatalogJson(ML + "/sites/" + SITE_ID + "/search?" + params.toString());
       const rows = result.ok && Array.isArray(result.data?.results) ? result.data.results as any[] : [];
       publicSearchDiagnostics.push({
         categoria: "Busca por palavra-chave: " + keyword,
