@@ -79,7 +79,14 @@ async function enviarMensagemComTentativas(tabId, message) {
       target: { tabId },
       files: ["mercado-livre.js"]
     });
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    // Aguarda o content script confirmar que registrou o listener, em vez de
+    // depender de uma pausa fixa que pode falhar em abas lentas.
+    for (let tentativa = 0; tentativa < 15 && mlTabId !== tabId; tentativa++) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    if (mlTabId !== tabId) {
+      throw new Error("O script foi injetado, mas a aba não confirmou o canal de comunicação. Atualize a página do Mercado Livre e tente novamente.");
+    }
     if (await tentarEnviar(8)) return;
   } catch (error) {
     lastError = error;
