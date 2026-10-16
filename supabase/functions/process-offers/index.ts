@@ -818,7 +818,7 @@ Deno.serve(async (req) => {
       ];
       const seen = new Set<string>();
 
-      while (queue.length && leaves.length < 16) {
+      while (queue.length && leaves.length < 4) {
         const current = queue.shift()!;
         if (seen.has(current.id)) continue;
         seen.add(current.id);
@@ -846,7 +846,7 @@ Deno.serve(async (req) => {
         // Limitamos a profundidade para evitar uma explosão de chamadas.
         if (current.depth >= 5) continue;
 
-        for (const child of children.slice(0, 16)) {
+        for (const child of children.slice(0, 8)) {
           if (child?.id) {
             queue.push({
               id: String(child.id),
@@ -877,7 +877,7 @@ Deno.serve(async (req) => {
       for (const root of rootsResult.data) {
         const id = String(root?.id || "");
         const nome = String(root?.name || "").trim();
-        if (id && nome && !CATEGORY_EXCLUDE.has(nome)) {
+        if (id && nome && !CATEGORY_EXCLUDE.has(nome) && PRIORITY_ROOTS[id]) {
           rootCategories.push({ id, nome });
         }
       }
@@ -907,14 +907,13 @@ Deno.serve(async (req) => {
           return ai - bi || String(a.nome).localeCompare(String(b.nome), "pt-BR");
         });
 
-    const categoriesByGroup: any[][] = [];
-    for (const root of roots) {
+    // Descobre subcategorias de forma concorrente e apenas nos nichos definidos.
+    const discoveredRoots = await runWithConcurrency(roots, async (root: any) => {
       const leaves = await discoverLeafCategories(root);
       const group = root.grupoPrioritario || ("Substituição: " + root.nome);
-      if (leaves.length) {
-        categoriesByGroup.push(leaves.map((leaf: any) => ({ ...leaf, grupo: group })));
-      }
-    }
+      return leaves.length ? leaves.map((leaf: any) => ({ ...leaf, grupo })) : [];
+    }, 5);
+    const categoriesByGroup: any[][] = discoveredRoots.filter((group: any[]) => group.length);
 
     // Intercala as categorias entre os nichos em vez de percorrer todas as
     // subcategorias de um único grupo primeiro. Assim, o limite global de
@@ -932,14 +931,18 @@ Deno.serve(async (req) => {
     const categoriesToScan = highlightCategories
       .filter((category) => !INVALID_HIGHLIGHT_CATEGORY_IDS.has(String(category.id)));
 
-    // Coletamos rankings em ordem rotativa; a classificação final continua
-    // priorizando posição no ranking, depois desconto/promoção.
-    for (const category of categoriesToScan) {
-      const result = await getJson(
+    // Consulta os rankings em paralelo, mas processa os resultados na ordem prioritária.
+    const highlightFetches = await runWithConcurrency(categoriesToScan, async (category: any) => ({
+      category,
+      result: await getJson(
         ML + "/highlights/" + SITE_ID + "/category/" +
         encodeURIComponent(category.id),
         true
-      );
+      )
+    }), 5);
+    for (const fetched of highlightFetches) {
+      const category = fetched.category;
+      const result = fetched.result;
 
       const content = Array.isArray(result.data?.content)
         ? result.data.content
