@@ -444,13 +444,10 @@ Deno.serve(async (req) => {
       result = await getJson(url, true);
       if (result.ok || (result.status !== 401 && result.status !== 403)) return result;
 
-      const applicationToken = await getApplicationAccessToken().catch(() => "");
-      if (!applicationToken) return result;
-
-      return await getJson(url, false, {
-        Authorization: "Bearer " + applicationToken,
-        Accept: "application/json"
-      });
+      // O endpoint OAuth do Mercado Livre não aceita client_credentials.
+      // Evitamos repetir uma solicitação inválida (HTTP 400 unsupported_grant_type)
+      // em cada categoria; retornamos o último resultado oficial obtido.
+      return result;
     }
 
     async function resolveHighlightEntry(entry: any) {
