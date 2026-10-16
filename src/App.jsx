@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-16-ml-search-diagnostics-417";
+const FRONTEND_BUILD_VERSION = "2026-10-16-ml-search-diagnostics-436";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -1246,6 +1246,8 @@ export default function App() {
           ["produtos em promoção", diagnosticos.em_promocao],
           ["buscas públicas", Array.isArray(diagnosticos.buscas_publicas_categorias) ? diagnosticos.buscas_publicas_categorias.length : undefined],
           ["resultados públicos", diagnosticos.buscas_publicas_resultados],
+          ["status HTTP buscas públicas", Array.isArray(diagnosticos.buscas_publicas_categorias) ? [...new Set(diagnosticos.buscas_publicas_categorias.map((x) => x?.status).filter((x) => x !== undefined && x !== null))].join("/") : undefined],
+          ["categorias consultadas no catálogo", Array.isArray(diagnosticos.buscas_catalogo_palavras_chave) ? [...new Set(diagnosticos.buscas_catalogo_palavras_chave.map((x) => x?.grupo).filter(Boolean))].join(", ") : undefined],
           ["buscas catálogo por palavra-chave", Array.isArray(diagnosticos.buscas_catalogo_palavras_chave) ? diagnosticos.buscas_catalogo_palavras_chave.length : undefined],
           ["produtos resolvidos pelo catálogo", diagnosticos.produtos_resolvidos_pela_busca_catalogo],
           ["candidatos complementares", diagnosticos.candidatos_complementares]
