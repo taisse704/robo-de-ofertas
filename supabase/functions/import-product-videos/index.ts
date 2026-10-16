@@ -235,11 +235,20 @@ Deno.serve(async (req: Request) => {
   const auth = req.headers.get("Authorization") || "";
   if (!auth.startsWith("Bearer ")) return json({ ok: false, error: "Autenticação obrigatória." }, 401);
   const token = auth.slice(7);
-  const admin = createClient(supabaseUrl, serviceRoleKey);
-  const { data: userData, error: userError } = await admin.auth.getUser(token);
-  if (userError || !userData?.user) return json({ ok: false, error: "Sessão inválida." }, 401);
-  const userId = userData.user.id;
   const body = await req.json().catch(() => ({}));
+  const admin = createClient(supabaseUrl, serviceRoleKey);
+  let userId = "";
+  if (token === serviceRoleKey) {
+    // Chamadas internas do robot-worker: a chave privilegiada nunca sai do servidor.
+    userId = String(body?.user_id || "").trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
+      return json({ ok: false, error: "user_id inválido para chamada interna." }, 400);
+    }
+  } else {
+    const { data: userData, error: userError } = await admin.auth.getUser(token);
+    if (userError || !userData?.user) return json({ ok: false, error: "Sessão inválida." }, 401);
+    userId = userData.user.id;
+  }
   const limit = Math.min(Math.max(Number(body?.limit) || 100, 1), 100);
   const { data: offers, error } = await admin.from("offers")
     .select("id,titulo,store_provider,product_external_id,url_produto,store_product_url,video_url,video_source,video_status,dados_origem,created_at,atualizada_em")
