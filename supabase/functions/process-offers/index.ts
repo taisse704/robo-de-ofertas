@@ -94,6 +94,24 @@ const getRating = (...sources: any[]): number => {
   return 0;
 };
 
+const isRelevantPriorityProduct = (groupValue: unknown, titleValue: unknown, categoryValue: unknown): boolean => {
+  const group = String(groupValue || "").trim();
+  const title = String(titleValue || "").toLowerCase();
+  const category = String(categoryValue || "").toLowerCase();
+  const combined = title + " " + category;
+  // Cartões-presente e produtos digitais não são ofertas de eletrônicos físicos.
+  if (group === "Eletrônicos e acessórios" &&
+      /(gift\s?cards?|cart(?:ã|a)o(?:es)?[- ]?presente|recarga digital|moeda virtual|assinatura digital|licen[cç]a digital)/i.test(combined)) return false;
+  // Evita classificar pilhas comuns e itens domésticos como acessórios automotivos.
+  if (group === "Ferramentas e acessórios automotivos" && /baterias?/i.test(category) &&
+      !/(automot|carro|ve[ií]culo|moto|12\s?v|24\s?v|\b\d{2,3}\s?ah\b|agm|chumbo|estacion[aá]ria|partida)/i.test(title)) return false;
+  // Resistências de chuveiro e itens hidráulicos não são ferramentas/peças automotivas.
+  if (group === "Ferramentas e acessórios automotivos" &&
+      /(chuveiro|ducha|lorenzetti|torneira|encanamento|resist[eê]ncia el[eé]trica)/i.test(combined) &&
+      !/(automot|carro|ve[ií]culo|moto)/i.test(title)) return false;
+  return true;
+};
+
 const REQUEST_TIMEOUT_MS = 8000;
 
 // Categorias usadas somente como fonte de ranking "Mais vendidos".
@@ -1295,6 +1313,7 @@ Deno.serve(async (req) => {
       // /items/{id} em publicação de terceiro.
       if (r.publicItem && !r.product?.buy_box_winner) {
         const item = r.publicItem;
+        if (!isRelevantPriorityProduct(r.highlight?.categoria_grupo, item?.title, r.highlight?.categoria_nome)) continue;
         const current = Number(item.price);
         if (!Number.isFinite(current) || current <= 0) continue;
 
@@ -1351,6 +1370,8 @@ Deno.serve(async (req) => {
       if (r.product?.buy_box_winner) {
         const product = r.product;
         const winner = product.buy_box_winner;
+        const priorityTitle = String(itemMap.get(String(winner.item_id || winner.id || r.itemId || product.id))?.title || product.name || product.family_name || "");
+        if (!isRelevantPriorityProduct(r.highlight?.categoria_grupo, priorityTitle, r.highlight?.categoria_nome)) continue;
         const externalItemId = String(winner.item_id || winner.id || r.itemId || product.id);
         const itemDetails = itemMap.get(externalItemId) || {};
         const salePrice = salePriceMap.get(externalItemId) || {};
@@ -1439,6 +1460,7 @@ Deno.serve(async (req) => {
       // Fallback para ITEM não pertencente ao catálogo.
       const item = itemMap.get(String(r.itemId));
       if (!item) continue;
+      if (!isRelevantPriorityProduct(r.highlight?.categoria_grupo, item?.title, r.highlight?.categoria_nome)) continue;
 
       const salePrice = salePriceMap.get(String(item.id));
       const current = Number(salePrice?.amount ?? item.price ?? item.base_price);
@@ -1556,6 +1578,7 @@ Deno.serve(async (req) => {
         const itemId = String(item?.id || "");
         const price = Number(item?.price || 0);
         if (!itemId.startsWith("MLB") || !Number.isFinite(price) || price <= 0) continue;
+        if (!isRelevantPriorityProduct(category.grupo, item?.title, category.nome)) continue;
         if (supplementalSeenItems.has(itemId) || existingItemIds.has(itemId)) continue;
         supplementalSeenItems.add(itemId);
 
@@ -1606,7 +1629,7 @@ Deno.serve(async (req) => {
       return (!productId || !existingProductIds.has(productId)) &&
         (!itemId || !existingItemIds.has(itemId));
     }).length;
-    const publicKeywords = ["fone bluetooth", "air fryer", "organizador", "cozinha", "casa", "pet", "natal", "ventilador"];
+    const publicKeywords = ["fone bluetooth", "air fryer", "organizador cozinha", "perfume feminino", "tenis casual", "furadeira", "carregador celular", "acessorios automotivos"];
     for (let keywordIndex = 0; keywordIndex < publicKeywords.length && contarCandidatosNovos() < Math.max(limit * 2, 40); keywordIndex++) {
       const keyword = publicKeywords[keywordIndex];
       const params = new URLSearchParams({ q: keyword, limit: "50", sort: "relevance" });
