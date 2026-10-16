@@ -53,7 +53,7 @@ Deno.serve(async (req: Request) => {
   const admin = createClient(supabaseUrl, serviceRoleKey);
   const { data: userData, error: userError } = await admin.auth.getUser(auth.slice(7));
   if (userError || !userData?.user) return json({ ok: false, error: "Sessão inválida." }, 401);
-  const body = await req.json().catch(() => ({})), rawVideos = Array.isArray(body?.videos) ? body.videos.slice(0, 12) : [];
+  const body = await req.json().catch(() => ({})), rawVideos = Array.isArray(body?.videos) ? body.videos.slice(0, 100) : [];
   if (!rawVideos.length) return json({ ok: true, imported: 0, imported_offer_ids: [], details: [], message: "O navegador não encontrou URLs de vídeo candidatas." });
   const ids = [...new Set(rawVideos.map((v: any) => String(v?.offer_id || "").trim()).filter(Boolean))];
   const { data: offers, error } = await admin.from("offers").select("id,user_id,titulo,store_provider,video_url,video_status,video_source,dados_origem").eq("user_id", userData.user.id).in("id", ids);
