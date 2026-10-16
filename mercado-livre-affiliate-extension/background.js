@@ -45,23 +45,62 @@ function agendarTimeoutProcessamento() {
 
 async function enviarMensagemComTentativas(tabId, message) {
   let lastError = null;
-  for (let tentativa = 0; tentativa < 8; tentativa++) {
-    try {
-      await chrome.tabs.sendMessage(tabId, message);
-      return;
-    } catch (error) {
-      lastError = error;
-      await new Promise((resolve) => setTimeout(resolve, 500));
+  const tentarEnviar = async (quantidade) => {
+    for (let tentativa = 0; tentativa < quantidade; tentativa++) {
+      try {
+        await chrome.tabs.sendMessage(tabId, message);
+        return true;
+      } catch (error) {
+        lastError = error;
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }
     }
+    return false;
+  };
+
+  if (await tentarEnviar(4)) return;
+
+  // Abas abertas antes de instalar/atualizar a extensão podem estar sem o script.
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    const url = String(tab?.url || "");
+    const hostPermitido = [
+      "mercadolivre.com.br", "mercadolivre.com", "mercadolibre.com"
+    ].some((host) => {
+      try {
+        const atual = new URL(url);
+        return atual.protocol === "https:" &&
+          (atual.hostname === host || atual.hostname.endsWith("." + host));
+      } catch { return false; }
+    });
+    if (!hostPermitido) throw new Error("A aba aberta não está em um domínio compatível do Mercado Livre.");
+
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["mercado-livre.js"]
+    });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    if (await tentarEnviar(8)) return;
+  } catch (error) {
+    lastError = error;
   }
-  throw lastError || new Error("A extensão não conseguiu comunicar com a página do Mercado Livre.");
+
+  throw new Error(
+    "A extensão não conseguiu ativar o gerador na aba do Mercado Livre. " +
+    "Recarregue a extensão em edge://extensions, atualize a aba do Mercado Livre e tente novamente. " +
+    String(lastError?.message || lastError || "")
+  );
 }
 
 async function encontrarAbaMercadoLivreExistente() {
   // A extensão nunca abre uma aba de produto durante buscas ou solicitações de link.
   // Reutiliza somente uma aba do Mercado Livre que a usuária já deixou aberta.
   const tabs = await chrome.tabs.query({
-    url: ["https://*.mercadolivre.com.br/*", "https://mercadolivre.com.br/*"]
+    url: [
+      "https://*.mercadolivre.com.br/*", "https://mercadolivre.com.br/*",
+      "https://*.mercadolivre.com/*", "https://mercadolivre.com/*",
+      "https://*.mercadolibre.com/*", "https://mercadolibre.com/*"
+    ]
   });
   const existing = tabs.find((tab) => tab?.id && !abasCapturaVideo.has(tab.id));
   if (existing?.id) {
