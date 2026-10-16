@@ -277,16 +277,20 @@ Deno.serve(async (req: Request) => {
   const importedOfferIds: string[] = [];
   // Cada clique deve movimentar o fluxo: reavaliar até 12 ofertas sem URL de vídeo,
   // mesmo que tenham sido consultadas recentemente. Isso evita lotes vazios por carimbo de data.
-  const priority = (status: string) =>
-    !status || status === "nao_verificado" ? 0 :
-    status === "falha_consulta_video" ? 1 :
-    status === "video_original_nao_disponivel" ? 2 : 3;
+  const priority = (offer: any) => {
+    const retryReason = String(offer?.dados_origem?.video_ultima_verificacao_status || "");
+    if (retryReason === "url_malformada_reprocessar") return -1;
+    const status = String(offer?.video_status || "nao_verificado");
+    return !status || status === "nao_verificado" ? 0 :
+      status === "falha_consulta_video" ? 1 :
+      status === "video_original_nao_disponivel" ? 2 : 3;
+  };
   const batch = (offers || [])
     // Reavalia qualquer anúncio sem arquivo de vídeo, inclusive os antigos com
     // status NULL ou status legado que o filtro anterior excluía sem perceber.
     .filter((offer: any) => !String(offer.video_url || "").trim())
     .sort((a: any, b: any) => {
-      const byPriority = priority(String(a.video_status || "nao_verificado")) - priority(String(b.video_status || "nao_verificado"));
+      const byPriority = priority(a) - priority(b);
       if (byPriority) return byPriority;
       const aChecked = Date.parse(String(a.dados_origem?.video_ultima_verificacao_em || "")) || 0;
       const bChecked = Date.parse(String(b.dados_origem?.video_ultima_verificacao_em || "")) || 0;
