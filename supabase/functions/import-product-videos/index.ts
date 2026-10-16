@@ -243,7 +243,7 @@ Deno.serve(async (req: Request) => {
   const limit = Math.min(Math.max(Number(body?.limit) || 100, 1), 100);
   const { data: offers, error } = await admin.from("offers")
     .select("id,titulo,store_provider,product_external_id,url_produto,store_product_url,video_url,video_source,video_status,dados_origem,created_at,atualizada_em")
-    .eq("user_id", userId).is("video_url", null).in("video_status", ["nao_verificado", "falha_consulta_video", "video_original_nao_disponivel"])
+    .eq("user_id", userId).is("video_url", null)
     .in("store_provider", ["mercadolivre", "shopee"])
     .order("created_at", { ascending: true }).limit(500);
   if (error) return json({ ok: false, error: "Não foi possível consultar ofertas para importar vídeos." }, 500);
@@ -265,6 +265,9 @@ Deno.serve(async (req: Request) => {
   // mesmo que tenham sido consultadas recentemente. Isso evita lotes vazios por carimbo de data.
   const priority = (status: string) => status === "nao_verificado" ? 0 : status === "falha_consulta_video" ? 1 : 2;
   const batch = (offers || [])
+    // Reavalia qualquer anúncio sem arquivo de vídeo, inclusive os antigos com
+    // status NULL ou status legado que o filtro anterior excluía sem perceber.
+    .filter((offer: any) => !String(offer.video_url || "").trim())
     .sort((a: any, b: any) => {
       const byPriority = priority(String(a.video_status || "nao_verificado")) - priority(String(b.video_status || "nao_verificado"));
       if (byPriority) return byPriority;
