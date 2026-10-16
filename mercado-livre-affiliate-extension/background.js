@@ -257,7 +257,7 @@ async function capturarVideosOriginais(offers, estado) {
     if (!id || vistos.has(id)) return false;
     vistos.add(id);
     return true;
-  }).slice(0, 12);
+  }).slice(0, 100);
   let tabId = null;
   let originalTabUrl = null;
   let erroCaptura = null;
@@ -395,7 +395,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   (async () => {
     const stored = await chrome.storage.local.get(CAPTURE_LOCK_KEY).catch(() => ({}));
     const lock = stored?.[CAPTURE_LOCK_KEY];
-    if (lock?.active && Date.now() - Number(lock.startedAt || 0) < 10 * 60 * 1000) {
+    if (lock?.active && Date.now() - Number(lock.startedAt || 0) < 60 * 60 * 1000) {
       if (capturaVideoAtual === estado) capturaVideoAtual = null;
       enviarResultadoParaApp({ type: "ROBO_VIDEO_CAPTURE_RESULT", results: [], error: "Já existe uma captura ativa. Aguarde ela terminar; nenhuma nova aba será aberta." });
       return;
