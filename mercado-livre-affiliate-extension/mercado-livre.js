@@ -1,3 +1,6 @@
+if (globalThis.__ROBO_ML_AFFILIATE_INSTALLED__) {
+  chrome.runtime.sendMessage({ type: "ML_AFFILIATE_READY" });
+} else {
 const SOURCE = "robo-de-ofertas";
 const LINKS_ENDPOINT = "/affiliate-program/api/v2/stripe/user/links";
 const TAGS_ENDPOINT = "/affiliate-program/api/v2/stripe/user/tags";
@@ -245,3 +248,6 @@ chrome.runtime.onMessage.addListener((message) => {
     }
   })();
 });
+
+  globalThis.__ROBO_ML_AFFILIATE_INSTALLED__ = true;
+}
