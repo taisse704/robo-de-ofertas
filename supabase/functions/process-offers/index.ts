@@ -1034,6 +1034,7 @@ Deno.serve(async (req) => {
         .select("external_product_id,external_item_id,metadata")
         .eq("user_id", userId)
         .eq("provider", "mercadolivre")
+        .order("external_product_id", { ascending: true })
         .range(historyOffset, historyOffset + historyPageSize - 1);
       if (validHistoryError) throw validHistoryError;
       const page = historyPage || [];
