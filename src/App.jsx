@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-14-instagram-reels-and-single-capture-tab";
+const FRONTEND_BUILD_VERSION = "2026-10-16-video-fallback-partial-import-fix";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -513,8 +513,10 @@ export default function App() {
       });
       if (linhasServidor.length) resumoImportacao += "\n\nDiagnóstico do servidor:\n" + linhasServidor.join("\n");
 
-      // Se o servidor não encontrar mídia, tenta a página real do anúncio via extensão.
-      if (!idsParaConteudo.length) {
+      // Tenta também a página real dos anúncios sem vídeo via extensão, mesmo quando
+      // o servidor já encontrou algum vídeo. Assim, um sucesso parcial do servidor
+      // não impede a captura original dos demais anúncios do mesmo lote.
+      if (detalhesServidor.length) {
         const idsVerificados = [...new Set(detalhesServidor.map((item) => String(item.offer_id || item.id || "").trim()).filter(Boolean))];
         if (idsVerificados.length) {
           const { data: ofertasVerificadas, error: erroOfertas } = await supabase
@@ -587,7 +589,7 @@ export default function App() {
                 });
                 const salvamento = await salvarResponse.json().catch(() => ({}));
                 if (!salvarResponse.ok || !salvamento?.ok) throw new Error(salvamento?.error || "Não foi possível salvar os vídeos identificados pelo navegador.");
-                idsParaConteudo = Array.isArray(salvamento.imported_offer_ids) ? salvamento.imported_offer_ids : [];
+                idsParaConteudo = [...new Set([...idsParaConteudo, ...(Array.isArray(salvamento.imported_offer_ids) ? salvamento.imported_offer_ids : [])])];
                 resumoImportacao += "\n\nCaptura no navegador: " + (salvamento.message || (salvamento.imported || 0) + " vídeo(s) salvo(s).");
               } else {
                 const resultadosCaptura = Array.isArray(captura.results) ? captura.results : [];
