@@ -9,10 +9,10 @@ const MAX = 20;
 // compartilham a mesma vaga de grupo.
 const PRIORITY_GROUP_ORDER = [
   "Eletrônicos e acessórios",
-  "Beleza e cuidados pessoais",
+  "Eletrodomésticos",
   "Casa, cozinha e organização",
   "Moda, calçados e acessórios",
-  "Eletrodomésticos",
+  "Beleza e cuidados pessoais",
   "Ferramentas e acessórios automotivos"
 ];
 const PRIORITY_ROOTS: Record<string, string> = {
@@ -929,7 +929,7 @@ Deno.serve(async (req) => {
     const discoveredRoots = await runWithConcurrency(roots, async (root: any) => {
       const leaves = await discoverLeafCategories(root);
       const group = root.grupoPrioritario || ("Substituição: " + root.nome);
-      return leaves.length ? leaves.map((leaf: any) => ({ ...leaf, grupo })) : [];
+      return leaves.length ? leaves.map((leaf: any) => ({ ...leaf, grupo: group })) : [];
     }, 5);
     const categoriesByGroup: any[][] = discoveredRoots.filter((group: any[]) => group.length);
 
