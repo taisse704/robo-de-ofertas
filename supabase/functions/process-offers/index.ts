@@ -528,6 +528,9 @@ Deno.serve(async (req) => {
         const product = await getCatalogJson(
           ML + "/products/" + encodeURIComponent(id)
         );
+        const resolutionTrace: string[] = [
+          "produto_detalhe_http_" + String(product.status)
+        ];
 
         // A busca /products/search pode já trazer o buy_box_winner.
         // Se o detalhe do produto for bloqueado, aproveitamos apenas dados
@@ -559,6 +562,15 @@ Deno.serve(async (req) => {
         if (!data?.buy_box_winner) {
           const publicItems = await getCatalogJson(
             ML + "/products/" + encodeURIComponent(id) + "/items?limit=20"
+          );
+          const publicItemRowsCount = Array.isArray(publicItems?.data?.results)
+            ? publicItems.data.results.length
+            : Array.isArray(publicItems?.data?.items)
+              ? publicItems.data.items.length
+              : Array.isArray(publicItems?.data) ? publicItems.data.length : 0;
+          resolutionTrace.push(
+            "produto_items_http_" + String(publicItems.status) +
+            "_resultados_" + String(publicItemRowsCount)
           );
 
           const rows = Array.isArray(publicItems?.data?.results)
@@ -672,6 +684,10 @@ Deno.serve(async (req) => {
             "&q=" + encodeURIComponent(productName) + "&limit=20";
 
           const productSearch = await getCatalogJson(productSearchUrl);
+          resolutionTrace.push(
+            "busca_catalogo_por_nome_http_" + String(productSearch.status) +
+            "_resultados_" + String(Array.isArray(productSearch.data?.results) ? productSearch.data.results.length : 0)
+          );
           if (productSearch.ok && Array.isArray(productSearch.data?.results)) {
             const results = productSearch.data.results as any[];
             const exact = results.find((p: any) => String(p?.id || "") === id);
@@ -719,6 +735,10 @@ Deno.serve(async (req) => {
           const publicSearch = await getCatalogJson(
             ML + "/sites/" + SITE_ID + "/search?" + params.toString()
           );
+          resolutionTrace.push(
+            "busca_publica_http_" + String(publicSearch.status) +
+            "_resultados_" + String(Array.isArray(publicSearch.data?.results) ? publicSearch.data.results.length : 0)
+          );
 
           if (publicSearch.ok && Array.isArray(publicSearch.data?.results)) {
             const results = publicSearch.data.results as any[];
@@ -764,7 +784,8 @@ Deno.serve(async (req) => {
         const failureStatus = (!product.ok || !product.data) ? product.status : 200;
         const failureMessage = (!product.ok || !product.data)
           ? "Detalhe do catálogo indisponível (HTTP " + String(product.status || "sem status") + "); nenhuma publicação válida foi encontrada nas rotas alternativas."
-          : "Produto encontrado, mas não foi possível localizar uma publicação pública correspondente.";
+          : "Produto encontrado, mas não foi possível localizar uma publicação pública correspondente. " +
+            "Rotas: " + resolutionTrace.join("; ") + ".";
         resolutionErrors.push({
           tipo: "PRODUCT",
           id,
@@ -2280,7 +2301,7 @@ Deno.serve(async (req) => {
       modo_busca: "ofertas_por_tipo_de_produto",
       ofertas,
       diagnostico: {
-        versao_busca: "437-preserva-buy-box-e-itens-catalogo-ml",
+        versao_busca: "438-preserva-buy-box-e-diagnostico-rotas-ml",
         categorias_consultadas: diagnostics,
         destaques_recebidos: highlightEntries.length,
         destaques_resolvidos: resolved.length,
