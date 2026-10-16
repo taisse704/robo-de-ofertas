@@ -116,8 +116,6 @@ const isRelevantPriorityProduct = (groupValue: unknown, titleValue: unknown, cat
   return true;
 };
 
-const REQUEST_TIMEOUT_MS;
-
 const REQUEST_TIMEOUT_MS = 8000;
 
 // Categorias usadas somente como fonte de ranking "Mais vendidos".
