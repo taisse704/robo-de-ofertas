@@ -101,8 +101,10 @@ const isRelevantPriorityProduct = (groupValue: unknown, titleValue: unknown, cat
   const combined = title + " " + category;
   // Aceita apenas os seis grupos definidos; exclui resultados genéricos de substituição.
   if (!PRIORITY_GROUP_ORDER.includes(group)) return false;
-  // Categorias sem relação com as prioridades que apareceram na árvore do marketplace.
-  if (/(embalagens? antiest[aá]ticas?|jalecos? antiest[aá]ticos?|luvas? antiest[aá]ticas?|kits? de prote[cç][aã]o antiest[aá]tica|claquetes?|atualiza[cç][aã]o tv|^outros$)/i.test(category)) return false;
+  // Categorias técnicas/industriais de baixo interesse para ofertas de consumo.
+  // O marketplace pode colocá-las dentro de raízes amplas de eletrônicos e ferramentas.
+  if (/(embalagens? antiest[aá]ticas?|jalecos? antiest[aá]ticos?|luvas? antiest[aá]ticas?|kits? de prote[cç][aã]o antiest[aá]tica|claquetes?|atualiza[cç][aã]o tv|escovas? de carv[aã]o|induzido|^outros$)/i.test(category)) return false;
+  if (/(embalagens? antiest[aá]ticas?|jalecos? antiest[aá]ticos?|luvas? antiest[aá]ticas?|kits? de prote[cç][aã]o antiest[aá]tica|claquetes?|escovas? de carv[aã]o|induzido)/i.test(title)) return false;
   // Cartões-presente e produtos digitais não são ofertas de eletrônicos físicos.
   if (group === "Eletrônicos e acessórios" &&
       /(gift\s?cards?|cart(?:ã|a)o(?:es)?[- ]?presente|recarga digital|moeda virtual|assinatura digital|licen[cç]a digital)/i.test(combined)) return false;
