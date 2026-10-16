@@ -1372,7 +1372,21 @@ Deno.serve(async (req) => {
     for (let i = 0; i < catalogResolvedAttempts.length; i++) {
       const item = catalogResolvedAttempts[i];
       const candidate = catalogCandidatesToResolve[i];
-      if (!item || item.error || !item.itemId) continue;
+      if (!item || item.error || !item.itemId) {
+        const diagnostic = catalogSearchDiagnostics.find((x: any) => x.palavra === candidate?.keyword);
+        if (diagnostic) {
+          diagnostic.falhas_resolucao = Number(diagnostic.falhas_resolucao || 0) + 1;
+        }
+        resolutionErrors.push({
+          tipo: "PRODUCT",
+          source_id: String(candidate?.product?.id || ""),
+          palavra: String(candidate?.keyword || ""),
+          grupo: String(candidate?.group || ""),
+          status: item?.status ?? null,
+          mensagem: String(item?.message || item?.error || "Nenhum anúncio público correspondente foi resolvido.")
+        });
+        continue;
+      }
       if (existingItemIds.has(String(item.itemId))) continue;
       const sourceId = String(item.sourceId || candidate.product?.id || "");
       if (seenCatalogIds.has(sourceId)) continue;
