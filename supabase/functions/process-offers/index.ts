@@ -1440,7 +1440,7 @@ Deno.serve(async (req) => {
     while (catalogCandidatesToResolve.length < 36) {
       let addedThisRound = false;
       for (const priorityGroup of PRIORITY_GROUP_ORDER) {
-        if (catalogCandidatesToResolve.length >= 16) break;
+        if (catalogCandidatesToResolve.length >= 36) break;
         const queue = candidatesByPriorityGroup.get(priorityGroup) || [];
         const candidate = queue.shift();
         if (candidate) {
@@ -2301,7 +2301,7 @@ Deno.serve(async (req) => {
       modo_busca: "ofertas_por_tipo_de_produto",
       ofertas,
       diagnostico: {
-        versao_busca: "439-resolucao-ampliada-uma-vaga-por-grupo",
+        versao_busca: "440-corrige-limite-interno-de-resolucao",
         categorias_consultadas: diagnostics,
         destaques_recebidos: highlightEntries.length,
         destaques_resolvidos: resolved.length,
