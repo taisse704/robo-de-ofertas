@@ -240,7 +240,7 @@ Deno.serve(async (req: Request) => {
   if (userError || !userData?.user) return json({ ok: false, error: "Sessão inválida." }, 401);
   const userId = userData.user.id;
   const body = await req.json().catch(() => ({}));
-  const limit = Math.min(Math.max(Number(body?.limit) || 12, 1), 12);
+  const limit = Math.min(Math.max(Number(body?.limit) || 100, 1), 100);
   const { data: offers, error } = await admin.from("offers")
     .select("id,titulo,store_provider,product_external_id,url_produto,store_product_url,video_url,video_source,video_status,dados_origem,created_at,atualizada_em")
     .eq("user_id", userId).is("video_url", null).in("video_status", ["nao_verificado", "falha_consulta_video", "video_original_nao_disponivel"])
