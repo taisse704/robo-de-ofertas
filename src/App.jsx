@@ -1355,7 +1355,7 @@ export default function App() {
       const novas = novasIds.size || Number(resultado.novas_ofertas ?? resultado.novas ?? 0);
       const atualizadas = Number(resultado.atualizadas ?? 0);
       const diagnostico = Array.isArray(resultado.diagnostico)
-        ? resultado.diagnostico.map((d) => `${d.keyword || d.tipo || "(geral)"}: HTTP ${d.status ?? "—"}, ${d.resultados || 0} resultados${d.erro ? ` | erro: ${d.erro}` : ""}`).join(" | ")
+        ? resultado.diagnostico.map((d) => `${d.keyword || d.tipo || "(geral)"}: HTTP ${d.status ?? "—"}, ${d.resultados || 0} resultados${d.produtos_unicos !== undefined ? `, ${d.produtos_unicos} IDs únicos` : ""}${d.erro ? ` | erro: ${d.erro}` : ""}`).join(" | ")
         : "";
 
       setMensagemShopee(
