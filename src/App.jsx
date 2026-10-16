@@ -536,7 +536,7 @@ export default function App() {
               product_external_id: o.product_external_id || null
             }))
             .filter((o) => o.product_url)
-            .slice(0, 12);
+            .slice(0, 100);
 
           if (ofertasParaNavegador.length) {
             setMensagemConteudo(resumoImportacao + "\n\nTentando capturar mídia original nas páginas dos anúncios pelo navegador...");
@@ -560,7 +560,7 @@ export default function App() {
                 if (event.source !== window || data?.source !== "robo-de-ofertas") return;
                 if (data.type === "ROBO_VIDEO_CAPTURE_STARTED") {
                   if (timerInicial) clearTimeout(timerInicial);
-                  timerCaptura = setTimeout(() => terminar({ timeout: true }), 1800000);
+                  timerCaptura = setTimeout(() => terminar({ timeout: true }), 2700000);
                 } else if (data.type === "ROBO_VIDEO_CAPTURE_RESULT") {
                   terminar({ results: Array.isArray(data.results) ? data.results : [], error: data.error || null });
                 }
@@ -578,7 +578,7 @@ export default function App() {
             } else {
               const videosEncontrados = (captura.results || [])
                 .filter((item) => item && item.video_url && item.offer_id)
-                .slice(0, 12)
+                .slice(0, 100)
                 .map((item) => ({ offer_id: String(item.offer_id), video_url: item.video_url, method: item.method || "page_media" }));
               if (videosEncontrados.length) {
                 const salvarResponse = await fetch(SUPABASE_URL + "/functions/v1/save-browser-product-videos", {
