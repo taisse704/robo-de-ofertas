@@ -1287,7 +1287,7 @@ Deno.serve(async (req) => {
     // Lote pequeno e rotativo: todas as seis categorias são consultadas em cada execução.
     // A rotação anterior pegava oito termos consecutivos e podia passar uma execução
     // inteira consultando só Beleza/Ferramentas ou outras categorias adjacentes.
-    const keywordBatchSize = 8;
+    const keywordBatchSize = 12;
     const keywordHour = Math.floor(Date.now() / 3600000);
     const keywordsByPriorityGroup = new Map<string, any[]>();
     for (const group of PRIORITY_GROUP_ORDER) keywordsByPriorityGroup.set(group, []);
@@ -1411,7 +1411,7 @@ Deno.serve(async (req) => {
         }).length,
         erro: result.search.ok ? null : (result.search.error || null)
       });
-      return { k, keyword: result.keyword, group: result.group, fresh: fresh.slice(0, 6) };
+      return { k, keyword: result.keyword, group: result.group, fresh: fresh.slice(0, 10) };
     });
     // Distribui as resoluções pelas seis categorias prioritárias em rodízio.
     // Sem esta distribuição, o limite de 16 tentativas podia consumir todas as
@@ -1437,7 +1437,7 @@ Deno.serve(async (req) => {
       }
     }
     let candidateRound = 0;
-    while (catalogCandidatesToResolve.length < 16) {
+    while (catalogCandidatesToResolve.length < 36) {
       let addedThisRound = false;
       for (const priorityGroup of PRIORITY_GROUP_ORDER) {
         if (catalogCandidatesToResolve.length >= 16) break;
@@ -1462,7 +1462,7 @@ Deno.serve(async (req) => {
         type: "PRODUCT",
         productData: candidate.product
       }),
-      4
+      6
     );
     for (let i = 0; i < catalogResolvedAttempts.length; i++) {
       const item = catalogResolvedAttempts[i];
@@ -1496,7 +1496,7 @@ Deno.serve(async (req) => {
         }
       });
       catalogResolvedCount++;
-      if (catalogResolvedCount >= 8) break;
+      if (catalogResolvedCount >= 20) break;
     }
 
     if (!resolved.length) {
@@ -1991,14 +1991,14 @@ Deno.serve(async (req) => {
     };
     candidates.sort(
       (a, b) =>
+        groupPriority(a.categoria_grupo) - groupPriority(b.categoria_grupo) ||
+        a.position - b.position ||
         Number(Boolean(b.promotion_id)) - Number(Boolean(a.promotion_id)) ||
         b.discount - a.discount ||
         Number(b.score || 0) - Number(a.score || 0) ||
         Number(b.rating || 0) - Number(a.rating || 0) ||
         Number(Boolean(b.free_shipping)) - Number(Boolean(a.free_shipping)) ||
-        groupPriority(a.categoria_grupo) - groupPriority(b.categoria_grupo) ||
-        a.current - b.current ||
-        a.position - b.position
+        a.current - b.current
     );
 
     // Identidade exata é a regra principal. Título parecido não é suficiente:
@@ -2010,10 +2010,10 @@ Deno.serve(async (req) => {
     const groupCounts = new Map<string, number>();
     // Até dois produtos por categoria/grupo em cada busca.
     // Eletrônicos e Ferramentas/Automotivo compartilham uma única vaga.
-    const MAX_PER_CATEGORY = 2;
-    const MAX_PER_CATEGORY_GROUP = 2;
+    const MAX_PER_CATEGORY = 1;
+    const MAX_PER_CATEGORY_GROUP = 1;
     // Distribui as até 20 vagas entre os seis grupos prioritários.
-    const MAX_PER_GROUP = 4;
+    const MAX_PER_GROUP = 1;
     const normalizeTitleKey = (value: unknown) => String(value || "").trim().toLowerCase();
     const existingTitleKeys = new Set(
       (existingOffers || [])
@@ -2301,7 +2301,7 @@ Deno.serve(async (req) => {
       modo_busca: "ofertas_por_tipo_de_produto",
       ofertas,
       diagnostico: {
-        versao_busca: "438-preserva-buy-box-e-diagnostico-rotas-ml",
+        versao_busca: "439-resolucao-ampliada-uma-vaga-por-grupo",
         categorias_consultadas: diagnostics,
         destaques_recebidos: highlightEntries.length,
         destaques_resolvidos: resolved.length,
@@ -2315,6 +2315,8 @@ Deno.serve(async (req) => {
         busca_imagem_diagnostico: imageLookupDiagnostics.slice(0, 20),
         produtos_catalogo_processados: resolved.filter((r) => Boolean(r.product?.buy_box_winner)).length,
         candidatos_com_preco: candidates.length,
+        candidatos_catalogo_tentados: catalogCandidatesToResolve.length,
+        produtos_catalogo_resolvidos: catalogResolvedCount,
         limite_solicitado: limit,
         selecionados_por_grupo: Object.fromEntries([...groupCounts.entries()].map(([grupo, quantidade]) => [grupo, quantidade])),
         selecionados_por_categoria: Object.fromEntries([...categoryCounts.entries()].map(([categoria, quantidade]) => [categoria, quantidade])),
