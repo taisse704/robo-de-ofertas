@@ -538,9 +538,20 @@ Deno.serve(async (req) => {
         // Não abortar aqui: mesmo se o detalhe falhar e a busca não trouxer
         // buy_box_winner, a rota /products/{id}/items pode retornar anúncios.
         // O retorno antecipado anterior impedia justamente essa tentativa.
-        const data = product.ok && product.data
+        // IMPORTANTE: /products/{id} pode responder HTTP 200 sem buy_box_winner,
+        // enquanto /products/search já trouxe esse vencedor. Não descarte o dado útil
+        // da busca só porque o detalhe também respondeu 200.
+        const detailData = product.ok && product.data && typeof product.data === "object"
           ? product.data
-          : (searchProduct || {});
+          : {};
+        const data = {
+          ...(searchProduct || {}),
+          ...detailData,
+          buy_box_winner: detailData?.buy_box_winner || searchProduct?.buy_box_winner || null,
+          permalink: detailData?.permalink || searchProduct?.permalink || null,
+          name: detailData?.name || searchProduct?.name || null,
+          family_name: detailData?.family_name || searchProduct?.family_name || null
+        };
 
         // Alguns PRODUCTs do ranking existem no catálogo, mas não expõem
         // buy_box_winner no detalhe. Nesses casos, consultamos explicitamente
@@ -552,17 +563,24 @@ Deno.serve(async (req) => {
 
           const rows = Array.isArray(publicItems?.data?.results)
             ? publicItems.data.results
-            : Array.isArray(publicItems?.data)
-              ? publicItems.data
-              : [];
+            : Array.isArray(publicItems?.data?.items)
+              ? publicItems.data.items
+              : Array.isArray(publicItems?.data)
+                ? publicItems.data
+                : [];
 
-          const validRows = rows.filter((row: any) => {
+          const validRows = rows.map((row: any) => {
+            const rawPrice = row?.price?.amount ?? row?.price?.value ??
+              row?.price ?? row?.prices?.price?.amount ?? row?.prices?.price ??
+              row?.sale_price?.amount ?? row?.buy_box_winner?.price;
+            const price = Number(rawPrice);
+            return { ...row, __resolvedPrice: price };
+          }).filter((row: any) => {
             const itemId = String(row?.id || row?.item_id || row?.itemId || "");
-            const status = String(row?.status || "").toLowerCase();
-            const price = Number(row?.price);
+            const status = String(row?.status || row?.status_id || "").toLowerCase();
             return itemId.startsWith("MLB") &&
-              (status === "" || status === "active") &&
-              Number.isFinite(price) && price > 0;
+              (status === "" || status === "active" || status === "enabled") &&
+              Number.isFinite(Number(row.__resolvedPrice)) && Number(row.__resolvedPrice) > 0;
           });
 
           if (validRows.length) {
@@ -571,6 +589,7 @@ Deno.serve(async (req) => {
             );
             const row = validRows[0];
             const publicItemId = String(row.id || row.item_id || row.itemId || "");
+            if (!row.price && Number(row.__resolvedPrice) > 0) row.price = Number(row.__resolvedPrice);
             return {
               itemId: publicItemId,
               sourceId: id,
@@ -2261,7 +2280,7 @@ Deno.serve(async (req) => {
       modo_busca: "ofertas_por_tipo_de_produto",
       ofertas,
       diagnostico: {
-        versao_busca: "436-rodizio-seis-categorias-ml",
+        versao_busca: "437-preserva-buy-box-e-itens-catalogo-ml",
         categorias_consultadas: diagnostics,
         destaques_recebidos: highlightEntries.length,
         destaques_resolvidos: resolved.length,
