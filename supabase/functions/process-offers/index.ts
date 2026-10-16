@@ -467,12 +467,8 @@ Deno.serve(async (req) => {
     }
 
     async function getCatalogJson(url: string) {
-      // Bloqueio preventivo: a busca textual pública do Mercado Livre
-      // retorna HTTP 403 neste projeto. Não enviar chamadas para esse endpoint.
-      if (/\/sites\/MLB\/search(?:\?|$)/i.test(url)) {
-        return { ok: false, status: 0, data: null, error: "Busca textual pública desativada após HTTP 403; use ranking/catálogo." };
-      }
-
+      // Tenta a busca de anúncios e o catálogo oficial; se a busca pública estiver
+      // bloqueada, o diagnóstico registra o status e a contingência continua.
       // Algumas rotas do catálogo/busca retornam 401/403 sem autenticação.
       // Tentamos a sessão oficial do Mercado Livre e, por último, o token da aplicação.
       let result = await getJson(url, false);
@@ -533,17 +529,18 @@ Deno.serve(async (req) => {
           ML + "/products/" + encodeURIComponent(id)
         );
 
-        if (!product.ok || !product.data) {
-          return {
-            error: true,
-            sourceId: id,
-            sourceType: type,
-            status: product.status,
-            message: product.error || "Produto de catálogo não disponível."
-          };
-        }
-
-        const data = product.data;
+        // A busca /products/search pode já trazer o buy_box_winner.
+        // Se o detalhe do produto for bloqueado, aproveitamos apenas dados
+        // oficiais retornados na própria busca, sem inventar anúncio/ID.
+        const searchProduct = entry?.productData && typeof entry.productData === "object"
+          ? entry.productData
+          : null;
+        // Não abortar aqui: mesmo se o detalhe falhar e a busca não trouxer
+        // buy_box_winner, a rota /products/{id}/items pode retornar anúncios.
+        // O retorno antecipado anterior impedia justamente essa tentativa.
+        const data = product.ok && product.data
+          ? product.data
+          : (searchProduct || {});
 
         // Alguns PRODUCTs do ranking existem no catálogo, mas não expõem
         // buy_box_winner no detalhe. Nesses casos, consultamos explicitamente
@@ -745,12 +742,22 @@ Deno.serve(async (req) => {
           }
         }
 
+        const failureStatus = (!product.ok || !product.data) ? product.status : 200;
+        const failureMessage = (!product.ok || !product.data)
+          ? "Detalhe do catálogo indisponível (HTTP " + String(product.status || "sem status") + "); nenhuma publicação válida foi encontrada nas rotas alternativas."
+          : "Produto encontrado, mas não foi possível localizar uma publicação pública correspondente.";
+        resolutionErrors.push({
+          tipo: "PRODUCT",
+          id,
+          status: failureStatus,
+          erro: failureMessage
+        });
         return {
           error: true,
           sourceId: id,
           sourceType: type,
-          status: 200,
-          message: "Produto encontrado, mas não foi possível localizar uma publicação pública correspondente."
+          status: failureStatus,
+          message: failureMessage
         };
       }
 
@@ -978,10 +985,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    // As categorias prioritárias são consultadas primeiro e na ordem definida.
-    // As demais categorias ficam como substitutas quando não há itens elegíveis.
-    const categoriesToScan = highlightCategories
-      .filter((category) => !INVALID_HIGHLIGHT_CATEGORY_IDS.has(String(category.id)));
+    // Não usar rankings genéricos, pois retornam subcategorias irrelevantes.
+    // A busca principal é por tipo de produto nas cinco categorias definidas.
+    const categoriesToScan: any[] = [];
 
     // Consulta os rankings em paralelo, mas processa os resultados na ordem prioritária.
     const highlightFetches = await runWithConcurrency(categoriesToScan, async (category: any) => ({
@@ -1044,18 +1050,9 @@ Deno.serve(async (req) => {
       if (highlightEntries.length >= 360) break;
     }
 
-    if (!highlightEntries.length) {
-      return json({
-        ok: false,
-        produtos_encontrados: 0,
-        novas: 0,
-        atualizadas: 0,
-        limite: limit,
-        ofertas: [],
-        diagnostico: diagnostics,
-        error: "O Mercado Livre não retornou nenhum ranking de Mais Vendidos disponível para consulta."
-      });
-    }
+    // Rankings genéricos estão desativados de propósito. A ausência de destaques
+    // não pode encerrar a execução: a busca por palavras-chave do catálogo continua abaixo.
+    // Não retornar erro aqui, pois isso impediria toda a busca de ofertas por categoria.
 
     // Resolvemos somente produtos de catálogo e continuamos enquanto ainda
     // faltarem itens válidos. Isso evita que ITEM/USER_PRODUCT bloqueados
@@ -1145,8 +1142,8 @@ Deno.serve(async (req) => {
     let skippedBlockedItems = 0;
     const resolved: any[] = [];
     // Limita a resolução para evitar dezenas de lotes lentos quando a API do ML bloqueia itens.
-    const targetResolved = Math.min(Math.max(limit * 4, 40), 80);
-    const RESOLUTION_BATCH_SIZE = 24;
+    const targetResolved = Math.min(Math.max(limit, 12), 20);
+    const RESOLUTION_BATCH_SIZE = 12;
 
     for (
       let offset = 0;
@@ -1198,47 +1195,175 @@ Deno.serve(async (req) => {
     }
 
     const catalogSearchDiagnostics: any[] = [];
-    // Três termos variados em paralelo: limita a espera se a API estiver bloqueando buscas.
+    // Busca de catálogo por termos de compra nas seis categorias prioritárias.
+    // Não consulta a página HTML /ofertas: usa a API oficial de busca de produtos.
     const catalogKeywords = [
       { keyword: "fone bluetooth", group: "Eletrônicos e acessórios" },
+      { keyword: "smartwatch", group: "Eletrônicos e acessórios" },
+      { keyword: "caixa de som bluetooth", group: "Eletrônicos e acessórios" },
       { keyword: "carregador celular", group: "Eletrônicos e acessórios" },
+      { keyword: "power bank", group: "Eletrônicos e acessórios" },
+      { keyword: "teclado mouse sem fio", group: "Eletrônicos e acessórios" },
       { keyword: "air fryer", group: "Eletrodomésticos" },
+      { keyword: "liquidificador", group: "Eletrodomésticos" },
+      { keyword: "aspirador de po", group: "Eletrodomésticos" },
+      { keyword: "cafeteira eletrica", group: "Eletrodomésticos" },
+      { keyword: "ventilador", group: "Eletrodomésticos" },
       { keyword: "organizador cozinha", group: "Casa, cozinha e organização" },
-      { keyword: "tenis casual", group: "Moda, calçados e acessórios" },
+      { keyword: "jogo de panelas", group: "Casa, cozinha e organização" },
+      { keyword: "potes hermeticos", group: "Casa, cozinha e organização" },
+      { keyword: "escorredor de louca", group: "Casa, cozinha e organização" },
+      { keyword: "organizador guarda roupa", group: "Casa, cozinha e organização" },
+      { keyword: "tenis feminino", group: "Moda, calçados e acessórios" },
+      { keyword: "tenis masculino", group: "Moda, calçados e acessórios" },
+      { keyword: "mochila", group: "Moda, calçados e acessórios" },
+      { keyword: "roupa feminina", group: "Moda, calçados e acessórios" },
+      { keyword: "jaqueta feminina", group: "Moda, calçados e acessórios" },
+      { keyword: "sandalia feminina", group: "Moda, calçados e acessórios" },
       { keyword: "perfume feminino", group: "Beleza e cuidados pessoais" },
+      { keyword: "perfume masculino", group: "Beleza e cuidados pessoais" },
+      { keyword: "secador de cabelo", group: "Beleza e cuidados pessoais" },
+      { keyword: "creme facial", group: "Beleza e cuidados pessoais" },
+      { keyword: "escova secadora", group: "Beleza e cuidados pessoais" },
+      { keyword: "protetor solar", group: "Beleza e cuidados pessoais" },
       { keyword: "furadeira", group: "Ferramentas e acessórios automotivos" },
-      { keyword: "acessorios automotivos", group: "Ferramentas e acessórios automotivos" }
+      { keyword: "parafusadeira", group: "Ferramentas e acessórios automotivos" },
+      { keyword: "kit ferramentas", group: "Ferramentas e acessórios automotivos" },
+      { keyword: "acessorios automotivos", group: "Ferramentas e acessórios automotivos" },
+      { keyword: "aspirador automotivo", group: "Ferramentas e acessórios automotivos" },
+      { keyword: "chave impacto", group: "Ferramentas e acessórios automotivos" },
+      { keyword: "fone bluetooth", group: "Eletrônicos e acessórios" },
+      { keyword: "smartwatch", group: "Eletrônicos e acessórios" },
+      { keyword: "caixa de som bluetooth", group: "Eletrônicos e acessórios" },
+      { keyword: "carregador celular", group: "Eletrônicos e acessórios" },
+      { keyword: "power bank", group: "Eletrônicos e acessórios" },
+      { keyword: "teclado mouse sem fio", group: "Eletrônicos e acessórios" },
+      { keyword: "air fryer", group: "Eletrodomésticos" },
+      { keyword: "liquidificador", group: "Eletrodomésticos" },
+      { keyword: "aspirador de po", group: "Eletrodomésticos" },
+      { keyword: "cafeteira eletrica", group: "Eletrodomésticos" },
+      { keyword: "ventilador", group: "Eletrodomésticos" }
     ];
+    // Lote pequeno e rotativo: evita estourar o limite de recursos da Edge Function.
+    // As palavras-chave continuam cadastradas; cada execução cobre apenas parte delas.
+    const keywordBatchSize = 8;
+    const keywordStart = (Math.floor(Date.now() / 3600000) * keywordBatchSize) % catalogKeywords.length;
+    const activeCatalogKeywords = Array.from({ length: keywordBatchSize }, (_, i) => catalogKeywords[(keywordStart + i) % catalogKeywords.length]);
     const seenCatalogIds = new Set<string>(resolved.map((r: any) => String(r.sourceId || "")));
     let catalogResolvedCount = 0;
-    const catalogSearchResults = await runWithConcurrency(catalogKeywords, async (entry: any) => {
+    const catalogSearchResults = await runWithConcurrency(activeCatalogKeywords, async (entry: any) => {
       const query = new URLSearchParams({ status: "active", site_id: SITE_ID, q: entry.keyword, limit: "10" });
       const search = await getCatalogJson(ML + "/products/search?" + query.toString());
       const products = search.ok && Array.isArray(search.data?.results) ? search.data.results as any[] : [];
       return { keyword: entry.keyword, group: entry.group, search, products };
     }, 4);
-    const catalogFreshBatches = await Promise.all(catalogSearchResults.map(async (result: any, k: number) => {
-      catalogSearchDiagnostics.push({ palavra: result.keyword, grupo: result.group, status: result.search.status, resultados: result.products.length });
+    // Busca anúncios (ofertas) por palavra-chave em paralelo com o catálogo.
+    // Os anúncios são mantidos apenas quando a API retorna item, preço e título.
+    const publicOfferSearchResults = await runWithConcurrency(activeCatalogKeywords, async (entry: any) => {
+      const query = new URLSearchParams({ q: entry.keyword, limit: "5", sort: "relevance" });
+      const search = await getCatalogJson(ML + "/sites/" + SITE_ID + "/search?" + query.toString());
+      const items = search.ok && Array.isArray(search.data?.results) ? search.data.results as any[] : [];
+      return { keyword: entry.keyword, group: entry.group, search, items };
+    }, 5);
+    const publicOfferDiagnostics = publicOfferSearchResults.map((result: any) => ({
+      palavra: result.keyword, grupo: result.group, status: result.search.status,
+      resultados: result.items.length
+    }));
+    for (const result of publicOfferSearchResults) {
+      for (const item of result.items) {
+        const itemId = String(item?.id || "");
+        const price = Number(item?.price);
+        if (!itemId.startsWith("MLB") || !item?.title || !Number.isFinite(price) || price <= 0) continue;
+        if (existingItemIds.has(itemId) || resolved.some((r: any) => String(r.itemId) === itemId)) continue;
+        resolved.push({
+          itemId,
+          sourceId: itemId,
+          sourceType: "ITEM",
+          item,
+          publicItem: item,
+          highlight: {
+            position: 3000 + resolved.length,
+            categoria_id: result.keyword,
+            categoria_nome: result.keyword,
+            categoria_grupo: result.group
+          }
+        });
+      }
+    }
+
+    // Não limitar a resolução aos dois primeiros produtos de cada termo:
+    // produtos de catálogo ativos podem não ter anúncio vencedor. Reunimos mais
+    // candidatos e tentamos vários, com limite global para proteger a Edge Function.
+    const catalogCandidatesByKeyword = catalogSearchResults.map((result: any, k: number) => {
       const fresh = result.products.filter((p: any) => {
         const id = String(p?.id || "");
         return id.startsWith("MLB") && !seenCatalogIds.has(id) && !existingProductIds.has(id);
-      }).slice(0, 4);
-      const batch = await runWithConcurrency(fresh, (p: any) => resolveHighlightEntry({ id: String(p.id), type: "PRODUCT" }), 4);
-      return { k, keyword: result.keyword, group: result.group, fresh, batch };
-    }));
-    for (const result of catalogFreshBatches) {
-      for (let i = 0; i < result.batch.length; i++) {
-        const item = result.batch[i];
-        if (!item || item.error || !item.itemId) continue;
-        if (existingItemIds.has(String(item.itemId))) continue;
-        const sourceId = String(item.sourceId || result.fresh[i]?.id || "");
-        if (seenCatalogIds.has(sourceId)) continue;
-        seenCatalogIds.add(sourceId);
-        resolved.push({ ...item, highlight: { position: 2000 + result.k * 10 + i, categoria_id: result.keyword, categoria_nome: result.keyword, categoria_grupo: result.group } });
-        catalogResolvedCount++;
-        if (catalogResolvedCount >= 30) break;
+      });
+      // Prioriza resultados que já tragam uma publicação vencedora na resposta.
+      fresh.sort((a: any, b: any) =>
+        Number(Boolean(b?.buy_box_winner?.item_id)) - Number(Boolean(a?.buy_box_winner?.item_id))
+      );
+      catalogSearchDiagnostics.push({
+        palavra: result.keyword,
+        grupo: result.group,
+        status: result.search.status,
+        resultados: result.products.length,
+        candidatos_novos: fresh.length,
+        candidatos_tentados: 0,
+        ja_cadastrados_ou_vistos: result.products.filter((p: any) => {
+          const id = String(p?.id || "");
+          return id.startsWith("MLB") && (seenCatalogIds.has(id) || existingProductIds.has(id));
+        }).length,
+        erro: result.search.ok ? null : (result.search.error || null)
+      });
+      return { k, keyword: result.keyword, group: result.group, fresh: fresh.slice(0, 6) };
+    });
+    // Distribui os testes entre palavras-chave: primeiro o melhor candidato de
+    // cada termo, depois o segundo etc. No máximo 16 resoluções por execução.
+    const catalogCandidatesToResolve: any[] = [];
+    for (let rank = 0; rank < 6 && catalogCandidatesToResolve.length < 16; rank++) {
+      for (const group of catalogCandidatesByKeyword) {
+        if (group.fresh[rank] && catalogCandidatesToResolve.length < 16) {
+          catalogCandidatesToResolve.push({
+            ...group,
+            product: group.fresh[rank],
+            candidateRank: rank
+          });
+        }
       }
-      if (catalogResolvedCount >= 30) break;
+    }
+    for (const candidate of catalogCandidatesToResolve) {
+      const diagnostic = catalogSearchDiagnostics.find((x: any) => x.palavra === candidate.keyword);
+      if (diagnostic) diagnostic.candidatos_tentados++;
+    }
+    const catalogResolvedAttempts = await runWithConcurrency(
+      catalogCandidatesToResolve,
+      (candidate: any) => resolveHighlightEntry({
+        id: String(candidate.product.id),
+        type: "PRODUCT",
+        productData: candidate.product
+      }),
+      4
+    );
+    for (let i = 0; i < catalogResolvedAttempts.length; i++) {
+      const item = catalogResolvedAttempts[i];
+      const candidate = catalogCandidatesToResolve[i];
+      if (!item || item.error || !item.itemId) continue;
+      if (existingItemIds.has(String(item.itemId))) continue;
+      const sourceId = String(item.sourceId || candidate.product?.id || "");
+      if (seenCatalogIds.has(sourceId)) continue;
+      seenCatalogIds.add(sourceId);
+      resolved.push({
+        ...item,
+        highlight: {
+          position: 2000 + candidate.k * 10 + candidate.candidateRank,
+          categoria_id: candidate.keyword,
+          categoria_nome: candidate.keyword,
+          categoria_grupo: candidate.group
+        }
+      });
+      catalogResolvedCount++;
+      if (catalogResolvedCount >= 8) break;
     }
 
     if (!resolved.length) {
@@ -1250,7 +1375,18 @@ Deno.serve(async (req) => {
         limite: limit,
         ofertas: [],
         diagnostico: {
+          versao_busca: "432-catalogo-varios-candidatos",
           categorias_consultadas: diagnostics,
+          destaques_recebidos: highlightEntries.length,
+          destaques_resolvidos: resolved.length,
+          itens_ITEM_ignorados_apos_403: skippedBlockedItems,
+          buscas_publicas_por_palavra_chave: publicOfferDiagnostics,
+          total_resultados_busca_publica: publicOfferDiagnostics.reduce((sum: number, x: any) => sum + Number(x.resultados || 0), 0),
+          buscas_catalogo_palavras_chave: catalogSearchDiagnostics,
+          total_produtos_catalogo_encontrados: catalogSearchDiagnostics.reduce((sum: number, x: any) => sum + Number(x.resultados || 0), 0),
+          total_candidatos_catalogo_novos: catalogSearchDiagnostics.reduce((sum: number, x: any) => sum + Number(x.candidatos_novos || 0), 0),
+          produtos_resolvidos_pela_busca_catalogo: catalogResolvedCount,
+          ids_catalogo_ja_cadastrados_ou_vistos: catalogSearchDiagnostics.reduce((sum: number, x: any) => sum + Number(x.ja_cadastrados_ou_vistos || 0), 0),
           erros_resolucao: resolutionErrors.slice(0, 25)
         },
         resolvidos: 0,
@@ -1268,7 +1404,7 @@ Deno.serve(async (req) => {
     // os dados públicos de catálogo já resolvidos.
     const itemIds = Array.from(new Set(
       resolved.map((r) => String(r.itemId || "")).filter((id) => id.startsWith("MLB"))
-    )).slice(0, MAX);
+    )).slice(0, 12);
 
     const itemMap = new Map<string, any>();
 
@@ -1307,21 +1443,29 @@ Deno.serve(async (req) => {
     }
 
     const salePriceMap = new Map<string, any>();
-    const detailedItemIds = itemIds.filter((id) => itemMap.has(id)).slice(0, 10);
+    const itemPricesMap = new Map<string, any>();
+    const detailedItemIds = itemIds.filter((id) => itemMap.has(id)).slice(0, 6);
     if (detailedItemIds.length) {
-      const salePrices = await runWithConcurrency(
+      const priceResults = await runWithConcurrency(
         detailedItemIds,
-        async (id) => ({
-          id,
-          result: await getJson(
-            ML + "/items/" + encodeURIComponent(id) + "/sale_price?context=channel_marketplace",
-            true
-          )
-        }),
-        5
+        async (id) => {
+          const [salePrice, itemPrices] = await Promise.all([
+            getJson(
+              ML + "/items/" + encodeURIComponent(id) + "/sale_price?context=channel_marketplace",
+              true
+            ),
+            getJson(
+              ML + "/items/" + encodeURIComponent(id) + "/prices",
+              true
+            )
+          ]);
+          return { id, salePrice, itemPrices };
+        },
+        4
       );
-      for (const entry of salePrices) {
-        if (entry.result?.ok && entry.result?.data) salePriceMap.set(entry.id, entry.result.data);
+      for (const entry of priceResults) {
+        if (entry.salePrice?.ok && entry.salePrice?.data) salePriceMap.set(entry.id, entry.salePrice.data);
+        if (entry.itemPrices?.ok && entry.itemPrices?.data) itemPricesMap.set(entry.id, entry.itemPrices.data);
       }
     }
 
@@ -1418,7 +1562,11 @@ Deno.serve(async (req) => {
         const externalItemId = String(winner.item_id || winner.id || r.itemId || product.id);
         const itemDetails = itemMap.get(externalItemId) || {};
         const salePrice = salePriceMap.get(externalItemId) || {};
-        const priceCandidates = [salePrice.amount, itemDetails.price, winner.price]
+        const itemPrices = itemPricesMap.get(externalItemId) || {};
+        const priceRows = Array.isArray(itemPrices.prices) ? itemPrices.prices : [];
+        const promoPrice = priceRows.find((p: any) => String(p?.type || "").toLowerCase() === "promotion");
+        const standardPrice = priceRows.find((p: any) => String(p?.type || "").toLowerCase() === "standard");
+        const priceCandidates = [salePrice.amount, promoPrice?.amount, itemDetails.price, winner.price]
           .map((value) => Number(value))
           .filter((value) => Number.isFinite(value) && value > 0);
         const current = priceCandidates[0] || 0;
@@ -1426,6 +1574,8 @@ Deno.serve(async (req) => {
 
         const originalCandidates = [
           salePrice.regular_amount,
+          promoPrice?.regular_amount,
+          standardPrice?.amount,
           itemDetails.original_price,
           itemDetails.base_price,
           winner.original_price
@@ -1434,9 +1584,10 @@ Deno.serve(async (req) => {
           .find((value) => Number.isFinite(value) && value > current);
         const original = originalNumber || null;
         const discount = original ? Math.round(((original - current) / original) * 100) : 0;
-        const promotionId = Array.isArray(itemDetails.deal_ids) && itemDetails.deal_ids.length
-          ? String(itemDetails.deal_ids[0])
-          : (Array.isArray(winner.deal_ids) && winner.deal_ids.length ? String(winner.deal_ids[0]) : null);
+        const promotionId = salePrice?.metadata?.promotion_id ||
+          (Array.isArray(itemDetails.deal_ids) && itemDetails.deal_ids.length
+            ? String(itemDetails.deal_ids[0])
+            : (Array.isArray(winner.deal_ids) && winner.deal_ids.length ? String(winner.deal_ids[0]) : null));
         const freeShipping =
           itemDetails?.shipping?.free_shipping === true ||
           itemDetails?.shipping?.tags?.includes("mandatory_free_shipping") ||
@@ -1506,11 +1657,17 @@ Deno.serve(async (req) => {
       if (!isRelevantPriorityProduct(r.highlight?.categoria_grupo, item?.title, r.highlight?.categoria_nome)) continue;
 
       const salePrice = salePriceMap.get(String(item.id));
-      const current = Number(salePrice?.amount ?? item.price ?? item.base_price);
+      const itemPrices = itemPricesMap.get(String(item.id)) || {};
+      const priceRows = Array.isArray(itemPrices.prices) ? itemPrices.prices : [];
+      const promoPrice = priceRows.find((p: any) => String(p?.type || "").toLowerCase() === "promotion");
+      const standardPrice = priceRows.find((p: any) => String(p?.type || "").toLowerCase() === "standard");
+      const current = Number(salePrice?.amount ?? promoPrice?.amount ?? item.price ?? item.base_price);
       if (!Number.isFinite(current) || current <= 0) continue;
 
       const originalCandidates = [
         salePrice?.regular_amount,
+        promoPrice?.regular_amount,
+        standardPrice?.amount,
         item.original_price,
         item.sale_price?.regular_amount,
         item.base_price
@@ -1600,7 +1757,7 @@ Deno.serve(async (req) => {
         }
         return a.position - b.position || b.discount - a.discount || a.current - b.current;
       })
-      .slice(0, Math.min(limit, 20));
+      .slice(0, Math.min(limit, 3));
     const imageLookupDiagnostics: any[] = [];
     const imageSearchResults = await runWithConcurrency(
       imageSearchCandidates,
@@ -1693,24 +1850,22 @@ Deno.serve(async (req) => {
       imagensEnriquecidas++;
     }
 
-    // Ordem obrigatória: seis grupos prioritários; dentro do grupo,
-    // melhores posições de Mais Vendidos primeiro, depois promoção/desconto.
-    // As categorias de substituição só entram após as seis prioridades.
+    // Seleciona as melhores ofertas globalmente, sem priorizar uma categoria.
+    // Promoção e desconto real vêm antes; categoria serve apenas como desempate.
     const groupPriority = (value: unknown) => {
-      const group = String(value || "");
-      const idx = PRIORITY_GROUP_ORDER.indexOf(group);
+      const idx = PRIORITY_GROUP_ORDER.indexOf(String(value || ""));
       return idx >= 0 ? idx : PRIORITY_GROUP_ORDER.length;
     };
     candidates.sort(
       (a, b) =>
-        groupPriority(a.categoria_grupo) - groupPriority(b.categoria_grupo) ||
-        a.position - b.position ||
         Number(Boolean(b.promotion_id)) - Number(Boolean(a.promotion_id)) ||
         b.discount - a.discount ||
+        Number(b.score || 0) - Number(a.score || 0) ||
         Number(b.rating || 0) - Number(a.rating || 0) ||
         Number(Boolean(b.free_shipping)) - Number(Boolean(a.free_shipping)) ||
+        groupPriority(a.categoria_grupo) - groupPriority(b.categoria_grupo) ||
         a.current - b.current ||
-        b.score - a.score
+        a.position - b.position
     );
 
     // Identidade exata é a regra principal. Título parecido não é suficiente:
@@ -1762,7 +1917,8 @@ Deno.serve(async (req) => {
       // toda a busca com erro PostgreSQL 23505.
       const titleKey = normalizeTitleKey(item.title);
       const fuzzyDuplicate = String(item.title || "").trim() && (
-        existingTitles.some((title: string) => isNearDuplicateTitle(title, item.title)) ||
+        // Não bloqueia um anúncio novo só porque o título é parecido com oferta antiga.
+        // IDs exatos continuam protegendo contra repetição; títulos parecidos só valem na rodada.
         seenTitles.some((title: string) => isNearDuplicateTitle(title, item.title))
       );
       if (titleKey && (existingTitleKeys.has(titleKey) || seenTitleKeys.has(titleKey) || fuzzyDuplicate)) {
@@ -1844,7 +2000,7 @@ Deno.serve(async (req) => {
       const safeTitle = titleOwner && titleOwner !== String(existing.id) ? existing.titulo : o.title;
       const originPatch: Record<string, unknown> = {
         ...(existing.dados_origem || {}),
-        fonte: "mercadolivre-highlights",
+        fonte: "mercadolivre-catalogo-palavras-chave",
         categoria_id: o.categoria_id,
         categoria_nome: o.categoria_nome,
         categoria_grupo: o.categoria_grupo,
@@ -1907,7 +2063,7 @@ Deno.serve(async (req) => {
         external_item_id: String(o.external_id || ""),
         product_title: String(o.title || ""),
         last_seen_at: new Date().toISOString(),
-        metadata: { source: "mercadolivre-highlights", promotion_id: o.promotion_id || null, registered_offer: true }
+        metadata: { source: "mercadolivre-catalogo-palavras-chave", promotion_id: o.promotion_id || null, registered_offer: true }
       }));
     let novas = 0;
     const ofertas: any[] = [];
@@ -2009,10 +2165,10 @@ Deno.serve(async (req) => {
       novas,
       atualizadas,
       limite: limit,
-      modo_busca: "mais_vendidos_com_promocoes",
+      modo_busca: "ofertas_por_tipo_de_produto",
       ofertas,
       diagnostico: {
-        versao_busca: "417-ml-bloqueio-busca-publica-403",
+        versao_busca: "430-auditoria-conversao-ml",
         categorias_consultadas: diagnostics,
         destaques_recebidos: highlightEntries.length,
         destaques_resolvidos: resolved.length,
@@ -2029,10 +2185,10 @@ Deno.serve(async (req) => {
         limite_solicitado: limit,
         selecionados_por_grupo: Object.fromEntries([...groupCounts.entries()].map(([grupo, quantidade]) => [grupo, quantidade])),
         selecionados_por_categoria: Object.fromEntries([...categoryCounts.entries()].map(([categoria, quantidade]) => [categoria, quantidade])),
-        buscas_publicas_categorias: publicSearchDiagnostics,
+        buscas_publicas_categorias: publicOfferDiagnostics,
       buscas_catalogo_palavras_chave: catalogSearchDiagnostics,
       produtos_resolvidos_pela_busca_catalogo: catalogResolvedCount, 
-        buscas_publicas_resultados: publicSearchDiagnostics.reduce((sum: number, x: any) => sum + Number(x.resultados || 0), 0),
+        buscas_publicas_resultados: publicOfferDiagnostics.reduce((sum: number, x: any) => sum + Number(x.resultados || 0), 0),
         candidatos_complementares: candidates.length - resolved.length,
         duplicados_ignorados: duplicadosIgnorados,
         titulos_duplicados_ignorados: titulosDuplicadosIgnorados,
@@ -2044,7 +2200,7 @@ Deno.serve(async (req) => {
         incidente_autenticacao: authenticationIncident,
         reautenticacao_necessaria: Boolean(reauthenticationUrl),
         url_reautenticacao: reauthenticationUrl,
-        regra_fontes: "somente PRODUCT do catálogo oficial"
+        regra_fontes: "auditoria de conversão; tenta até 16 produtos do catálogo por execução, distribuídos entre palavras-chave e priorizando buy_box_winner; tenta /products/{id}/items mesmo quando detalhe falha; diagnóstico inclui status HTTP, candidatos tentados e IDs já cadastrados; catálogo oficial em lote rotativo de 8 termos"
       }
     });
   } catch (e) {
