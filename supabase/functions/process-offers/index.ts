@@ -1164,7 +1164,7 @@ Deno.serve(async (req) => {
         const sourceId = String(item.sourceId || result.fresh[i]?.id || "");
         if (seenCatalogIds.has(sourceId)) continue;
         seenCatalogIds.add(sourceId);
-        resolved.push({ ...item, highlight: { position: 2000 + result.k * 10 + i, categoria_id: result.keyword, categoria_nome: result.keyword, categoria_grupo: "busca_catalogo" } });
+        resolved.push({ ...item, highlight: { position: 2000 + result.k * 10 + i, categoria_id: result.keyword, categoria_nome: result.keyword, categoria_grupo: "Substituição: busca de catálogo " + String(result.keyword || "geral") } });
         catalogResolvedCount++;
         if (catalogResolvedCount >= 30) break;
       }
@@ -1630,7 +1630,7 @@ Deno.serve(async (req) => {
           position: 2000 + keywordIndex * 50 + (Number(item?.order_backend) || 0),
           categoria_id: String(item?.category_id || keyword),
           categoria_nome: keyword,
-          categoria_grupo: "busca_publica",
+          categoria_grupo: "Substituição: busca pública " + keyword,
           score: discount * 100 + (promotionId ? 25 : 0) + (item?.shipping?.free_shipping === true ? 10 : 0),
           oferta_tipo: discount > 0 || promotionId ? "promocao" : "mais_vendido"
         });
@@ -2098,6 +2098,9 @@ Deno.serve(async (req) => {
         busca_imagem_diagnostico: imageLookupDiagnostics.slice(0, 20),
         produtos_catalogo_processados: resolved.filter((r) => Boolean(r.product?.buy_box_winner)).length,
         candidatos_com_preco: candidates.length,
+        limite_solicitado: limit,
+        selecionados_por_grupo: Object.fromEntries([...groupCounts.entries()].map(([grupo, quantidade]) => [grupo, quantidade])),
+        selecionados_por_categoria: Object.fromEntries([...categoryCounts.entries()].map(([categoria, quantidade]) => [categoria, quantidade])),
         buscas_publicas_categorias: publicSearchDiagnostics,
       buscas_catalogo_palavras_chave: catalogSearchDiagnostics,
       produtos_resolvidos_pela_busca_catalogo: catalogResolvedCount, 
