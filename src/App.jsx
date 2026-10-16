@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-16-video-fallback-partial-import-fix";
+const FRONTEND_BUILD_VERSION = "2026-10-16-ml-search-diagnostics-417";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -1242,9 +1242,12 @@ export default function App() {
           ["candidatos com preço", diagnosticos.candidatos_com_preco],
           ["duplicados ignorados", diagnosticos.duplicados_ignorados],
           ["ofertas existentes ignoradas", diagnosticos.existentes_ignorados],
+          ["versão da busca", diagnosticos.versao_busca || "backend sem identificação de versão"],
           ["produtos em promoção", diagnosticos.em_promocao],
           ["buscas públicas", Array.isArray(diagnosticos.buscas_publicas_categorias) ? diagnosticos.buscas_publicas_categorias.length : undefined],
           ["resultados públicos", diagnosticos.buscas_publicas_resultados],
+          ["buscas catálogo por palavra-chave", Array.isArray(diagnosticos.buscas_catalogo_palavras_chave) ? diagnosticos.buscas_catalogo_palavras_chave.length : undefined],
+          ["produtos resolvidos pelo catálogo", diagnosticos.produtos_resolvidos_pela_busca_catalogo],
           ["candidatos complementares", diagnosticos.candidatos_complementares]
         ].filter(([, value]) => value !== undefined && value !== null)
           .map(([label, value]) => `${label}: ${value}`);
@@ -1265,6 +1268,11 @@ export default function App() {
             })
           : [];
 
+        const catalogKeywordSearches = Array.isArray(diagnosticos.buscas_catalogo_palavras_chave)
+          ? diagnosticos.buscas_catalogo_palavras_chave.map((d) =>
+              `Catálogo ${d?.palavra || "palavra-chave"} (${d?.grupo || "geral"}): HTTP ${d?.status ?? "—"}, ${d?.resultados ?? 0} resultados`
+            )
+          : [];
         const publicKeywordSearches = Array.isArray(diagnosticos.buscas_publicas_categorias)
           ? diagnosticos.buscas_publicas_categorias
               .filter((d) => d?.origem === "palavra-chave")
@@ -1283,7 +1291,7 @@ export default function App() {
               .map((d) => `imagem ${d?.item_id || d?.product_id || "produto"}: item HTTP ${d?.direct_item_status ?? "—"}, catálogo HTTP ${d?.product_status ?? "—"}, busca HTTP ${d?.search_status ?? "—"}`)
           : [];
 
-        diagnosticoTexto = [...counts, ...rejectionCounts, ...categories, ...publicKeywordSearches, ...errors, ...imageErrors].join(" | ");
+        diagnosticoTexto = [...counts, ...rejectionCounts, ...categories, ...catalogKeywordSearches, ...publicKeywordSearches, ...errors, ...imageErrors].join(" | ");
       }
 
       let mensagem =
