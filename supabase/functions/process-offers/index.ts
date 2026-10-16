@@ -4,6 +4,30 @@ const ML = "https://api.mercadolibre.com";
 const SITE_ID = "MLB";
 const MAX = 20;
 
+// Ordem explícita das seis categorias prioritárias do robô.
+// As raízes múltiplas de eletrônicos e as raízes de ferramentas/veículos
+// compartilham a mesma vaga de grupo.
+const PRIORITY_GROUP_ORDER = [
+  "Eletrônicos e acessórios",
+  "Eletrodomésticos",
+  "Casa, cozinha e organização",
+  "Moda, calçados e acessórios",
+  "Beleza e cuidados pessoais",
+  "Ferramentas e acessórios automotivos"
+];
+const PRIORITY_ROOTS: Record<string, string> = {
+  MLB1000: "Eletrônicos e acessórios",
+  MLB1051: "Eletrônicos e acessórios",
+  MLB1648: "Eletrônicos e acessórios",
+  MLB1039: "Eletrônicos e acessórios",
+  MLB5726: "Eletrodomésticos",
+  MLB1574: "Casa, cozinha e organização",
+  MLB1430: "Moda, calçados e acessórios",
+  MLB1246: "Beleza e cuidados pessoais",
+  MLB263532: "Ferramentas e acessórios automotivos",
+  MLB5672: "Ferramentas e acessórios automotivos"
+};
+
 const getImageUrl = (...sources: any[]): string | null => {
   for (const source of sources) {
     if (typeof source === "string") {
@@ -859,18 +883,37 @@ Deno.serve(async (req) => {
       }
     }
 
-    const roots = rootCategories.length
+    const roots = (rootCategories.length
       ? rootCategories
       : [
-          { id: "MLB1430", nome: "Calçados, Roupas e Bolsas" },
+          { id: "MLB1000", nome: "Eletrônicos, Áudio e Vídeo" },
+          { id: "MLB1051", nome: "Celulares e Telefones" },
+          { id: "MLB1648", nome: "Informática" },
+          { id: "MLB1039", nome: "Câmeras e Acessórios" },
+          { id: "MLB5726", nome: "Eletrodomésticos" },
           { id: "MLB1574", nome: "Casa, Móveis e Decoração" },
-          { id: "MLB5726", nome: "Eletrodomésticos" }
-        ];
+          { id: "MLB1430", nome: "Calçados, Roupas e Bolsas" },
+          { id: "MLB1246", nome: "Beleza e Cuidado Pessoal" },
+          { id: "MLB263532", nome: "Ferramentas e Construção" },
+          { id: "MLB5672", nome: "Acessórios para Veículos" }
+        ]).map((root: any) => ({
+          ...root,
+          grupoPrioritario: PRIORITY_ROOTS[String(root.id)] || null
+        })).sort((a: any, b: any) => {
+          const ag = a.grupoPrioritario;
+          const bg = b.grupoPrioritario;
+          const ai = ag ? PRIORITY_GROUP_ORDER.indexOf(ag) : PRIORITY_GROUP_ORDER.length;
+          const bi = bg ? PRIORITY_GROUP_ORDER.indexOf(bg) : PRIORITY_GROUP_ORDER.length;
+          return ai - bi || String(a.nome).localeCompare(String(b.nome), "pt-BR");
+        });
 
     const categoriesByGroup: any[][] = [];
     for (const root of roots) {
       const leaves = await discoverLeafCategories(root);
-      if (leaves.length) categoriesByGroup.push(leaves);
+      const group = root.grupoPrioritario || ("Substituição: " + root.nome);
+      if (leaves.length) {
+        categoriesByGroup.push(leaves.map((leaf: any) => ({ ...leaf, grupo: group })));
+      }
     }
 
     // Intercala as categorias entre os nichos em vez de percorrer todas as
@@ -884,15 +927,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Alterna o ponto de início da varredura em janelas de 5 minutos.
-    // A ordem continua equilibrada entre nichos em cada execução.
-    const categoryRotation = highlightCategories.length
-      ? Math.floor(Date.now() / (5 * 60 * 1000)) % highlightCategories.length
-      : 0;
-    const categoriesToScan = [
-      ...highlightCategories.slice(categoryRotation),
-      ...highlightCategories.slice(0, categoryRotation)
-    ].filter((category) => !INVALID_HIGHLIGHT_CATEGORY_IDS.has(String(category.id)));
+    // As categorias prioritárias são consultadas primeiro e na ordem definida.
+    // As demais categorias ficam como substitutas quando não há itens elegíveis.
+    const categoriesToScan = highlightCategories
+      .filter((category) => !INVALID_HIGHLIGHT_CATEGORY_IDS.has(String(category.id)));
 
     // Coletamos rankings em ordem rotativa; a classificação final continua
     // priorizando posição no ranking, depois desconto/promoção.
@@ -939,7 +977,7 @@ Deno.serve(async (req) => {
         });
         entriesFromCategory++;
         // Lemos todos os destaques disponíveis por categoria. A seleção final
-        // continua limitada a 2 por categoria e 5 por grupo, então ampliar a
+        // seleção final aceita apenas um produto por categoria/grupo, então ampliar a
         // amostra ajuda a encontrar produtos realmente novos sem perder diversidade.
         if (entriesFromCategory >= 20) break;
       }
@@ -1738,17 +1776,22 @@ Deno.serve(async (req) => {
       imagensEnriquecidas++;
     }
 
-    // Prioridade: posição no ranking de mais vendidos, depois avaliação,
-    // depois promoção/desconto. Só usamos avaliação real quando a API a fornece.
+    // Ordem obrigatória: seis grupos prioritários; dentro do grupo,
+    // melhores posições de Mais Vendidos primeiro, depois promoção/desconto.
+    // As categorias de substituição só entram após as seis prioridades.
+    const groupPriority = (value: unknown) => {
+      const group = String(value || "");
+      const idx = PRIORITY_GROUP_ORDER.indexOf(group);
+      return idx >= 0 ? idx : PRIORITY_GROUP_ORDER.length;
+    };
     candidates.sort(
       (a, b) =>
+        groupPriority(a.categoria_grupo) - groupPriority(b.categoria_grupo) ||
         a.position - b.position ||
         Number(b.rating || 0) - Number(a.rating || 0) ||
         b.discount - a.discount ||
         Number(Boolean(b.promotion_id)) - Number(Boolean(a.promotion_id)) ||
         Number(Boolean(b.free_shipping)) - Number(Boolean(a.free_shipping)) ||
-        // Em caso de empate, prefere preços mais acessíveis sem sobrepor
-        // a prioridade principal de vendas e descontos.
         a.current - b.current ||
         b.score - a.score
     );
@@ -1760,8 +1803,8 @@ Deno.serve(async (req) => {
     const seenItems = new Set<string>();
     const categoryCounts = new Map<string, number>();
     const groupCounts = new Map<string, number>();
-    const MAX_PER_CATEGORY = 2;
-    const MAX_PER_CATEGORY_GROUP = 5;
+    const MAX_PER_CATEGORY = 1;
+    const MAX_PER_CATEGORY_GROUP = 1;
     const normalizeTitleKey = (value: unknown) => String(value || "").trim().toLowerCase();
     const existingTitleKeys = new Set(
       (existingOffers || [])
@@ -1813,9 +1856,9 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Diversidade: no máximo 2 produtos por categoria específica e 5
-      // por grupo principal. Se uma categoria estiver saturada, seguimos
-      // percorrendo o ranking para encontrar outras categorias populares.
+      // Uma vaga por categoria e por grupo principal. As subcategorias de
+      // eletrônicos e as raízes de ferramentas/veículos compartilham a vaga
+      // do grupo prioritário. Categorias substitutas têm uma vaga própria.
       const categoryKey = String(item.categoria_id || item.categoria_nome || "sem_categoria");
       const groupKey = String(item.categoria_grupo || "sem_grupo");
       if ((categoryCounts.get(categoryKey) || 0) >= MAX_PER_CATEGORY) continue;
