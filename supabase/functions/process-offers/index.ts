@@ -1244,11 +1244,66 @@ Deno.serve(async (req) => {
       { keyword: "cafeteira eletrica", group: "Eletrodomésticos" },
       { keyword: "ventilador", group: "Eletrodomésticos" }
     ];
-    // Lote pequeno e rotativo: evita estourar o limite de recursos da Edge Function.
-    // As palavras-chave continuam cadastradas; cada execução cobre apenas parte delas.
+    // Lote pequeno e rotativo: todas as seis categorias são consultadas em cada execução.
+    // A rotação anterior pegava oito termos consecutivos e podia passar uma execução
+    // inteira consultando só Beleza/Ferramentas ou outras categorias adjacentes.
     const keywordBatchSize = 8;
-    const keywordStart = (Math.floor(Date.now() / 3600000) * keywordBatchSize) % catalogKeywords.length;
-    const activeCatalogKeywords = Array.from({ length: keywordBatchSize }, (_, i) => catalogKeywords[(keywordStart + i) % catalogKeywords.length]);
+    const keywordHour = Math.floor(Date.now() / 3600000);
+    const keywordsByPriorityGroup = new Map<string, any[]>();
+    for (const group of PRIORITY_GROUP_ORDER) keywordsByPriorityGroup.set(group, []);
+    const uniqueKeywordKeys = new Set<string>();
+    for (const entry of catalogKeywords) {
+      const key = String(entry.group || "") + "|" + String(entry.keyword || "");
+      if (uniqueKeywordKeys.has(key)) continue;
+      uniqueKeywordKeys.add(key);
+      if (!keywordsByPriorityGroup.has(entry.group)) keywordsByPriorityGroup.set(entry.group, []);
+      keywordsByPriorityGroup.get(entry.group)!.push(entry);
+    }
+    const activeCatalogKeywords: any[] = [];
+    const groupOffsets = new Map<string, number>();
+    // Primeiro escolhe um termo de cada uma das seis categorias, toda vez.
+    for (let i = 0; i < PRIORITY_GROUP_ORDER.length; i++) {
+      const group = PRIORITY_GROUP_ORDER[i];
+      const terms = keywordsByPriorityGroup.get(group) || [];
+      if (!terms.length) continue;
+      const offset = keywordHour % terms.length;
+      groupOffsets.set(group, offset);
+      activeCatalogKeywords.push(terms[offset]);
+    }
+    // Completa as duas vagas restantes alternando categorias a cada hora.
+    let extraRound = 1;
+    while (activeCatalogKeywords.length < keywordBatchSize) {
+      let added = false;
+      for (let step = 0; step < PRIORITY_GROUP_ORDER.length && activeCatalogKeywords.length < keywordBatchSize; step++) {
+        const groupIndex = (keywordHour + step) % PRIORITY_GROUP_ORDER.length;
+        const group = PRIORITY_GROUP_ORDER[groupIndex];
+        const terms = keywordsByPriorityGroup.get(group) || [];
+        if (terms.length <= extraRound) continue;
+        activeCatalogKeywords.push(terms[(keywordHour + extraRound) % terms.length]);
+        added = true;
+      }
+      extraRound++;
+      if (!added || extraRound > 20) break;
+    }
+    const activeKeywordKeys = new Set<string>();
+    const dedupedActiveCatalogKeywords = activeCatalogKeywords.filter((entry: any) => {
+      const key = String(entry.group || "") + "|" + String(entry.keyword || "");
+      if (activeKeywordKeys.has(key)) return false;
+      activeKeywordKeys.add(key);
+      return true;
+    });
+    // Se algum termo repetido reduziu o lote, completa com termos únicos ainda não usados.
+    for (const group of PRIORITY_GROUP_ORDER) {
+      for (const entry of keywordsByPriorityGroup.get(group) || []) {
+        if (dedupedActiveCatalogKeywords.length >= keywordBatchSize) break;
+        const key = String(entry.group || "") + "|" + String(entry.keyword || "");
+        if (activeKeywordKeys.has(key)) continue;
+        activeKeywordKeys.add(key);
+        dedupedActiveCatalogKeywords.push(entry);
+      }
+      if (dedupedActiveCatalogKeywords.length >= keywordBatchSize) break;
+    }
+    activeCatalogKeywords.splice(0, activeCatalogKeywords.length, ...dedupedActiveCatalogKeywords.slice(0, keywordBatchSize));
     const seenCatalogIds = new Set<string>(resolved.map((r: any) => String(r.sourceId || "")));
     let catalogResolvedCount = 0;
     const catalogSearchResults = await runWithConcurrency(activeCatalogKeywords, async (entry: any) => {
@@ -2206,7 +2261,7 @@ Deno.serve(async (req) => {
       modo_busca: "ofertas_por_tipo_de_produto",
       ofertas,
       diagnostico: {
-        versao_busca: "430-auditoria-conversao-ml",
+        versao_busca: "436-rodizio-seis-categorias-ml",
         categorias_consultadas: diagnostics,
         destaques_recebidos: highlightEntries.length,
         destaques_resolvidos: resolved.length,
