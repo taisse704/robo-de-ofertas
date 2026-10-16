@@ -881,9 +881,10 @@ Deno.serve(async (req) => {
       for (const entry of content) {
         const entryType = String(entry?.type || "");
 
-        // O ranking mistura ITEM, PRODUCT e USER_PRODUCT.
-        // Para afiliados, usamos apenas PRODUCT com dados de catálogo.
-        if (entryType !== "PRODUCT") continue;
+        // O ranking atual do Mercado Livre pode devolver PRODUCT ou ITEM.
+        // Ambos são anúncios públicos aproveitáveis; USER_PRODUCT continua excluído
+        // por depender de contexto do vendedor/usuário.
+        if (entryType !== "PRODUCT" && entryType !== "ITEM") continue;
 
         const key = entryType + ":" + String(entry?.id || "");
         if (!entry?.id || seenSource.has(key)) continue;
@@ -1334,6 +1335,7 @@ Deno.serve(async (req) => {
         current,
         original,
         discount,
+        video_url: getVideoUrl(item),
         image: item.thumbnail || item.pictures?.[0]?.secure_url || item.pictures?.[0]?.url || null,
         permalink: item.permalink || null,
         promotion_id: promotionId,
@@ -1351,6 +1353,147 @@ Deno.serve(async (req) => {
           Math.max(0, 21 - position),
         oferta_tipo: discount > 0 || promotionId ? "promocao" : "mais_vendido"
       });
+    }
+
+    // Complementa o ranking de destaques com anúncios públicos pesquisáveis.
+    // Quando as categorias de "Mais vendidos" já estão quase todas cadastradas,
+    // essa segunda fonte permite descobrir anúncios novos sem apagar ofertas antigas.
+    const publicSearchDiagnostics: any[] = [];
+    const publicSearchCategories = categoriesToScan.slice(0, 24);
+    const publicSearchResults = await runWithConcurrency(
+      publicSearchCategories,
+      async (category: any) => {
+        const params = new URLSearchParams({
+          category: String(category.id),
+          limit: "50",
+          sort: "relevance"
+        });
+        const result = await getJson(
+          ML + "/sites/" + SITE_ID + "/search?" + params.toString(),
+          false
+        );
+        const rows = result.ok && Array.isArray(result.data?.results)
+          ? result.data.results
+          : [];
+        publicSearchDiagnostics.push({
+          categoria: category.nome,
+          categoria_id: category.id,
+          status: result.status,
+          resultados: rows.length
+        });
+        return { category, status: result.status, rows };
+      },
+      5
+    );
+
+    const supplementalSeenItems = new Set<string>([...existingItemIds, ...candidates.map((candidate: any) => String(candidate.external_id || "")).filter(Boolean)]);
+    for (const searchResult of publicSearchResults) {
+      const category = searchResult.category;
+      for (const item of searchResult.rows) {
+        const itemId = String(item?.id || "");
+        const price = Number(item?.price || 0);
+        if (!itemId.startsWith("MLB") || !Number.isFinite(price) || price <= 0) continue;
+        if (supplementalSeenItems.has(itemId) || existingItemIds.has(itemId)) continue;
+        supplementalSeenItems.add(itemId);
+
+        const catalogId = String(item?.catalog_product_id || itemId);
+        const originalNumber = Number(item?.original_price || 0);
+        const original = Number.isFinite(originalNumber) && originalNumber > price
+          ? originalNumber
+          : null;
+        const discount = original ? Math.round(((original - price) / original) * 100) : 0;
+        const dealIds = Array.isArray(item?.deal_ids) ? item.deal_ids : [];
+        const promotionId = dealIds.length ? String(dealIds[0]) : null;
+        if (somenteDescontos && discount <= 0 && !promotionId) continue;
+
+        candidates.push({
+          external_id: itemId,
+          product_external_id: catalogId,
+          title: String(item?.title || category.nome || "Produto Mercado Livre"),
+          current: price,
+          original,
+          discount,
+          image: getImageUrl(item?.thumbnail, item?.thumbnail_url, item?.pictures?.[0], item?.picture_id),
+          video_url: getVideoUrl(item?.video_url, item?.video, item?.videos, item?.media),
+          permalink: item?.permalink || null,
+          seller_id: item?.seller?.id ? String(item.seller.id) : null,
+          seller_name: item?.seller?.nickname ? String(item.seller.nickname) : null,
+          coupon_code: String(item?.coupon_code || item?.coupon?.code || "").trim() || null,
+          payment_method: null,
+          promotion_id: promotionId,
+          promotion_type: item?.listing_type_id || null,
+          free_shipping: item?.shipping?.free_shipping === true,
+          position: 1000 + (Number(item?.order_backend) || 0),
+          categoria_id: String(item?.category_id || category.id),
+          categoria_nome: category.nome,
+          categoria_grupo: category.grupo,
+          score: discount * 100 + (promotionId ? 25 : 0) +
+            (item?.shipping?.free_shipping === true ? 10 : 0),
+          oferta_tipo: discount > 0 || promotionId ? "promocao" : "mais_vendido"
+        });
+      }
+    }
+
+    // Se os destaques e as categorias só trouxerem produtos já cadastrados, complementa
+    // a busca por palavras-chave públicas para descobrir anúncios novos.
+    const contarCandidatosNovos = () => candidates.filter((item: any) => {
+      const productId = String(item.product_external_id || "");
+      const itemId = String(item.external_id || "");
+      return (!productId || !existingProductIds.has(productId)) &&
+        (!itemId || !existingItemIds.has(itemId));
+    }).length;
+    const publicKeywords = ["fone bluetooth", "air fryer", "organizador", "cozinha", "casa", "pet", "natal", "ventilador"];
+    for (let keywordIndex = 0; keywordIndex < publicKeywords.length && contarCandidatosNovos() < Math.max(limit * 2, 40); keywordIndex++) {
+      const keyword = publicKeywords[keywordIndex];
+      const params = new URLSearchParams({ q: keyword, limit: "50", sort: "relevance" });
+      const result = await getJson(ML + "/sites/" + SITE_ID + "/search?" + params.toString(), false);
+      const rows = result.ok && Array.isArray(result.data?.results) ? result.data.results as any[] : [];
+      publicSearchDiagnostics.push({
+        categoria: "Busca por palavra-chave: " + keyword,
+        categoria_id: keyword,
+        status: result.status,
+        resultados: rows.length,
+        origem: "palavra-chave"
+      });
+      for (const item of rows) {
+        const itemId = String(item?.id || "");
+        const price = Number(item?.price || 0);
+        if (!itemId.startsWith("MLB") || !Number.isFinite(price) || price <= 0) continue;
+        if (supplementalSeenItems.has(itemId) || existingItemIds.has(itemId)) continue;
+        const catalogId = String(item?.catalog_product_id || itemId);
+        if (existingProductIds.has(catalogId)) { supplementalSeenItems.add(itemId); continue; }
+        const originalNumber = Number(item?.original_price || 0);
+        const original = Number.isFinite(originalNumber) && originalNumber > price ? originalNumber : null;
+        const discount = original ? Math.round(((original - price) / original) * 100) : 0;
+        const dealIds = Array.isArray(item?.deal_ids) ? item.deal_ids : [];
+        const promotionId = dealIds.length ? String(dealIds[0]) : null;
+        if (somenteDescontos && discount <= 0 && !promotionId) continue;
+        supplementalSeenItems.add(itemId);
+        candidates.push({
+          external_id: itemId,
+          product_external_id: catalogId,
+          title: String(item?.title || keyword),
+          current: price,
+          original,
+          discount,
+          image: getImageUrl(item?.thumbnail, item?.thumbnail_url, item?.pictures?.[0], item?.picture_id),
+          video_url: getVideoUrl(item?.video_url, item?.video, item?.videos, item?.media),
+          permalink: item?.permalink || null,
+          seller_id: item?.seller?.id ? String(item.seller.id) : null,
+          seller_name: item?.seller?.nickname ? String(item.seller.nickname) : null,
+          coupon_code: String(item?.coupon_code || item?.coupon?.code || "").trim() || null,
+          payment_method: null,
+          promotion_id: promotionId,
+          promotion_type: item?.listing_type_id || null,
+          free_shipping: item?.shipping?.free_shipping === true,
+          position: 2000 + keywordIndex * 50 + (Number(item?.order_backend) || 0),
+          categoria_id: String(item?.category_id || keyword),
+          categoria_nome: keyword,
+          categoria_grupo: "busca_publica",
+          score: discount * 100 + (promotionId ? 25 : 0) + (item?.shipping?.free_shipping === true ? 10 : 0),
+          oferta_tipo: discount > 0 || promotionId ? "promocao" : "mais_vendido"
+        });
+      }
     }
 
     // Alguns produtos de catálogo não expõem imagem no detalhe do produto nem
@@ -1801,6 +1944,9 @@ Deno.serve(async (req) => {
         busca_imagem_diagnostico: imageLookupDiagnostics.slice(0, 20),
         produtos_catalogo_processados: resolved.filter((r) => Boolean(r.product?.buy_box_winner)).length,
         candidatos_com_preco: candidates.length,
+        buscas_publicas_categorias: publicSearchDiagnostics, 
+        buscas_publicas_resultados: publicSearchDiagnostics.reduce((sum: number, x: any) => sum + Number(x.resultados || 0), 0),
+        candidatos_complementares: candidates.length - resolved.length,
         duplicados_ignorados: duplicadosIgnorados,
         titulos_duplicados_ignorados: titulosDuplicadosIgnorados,
         existentes_ignorados: existentesIgnorados,
