@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Robô de Ofertas — Shopee + Mercado Livre",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "description": "Extensão única para captura de vídeos originais em anúncios Shopee/Mercado Livre e geração de links oficiais de afiliado do Mercado Livre.",
   "permissions": [
     "tabs",
@@ -12,7 +12,7 @@
     "https://mercadolivre.com.br/*",
     "https://*.shopee.com.br/*",
     "https://shopee.com.br/*",
-    "https://taisse704.github.io/robo-de-ofertas/*"
+    "https://taisse704.github.io/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -20,7 +20,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://taisse704.github.io/robo-de-ofertas/*"
+        "https://taisse704.github.io/*"
       ],
       "js": [
         "app-bridge.js"
