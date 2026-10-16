@@ -1318,19 +1318,43 @@ Deno.serve(async (req) => {
       });
       return { k, keyword: result.keyword, group: result.group, fresh: fresh.slice(0, 6) };
     });
-    // Distribui os testes entre palavras-chave: primeiro o melhor candidato de
-    // cada termo, depois o segundo etc. No máximo 16 resoluções por execução.
+    // Distribui as resoluções pelas seis categorias prioritárias em rodízio.
+    // Sem esta distribuição, o limite de 16 tentativas podia consumir todas as
+    // vagas nas primeiras palavras-chave e deixar categorias inteiras sem teste.
     const catalogCandidatesToResolve: any[] = [];
-    for (let rank = 0; rank < 6 && catalogCandidatesToResolve.length < 16; rank++) {
-      for (const group of catalogCandidatesByKeyword) {
-        if (group.fresh[rank] && catalogCandidatesToResolve.length < 16) {
-          catalogCandidatesToResolve.push({
-            ...group,
-            product: group.fresh[rank],
-            candidateRank: rank
-          });
+    const candidatesByPriorityGroup = new Map<string, any[]>();
+    const queuedCatalogIds = new Set<string>();
+    for (const group of catalogCandidatesByKeyword) {
+      const priorityGroup = String(group.group || "");
+      if (!candidatesByPriorityGroup.has(priorityGroup)) {
+        candidatesByPriorityGroup.set(priorityGroup, []);
+      }
+      for (let rank = 0; rank < Math.min(6, group.fresh.length); rank++) {
+        const product = group.fresh[rank];
+        const productId = String(product?.id || "");
+        if (!productId || queuedCatalogIds.has(productId)) continue;
+        queuedCatalogIds.add(productId);
+        candidatesByPriorityGroup.get(priorityGroup)!.push({
+          ...group,
+          product,
+          candidateRank: rank
+        });
+      }
+    }
+    let candidateRound = 0;
+    while (catalogCandidatesToResolve.length < 16) {
+      let addedThisRound = false;
+      for (const priorityGroup of PRIORITY_GROUP_ORDER) {
+        if (catalogCandidatesToResolve.length >= 16) break;
+        const queue = candidatesByPriorityGroup.get(priorityGroup) || [];
+        const candidate = queue.shift();
+        if (candidate) {
+          catalogCandidatesToResolve.push(candidate);
+          addedThisRound = true;
         }
       }
+      candidateRound++;
+      if (!addedThisRound || candidateRound > 100) break;
     }
     for (const candidate of catalogCandidatesToResolve) {
       const diagnostic = catalogSearchDiagnostics.find((x: any) => x.palavra === candidate.keyword);
