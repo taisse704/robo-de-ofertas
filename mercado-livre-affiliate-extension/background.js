@@ -172,9 +172,10 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   if (message.type === "ML_AFFILIATE_READY") {
     if (!sender.tab?.id || abasCapturaVideo.has(sender.tab.id)) return;
     mlTabId = sender.tab.id;
-    if (fila.length) {
-      processando = false;
-      limparTimeoutProcessamento();
+    // A injeção de recuperação pode emitir READY enquanto a fila já está
+    // processando o item atual. Não reinicie a fila nesse caso para evitar
+    // enviar o mesmo produto duas vezes.
+    if (fila.length && !processando) {
       setTimeout(() => enviarItemAtual().catch(() => {}), 300);
     }
     return;
