@@ -85,6 +85,16 @@ Deno.serve(async(req)=>{
    const p=await fetch(base+"/process-offers",{method:"POST",headers:h,body:JSON.stringify({user_id:u.user_id,limit:20,somente_descontos:false})});
    const pd=await p.json().catch(()=>({ok:false,error:"Resposta inválida"}));
 
+   // Tenta importar até 20 vídeos originais de anúncios do Mercado Livre/Shopee
+   // antes de gerar o conteúdo da rodada. Só grava URLs diretas confiáveis.
+   let vd:any={ok:false,skipped:true};
+   try{
+    const v=await fetch(base+"/import-product-videos",{method:"POST",headers:h,body:JSON.stringify({user_id:u.user_id,limit:20})});
+    vd=await v.json().catch(()=>({ok:false,error:"Resposta inválida na importação de vídeos"}));
+   }catch(e){
+    vd={ok:false,error:e?.message||"Falha na chamada de importação de vídeos"};
+   }
+
    const g=await fetch(base+"/generate-content",{method:"POST",headers:h,body:JSON.stringify({user_id:u.user_id})});
    const gd=await g.json().catch(()=>({ok:false,error:"Resposta inválida"}));
 
@@ -106,22 +116,59 @@ Deno.serve(async(req)=>{
     }
    }
 
-   // Fila automática: no máximo 1 publicação por intervalo configurado.
-   const now=Date.now();
-   // Prioridade da fila: maior comissão estimada em R$ primeiro.
-   // Em empate, maior desconto; depois, o conteúdo mais antigo.
+   // Fila automática: alterna a loja por rodada para que uma loja não monopolize a publicação.
+   // Não altera a busca; só escolhe entre conteúdos já prontos.
    const {data:conteudosProntos,error:ce}=await db.from("contents")
-     .select("id,titulo,status,created_at,offer_id,tipo,video_url,video_source,video_status,offers(comissao_estimada,comissao_percentual,desconto_percentual,preco_atual)")
+     .select("id,titulo,status,created_at,offer_id,tipo,video_url,video_source,video_status,offers(store_provider,affiliate_url,comissao_estimada,comissao_percentual,desconto_percentual,preco_atual)")
      .eq("user_id",u.user_id)
      .eq("status","pronto")
-     .limit(50);
+     .order("created_at",{ascending:true})
+     .limit(100);
    if(ce)throw ce;
 
-   const conteudosComVideoPronto=(conteudosProntos||[]).filter((c:any)=>c?.tipo!=="video_oferta" || (c?.video_url && ["pronto","original_disponivel"].includes(String(c?.video_status||""))));
+   const conteudosElegiveis=(conteudosProntos||[]).filter((c:any)=>{
+    const o=Array.isArray(c.offers)?c.offers[0]:c.offers;
+    const provider=String(o?.store_provider||"").toLowerCase();
+    // O Mercado Livre exige link oficial de afiliada; não deixa itens sem link travarem a fila.
+    if(provider==="mercadolivre" && !String(o?.affiliate_url||"").trim())return false;
+    return c?.tipo!=="video_oferta" || (c?.video_url && ["pronto","original_disponivel"].includes(String(c?.video_status||"")));
+   });
 
-   const conteudo=conteudosComVideoPronto.sort((a,b)=>{
+   // Usa a última rodada que chegou a selecionar um conteúdo para alternar de loja,
+   // mesmo se a tentativa anterior falhou. Assim uma falha do ML não prende a fila nele.
+   let ultimaLojaTentada="";
+   const {data:lastWorkerCycle,error:lastWorkerCycleError}=await db.from("robot_jobs")
+     .select("resultado")
+     .eq("user_id",u.user_id)
+     .eq("tipo","worker_cycle")
+     .not("resultado","is",null)
+     .order("created_at",{ascending:false})
+     .limit(10);
+   if(lastWorkerCycleError)throw lastWorkerCycleError;
+   const lastContentIds=(lastWorkerCycle||[])
+     .map((j:any)=>j?.resultado?.content_id)
+     .filter((id:any)=>typeof id==="string" && id.length>0);
+   if(lastContentIds.length){
+    const {data:lastContents,error:lastContentsError}=await db.from("contents")
+      .select("id,offers(store_provider)")
+      .in("id",lastContentIds);
+    if(lastContentsError)throw lastContentsError;
+    const lastById=new Map((lastContents||[]).map((c:any)=>[c.id,Array.isArray(c.offers)?c.offers[0]?.store_provider:c.offers?.store_provider]));
+    for(const id of lastContentIds){
+     const provider=String(lastById.get(id)||"").toLowerCase();
+     if(provider==="shopee" || provider==="mercadolivre"){ultimaLojaTentada=provider;break;}
+    }
+   }
+   const lojaPreferida=ultimaLojaTentada==="shopee"?"mercadolivre":ultimaLojaTentada==="mercadolivre"?"shopee":"mercadolivre";
+
+   const conteudo=conteudosElegiveis.sort((a:any,b:any)=>{
     const oa=Array.isArray(a.offers)?a.offers[0]:a.offers;
     const ob=Array.isArray(b.offers)?b.offers[0]:b.offers;
+    const pa=String(oa?.store_provider||"").toLowerCase();
+    const pb=String(ob?.store_provider||"").toLowerCase();
+    const rankA=pa===lojaPreferida?0:1;
+    const rankB=pb===lojaPreferida?0:1;
+    if(rankA!==rankB)return rankA-rankB;
     const ca=oa?.comissao_estimada != null ? Number(oa.comissao_estimada) : Number(oa?.preco_atual||0)*Number(oa?.comissao_percentual||0);
     const cb=ob?.comissao_estimada != null ? Number(ob.comissao_estimada) : Number(ob?.preco_atual||0)*Number(ob?.comissao_percentual||0);
     if(cb!==ca)return cb-ca;
@@ -134,9 +181,9 @@ Deno.serve(async(req)=>{
     await db.from("robot_jobs").update({
      status:"concluido",
      finalizado_em:new Date().toISOString(),
-     resultado:{fila:"vazia",shopee:sd,ofertas:pd,conteudo:gd}
+     resultado:{fila:"vazia",shopee:sd,ofertas:pd,videos:vd,conteudo:gd}
     }).eq("id",cycle.id).eq("user_id",u.user_id);
-    resultados.push({user_id:u.user_id,shopee:sd,ofertas:pd,conteudo:gd,fila:"vazia"});
+    resultados.push({user_id:u.user_id,shopee:sd,ofertas:pd,videos:vd,conteudo:gd,fila:"vazia"});
     continue;
    }
 
@@ -198,6 +245,7 @@ Deno.serve(async(req)=>{
     user_id:u.user_id,
     shopee:sd,
     ofertas:pd,
+    videos:vd,
     conteudo:gd,
     fila:qd?.ok?"publicado":"erro",
     content_id:conteudo.id,
