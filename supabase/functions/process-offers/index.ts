@@ -465,6 +465,12 @@ Deno.serve(async (req) => {
     }
 
     async function getCatalogJson(url: string) {
+      // Bloqueio preventivo: a busca textual pública do Mercado Livre
+      // retorna HTTP 403 neste projeto. Não enviar chamadas para esse endpoint.
+      if (/\/sites\/MLB\/search(?:\?|$)/i.test(url)) {
+        return { ok: false, status: 0, data: null, error: "Busca textual pública desativada após HTTP 403; use ranking/catálogo." };
+      }
+
       // Algumas rotas do catálogo/busca retornam 401/403 sem autenticação.
       // Tentamos a sessão oficial do Mercado Livre e, por último, o token da aplicação.
       let result = await getJson(url, false);
@@ -1653,35 +1659,12 @@ Deno.serve(async (req) => {
         }
 
         // Última tentativa: busca textual com correspondência exata ou forte.
+        // Não fazemos busca textual pública para recuperar imagem: o endpoint
+        // /sites/MLB/search retorna HTTP 403 nesta aplicação e não deve gerar
+        // chamadas repetidas nem poluir o diagnóstico. Usamos somente o item
+        // exato ou os dados do produto de catálogo.
         if (!imageItem) {
-          const params = new URLSearchParams({
-            q: String(candidate.title),
-            limit: "50",
-            sort: "relevance"
-          });
-          const result = await getCatalogJson(
-            ML + "/sites/" + SITE_ID + "/search?" + params.toString()
-          );
-          diagnostic.search_status = result.status;
-          if (result.ok && Array.isArray(result.data?.results)) {
-            const rows = result.data.results as any[];
-            const exact = rows.find((row: any) =>
-              String(row?.id || "") === itemId ||
-              String(row?.catalog_product_id || "") === String(candidate.product_external_id || "")
-            );
-            const close = exact || rows.find((row: any) => {
-              const price = Number(row?.price || 0);
-              return row?.id &&
-                titleSimilarity(candidate.title, row.title) >= 0.82 &&
-                price > 0 &&
-                Number(candidate.current) > 0 &&
-                Math.abs(price - Number(candidate.current)) / Number(candidate.current) <= 0.05;
-            });
-            if (close && getImageUrl(close.thumbnail, close.thumbnail_url, close.pictures?.[0], close.picture_id)) {
-              imageItem = close;
-              diagnostic.matched_by = exact ? "busca_id_exato" : "busca_titulo_preco";
-            }
-          }
+          diagnostic.search_status = "ignorada_endpoint_publico_403";
         }
 
         const image = imageItem
@@ -2027,6 +2010,7 @@ Deno.serve(async (req) => {
       modo_busca: "mais_vendidos_com_promocoes",
       ofertas,
       diagnostico: {
+        versao_busca: "417-ml-bloqueio-busca-publica-403",
         categorias_consultadas: diagnostics,
         destaques_recebidos: highlightEntries.length,
         destaques_resolvidos: resolved.length,
