@@ -5,11 +5,16 @@
   "description": "Extensão única para captura de vídeos originais em anúncios Shopee/Mercado Livre e geração de links oficiais de afiliado do Mercado Livre.",
   "permissions": [
     "tabs",
-    "storage"
+    "storage",
+    "scripting"
   ],
   "host_permissions": [
     "https://*.mercadolivre.com.br/*",
     "https://mercadolivre.com.br/*",
+    "https://*.mercadolivre.com/*",
+    "https://mercadolivre.com/*",
+    "https://*.mercadolibre.com/*",
+    "https://mercadolibre.com/*",
     "https://*.shopee.com.br/*",
     "https://shopee.com.br/*",
     "https://taisse704.github.io/*"
@@ -30,7 +35,11 @@
     {
       "matches": [
         "https://*.mercadolivre.com.br/*",
-        "https://mercadolivre.com.br/*"
+        "https://mercadolivre.com.br/*",
+        "https://*.mercadolivre.com/*",
+        "https://mercadolivre.com/*",
+        "https://*.mercadolibre.com/*",
+        "https://mercadolibre.com/*"
       ],
       "js": [
         "mercado-livre.js"
