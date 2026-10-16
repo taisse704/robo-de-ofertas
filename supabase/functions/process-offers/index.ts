@@ -1024,16 +1024,22 @@ Deno.serve(async (req) => {
     // Só usamos histórico explicitamente marcado como oferta realmente cadastrada.
     // Registros antigos eram gravados para candidatos apenas examinados e não podem
     // bloquear produtos novos. O histórico válido impede reaparições após exclusão.
-    const { data: validHistoryRows, error: validHistoryError } = await db
-      .from("offer_product_history")
-      .select("external_product_id,external_item_id,metadata")
-      .eq("user_id", userId)
-      .eq("provider", "mercadolivre")
-      .limit(5000);
-    if (validHistoryError) throw validHistoryError;
-    const validHistory = (validHistoryRows || []).filter((row: any) =>
-      row?.metadata?.registered_offer === true
-    );
+    // Lê todo o histórico em páginas, não apenas os primeiros 5.000 registros.
+    // Assim produtos antigos continuam bloqueados mesmo depois de excluídos da tela.
+    const validHistory: any[] = [];
+    const historyPageSize = 1000;
+    for (let historyOffset = 0; ; historyOffset += historyPageSize) {
+      const { data: historyPage, error: validHistoryError } = await db
+        .from("offer_product_history")
+        .select("external_product_id,external_item_id,metadata")
+        .eq("user_id", userId)
+        .eq("provider", "mercadolivre")
+        .range(historyOffset, historyOffset + historyPageSize - 1);
+      if (validHistoryError) throw validHistoryError;
+      const page = historyPage || [];
+      validHistory.push(...page.filter((row: any) => row?.metadata?.registered_offer === true));
+      if (page.length < historyPageSize) break;
+    }
     const historicalProductIds = new Set(validHistory.map((x: any) => String(x.external_product_id || "")).filter(Boolean));
     const historicalItemIds = new Set(validHistory.map((x: any) => String(x.external_item_id || "")).filter(Boolean));
 
@@ -1499,7 +1505,22 @@ Deno.serve(async (req) => {
     // Quando as categorias de "Mais vendidos" já estão quase todas cadastradas,
     // essa segunda fonte permite descobrir anúncios novos sem apagar ofertas antigas.
     const publicSearchDiagnostics: any[] = [];
-    const publicSearchCategories = categoriesToScan.slice(0, 24);
+    // Equilibra a busca pública: consulta as seis prioridades sem deixar
+    // eletrônicos consumir todas as vagas e reserva metade para substitutas.
+    const publicSearchCategories: any[] = [];
+    const publicSearchSeen = new Set<string>();
+    const addPublicCategory = (category: any) => {
+      const id = String(category?.id || "");
+      if (!id || publicSearchSeen.has(id) || publicSearchCategories.length >= 24) return;
+      publicSearchSeen.add(id);
+      publicSearchCategories.push(category);
+    };
+    for (const group of PRIORITY_GROUP_ORDER) {
+      categoriesToScan.filter((category: any) => category.grupo === group).slice(0, 2).forEach(addPublicCategory);
+    }
+    categoriesToScan.filter((category: any) => !PRIORITY_GROUP_ORDER.includes(String(category.grupo || ""))).slice(0, 12).forEach(addPublicCategory);
+    // Se não houver doze substitutas válidas, completa com as categorias prioritárias restantes.
+    categoriesToScan.forEach(addPublicCategory);
     const publicSearchResults = await runWithConcurrency(
       publicSearchCategories,
       async (category: any) => {
@@ -1817,18 +1838,22 @@ Deno.serve(async (req) => {
     let duplicadosIgnorados = 0;
     let titulosDuplicadosIgnorados = 0;
     let existentesIgnorados = 0;
+    const rejeitadosPorMotivo: Record<string, number> = {};
+    const rejeitar = (motivo: string) => {
+      rejeitadosPorMotivo[motivo] = (rejeitadosPorMotivo[motivo] || 0) + 1;
+    };
 
     for (const item of candidates) {
       const productId = String(item.product_external_id || "");
       const itemId = String(item.external_id || "");
 
-      if (!productId && !itemId) continue;
+      if (!productId && !itemId) { rejeitar("sem_id"); continue; }
       if (productId && seenProducts.has(productId)) {
-        duplicadosIgnorados++;
+        duplicadosIgnorados++; rejeitar("produto_duplicado_na_busca");
         continue;
       }
       if (itemId && seenItems.has(itemId)) {
-        duplicadosIgnorados++;
+        duplicadosIgnorados++; rejeitar("anuncio_duplicado_na_busca");
         continue;
       }
 
@@ -1842,7 +1867,7 @@ Deno.serve(async (req) => {
       );
       if (titleKey && (existingTitleKeys.has(titleKey) || seenTitleKeys.has(titleKey) || fuzzyDuplicate)) {
         titulosDuplicadosIgnorados++;
-        existentesIgnorados++;
+        existentesIgnorados++; rejeitar("titulo_igual_ou_muito_parecido");
         continue;
       }
 
@@ -1852,7 +1877,7 @@ Deno.serve(async (req) => {
         (productId && (existingProductIds.has(productId) || historicalProductIds.has(productId))) ||
         (itemId && (existingItemIds.has(itemId) || historicalItemIds.has(itemId)))
       ) {
-        existentesIgnorados++;
+        existentesIgnorados++; rejeitar("ja_cadastrado_ou_historico");
         continue;
       }
 
@@ -1861,8 +1886,8 @@ Deno.serve(async (req) => {
       // do grupo prioritário. Categorias substitutas têm uma vaga própria.
       const categoryKey = String(item.categoria_id || item.categoria_nome || "sem_categoria");
       const groupKey = String(item.categoria_grupo || "sem_grupo");
-      if ((categoryCounts.get(categoryKey) || 0) >= MAX_PER_CATEGORY) continue;
-      if ((groupCounts.get(groupKey) || 0) >= MAX_PER_CATEGORY_GROUP) continue;
+      if ((categoryCounts.get(categoryKey) || 0) >= MAX_PER_CATEGORY) { rejeitar("vaga_categoria_ocupada"); continue; }
+      if ((groupCounts.get(groupKey) || 0) >= MAX_PER_CATEGORY_GROUP) { rejeitar("vaga_grupo_prioritario_ocupada"); continue; }
 
       if (productId) seenProducts.add(productId);
       if (itemId) seenItems.add(itemId);
@@ -2109,6 +2134,7 @@ Deno.serve(async (req) => {
         duplicados_ignorados: duplicadosIgnorados,
         titulos_duplicados_ignorados: titulosDuplicadosIgnorados,
         existentes_ignorados: existentesIgnorados,
+        rejeitados_por_motivo: rejeitadosPorMotivo,
         em_promocao: candidates.filter((x) => x.discount > 0 || x.promotion_id).length,
         sem_preco: Math.max(0, resolved.length - candidates.length),
         erros_resolucao: resolutionErrors.slice(0, 25),
