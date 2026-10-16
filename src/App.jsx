@@ -478,7 +478,7 @@ export default function App() {
   async function importarVideosOriginais({ forcarNovaVerificacao = false } = {}) {
     if (importandoVideosOriginais) return;
     setImportandoVideosOriginais(true);
-    setMensagemConteudo("Conectando ao Supabase e procurando vídeos originais (lote de até 12 anúncios)...");
+    setMensagemConteudo("Conectando ao Supabase e procurando vídeos originais (lote de até 100 anúncios)...");
     try {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       if (sessionError) throw sessionError;
@@ -489,7 +489,7 @@ export default function App() {
       const response = await fetch(SUPABASE_URL + "/functions/v1/import-product-videos", {
         method: "POST",
         headers: { Authorization: "Bearer " + token, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ limit: 12, force_retry: !!forcarNovaVerificacao }),
+        body: JSON.stringify({ limit: 100, force_retry: !!forcarNovaVerificacao }),
         signal: AbortSignal.timeout(90000)
       });
       const importacao = await response.json().catch(() => ({}));
@@ -506,7 +506,7 @@ export default function App() {
         erro_ao_salvar: "falha ao salvar vídeo",
         erro_ao_marcar_consulta: "falha ao registrar consulta"
       }[status] || String(status || "sem diagnóstico"));
-      const linhasServidor = detalhesServidor.slice(0, 12).map((item) => {
+      const linhasServidor = detalhesServidor.slice(0, 100).map((item) => {
         const titulo = String(item.title || item.id || "Anúncio").slice(0, 100);
         const motivo = item.motivo ? " — " + String(item.motivo).slice(0, 180) : "";
         return "• " + nomeFonte(item.provider) + " | " + titulo + ": " + nomeStatus(item.status) + motivo;
@@ -524,7 +524,7 @@ export default function App() {
             .select("id,titulo,store_provider,store_product_url,url_produto,product_external_id,video_url")
             .eq("user_id", usuario.id)
             .in("id", idsVerificados)
-            .limit(12);
+            .limit(100);
           if (erroOfertas) throw new Error("Não consegui recuperar as URLs dos anúncios para a captura no navegador: " + erroOfertas.message);
           const ofertasParaNavegador = (ofertasVerificadas || [])
             .filter((o) => !o.video_url && ["shopee", "mercadolivre"].includes(String(o.store_provider || "").toLowerCase()))
@@ -560,7 +560,7 @@ export default function App() {
                 if (event.source !== window || data?.source !== "robo-de-ofertas") return;
                 if (data.type === "ROBO_VIDEO_CAPTURE_STARTED") {
                   if (timerInicial) clearTimeout(timerInicial);
-                  timerCaptura = setTimeout(() => terminar({ timeout: true }), 240000);
+                  timerCaptura = setTimeout(() => terminar({ timeout: true }), 1800000);
                 } else if (data.type === "ROBO_VIDEO_CAPTURE_RESULT") {
                   terminar({ results: Array.isArray(data.results) ? data.results : [], error: data.error || null });
                 }
