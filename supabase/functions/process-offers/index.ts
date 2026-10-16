@@ -999,11 +999,16 @@ Deno.serve(async (req) => {
     // a resolução antes de chegar aos produtos do catálogo.
     const unseenHighlights = highlightEntries.filter((entry: any) => {
       const id = String(entry?.id || "");
-      return id && !existingProductIds.has(id);
+      return id && !existingProductIds.has(id) &&
+        !historicalProductIds.has(id) && !historicalItemIds.has(id);
     });
     const knownHighlights = highlightEntries.filter((entry: any) => {
       const id = String(entry?.id || "");
-      return id && existingProductIds.has(id);
+      return id && (
+        existingProductIds.has(id) ||
+        historicalProductIds.has(id) ||
+        historicalItemIds.has(id)
+      );
     });
     const orderedHighlightEntries: any[] = [];
     let unseenIndex = 0;
@@ -1777,8 +1782,8 @@ Deno.serve(async (req) => {
       // Não deixa uma oferta já cadastrada ocupar uma das vagas de novidades.
       // Assim a função continua percorrendo o ranking para encontrar produtos novos.
       if (
-        (productId && existingProductIds.has(productId)) ||
-        (itemId && existingItemIds.has(itemId))
+        (productId && (existingProductIds.has(productId) || historicalProductIds.has(productId))) ||
+        (itemId && (existingItemIds.has(itemId) || historicalItemIds.has(itemId)))
       ) {
         existentesIgnorados++;
         continue;
