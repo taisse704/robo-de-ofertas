@@ -405,10 +405,25 @@ Deno.serve(async (req) => {
       if (!id) return null;
 
       if (type === "ITEM") {
+        // Quando a API bloqueia /items com HTTP 403, não repetimos a mesma
+        // chamada para centenas de anúncios. Continuamos com PRODUCT, que
+        // pode ser resolvido pelo catálogo oficial.
+        if (itemEndpointForbidden) {
+          return {
+            error: true,
+            sourceId: id,
+            sourceType: type,
+            status: 403,
+            message: "Endpoint /items bloqueado nesta execução; priorizando produtos de catálogo."
+          };
+        }
+
         const item = await getJson(
           ML + "/items/" + encodeURIComponent(id),
           true
         );
+
+        if (!item.ok && item.status === 403) itemEndpointForbidden = true;
 
         if (item.ok && item.data?.id) {
           return {
@@ -984,9 +999,9 @@ Deno.serve(async (req) => {
     );
 
 
-    // Alterna a prioridade entre produtos ainda não vistos e cadastrados:
-    // não deixa os primeiros 120 já conhecidos consumirem toda a resolução,
-    // mas continua reservando parte da busca para atualizar preços existentes.
+    // Alterna entre itens inéditos e conhecidos, mas prioriza PRODUCT:
+    // /items está retornando 403 para anúncios de terceiros e interrompia
+    // a resolução antes de chegar aos produtos do catálogo.
     const unseenHighlights = highlightEntries.filter((entry: any) => {
       const id = String(entry?.id || "");
       return id && !existingProductIds.has(id);
@@ -1007,7 +1022,15 @@ Deno.serve(async (req) => {
       }
       if (unseenIndex >= unseenHighlights.length && knownIndex >= knownHighlights.length) break;
     }
+    // PRODUCTs vêm primeiro, mantendo a ordem rotativa das categorias dentro
+    // de cada tipo. ITEMs só entram quando a API ainda permite consultá-los.
+    orderedHighlightEntries.sort((a: any, b: any) => {
+      const aType = String(a?.type || "") === "PRODUCT" ? 0 : 1;
+      const bType = String(b?.type || "") === "PRODUCT" ? 0 : 1;
+      return aType - bType;
+    });
 
+    let itemEndpointForbidden = false;
     const resolved: any[] = [];
     // Limita a resolução para evitar dezenas de lotes lentos quando a API do ML bloqueia itens.
     const targetResolved = Math.min(Math.max(limit * 4, 40), 80);
@@ -1053,10 +1076,9 @@ Deno.serve(async (req) => {
         if (resolved.length >= targetResolved) break;
       }
 
-      // Se vários itens seguidos retornam 403, insistir nos outros destaques
-      // repete a mesma falha e deixa a busca presa por mais de um minuto.
-      const blocked403 = resolutionErrors.filter((x: any) => Number(x.status) === 403).length;
-      if (blocked403 >= 8 && resolved.length < targetResolved) break;
+      // Não interromper a busca de catálogo só porque anúncios ITEM retornaram
+      // 403. Esses anúncios passam a ser ignorados, enquanto a varredura segue
+      // até encontrar produtos de catálogo suficientes ou acabar o ranking.
     }
 
     const catalogSearchDiagnostics: any[] = [];
