@@ -16,6 +16,11 @@ function isTrustedVideoUrl(raw: unknown, provider: string): raw is string {
     const u = new URL(raw);
     const host = u.hostname.toLowerCase();
     if (u.protocol !== "https:" || u.username || u.password) return false;
+    // Rejeita strings de URL que ainda contenham escapes JSON mal decodificados.
+    // Sem esta trava, uma URL quebrada sob mercadolivre.com.br podia ser aceita
+    // como vídeo só porque o caminho continha o texto "video-static-clips".
+    if (/u002f|u0026/i.test(u.pathname) ||
+        (host === "mercadolivre.com.br" && /video-static-clips\.mms\.mlstatic\.com/i.test(u.pathname))) return false;
     if (/\.(jpg|jpeg|png|gif|webp|avif|svg|bmp|json|js|html|htm|css|txt|xml)(?:$|[?#])/i.test(u.pathname)) return false;
     const trustedDomains = provider === "mercadolivre"
       ? ["mercadolivre.com.br", "mercadolibre.com", "mlstatic.com"]
