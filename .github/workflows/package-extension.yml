@@ -36,6 +36,13 @@ jobs:
             echo "ZIP já está atualizado."
             exit 0
           fi
+          # Sincroniza com main sem tentar mesclar ZIPs binários em paralelo.
+          git fetch origin main
+          git reset --soft origin/main
+          git add downloads/robo-de-ofertas-extensao-corrigida.zip
+          if git diff --cached --quiet; then
+            echo "O ZIP atual já foi publicado por outra execução."
+            exit 0
+          fi
           git commit -m "Gera ZIP atualizado da extensão"
-          git pull --rebase origin main
-          git push
+          git push origin HEAD:main
