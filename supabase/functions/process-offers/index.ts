@@ -382,11 +382,21 @@ Deno.serve(async (req) => {
     }
 
     async function getCatalogJson(url: string) {
-      // Catálogo é consultado primeiro sem autenticação do usuário.
-      // Isso evita depender de escopos do token de afiliado para dados públicos.
+      // Algumas rotas do catálogo/busca retornam 401/403 sem autenticação.
+      // Tentamos a sessão oficial do Mercado Livre e, por último, o token da aplicação.
       let result = await getJson(url, false);
-      if (!result.ok && result.status !== 401 && result.status !== 403) return result;
-      return await getJson(url, true);
+      if (result.ok || (result.status !== 401 && result.status !== 403)) return result;
+
+      result = await getJson(url, true);
+      if (result.ok || (result.status !== 401 && result.status !== 403)) return result;
+
+      const applicationToken = await getApplicationAccessToken().catch(() => "");
+      if (!applicationToken) return result;
+
+      return await getJson(url, false, {
+        Authorization: "Bearer " + applicationToken,
+        Accept: "application/json"
+      });
     }
 
     async function resolveHighlightEntry(entry: any) {
@@ -592,9 +602,8 @@ Deno.serve(async (req) => {
             sort: "relevance"
           });
 
-          const publicSearch = await getJson(
-            ML + "/sites/" + SITE_ID + "/search?" + params.toString(),
-            false
+          const publicSearch = await getCatalogJson(
+            ML + "/sites/" + SITE_ID + "/search?" + params.toString()
           );
 
           if (publicSearch.ok && Array.isArray(publicSearch.data?.results)) {
@@ -1368,9 +1377,8 @@ Deno.serve(async (req) => {
           limit: "50",
           sort: "relevance"
         });
-        const result = await getJson(
-          ML + "/sites/" + SITE_ID + "/search?" + params.toString(),
-          false
+        const result = await getCatalogJson(
+          ML + "/sites/" + SITE_ID + "/search?" + params.toString()
         );
         const rows = result.ok && Array.isArray(result.data?.results)
           ? result.data.results
@@ -1586,9 +1594,8 @@ Deno.serve(async (req) => {
             limit: "50",
             sort: "relevance"
           });
-          const result = await getJson(
-            ML + "/sites/" + SITE_ID + "/search?" + params.toString(),
-            false
+          const result = await getCatalogJson(
+            ML + "/sites/" + SITE_ID + "/search?" + params.toString()
           );
           diagnostic.search_status = result.status;
           if (result.ok && Array.isArray(result.data?.results)) {
