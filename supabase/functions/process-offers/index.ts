@@ -1788,9 +1788,9 @@ Deno.serve(async (req) => {
       (a, b) =>
         groupPriority(a.categoria_grupo) - groupPriority(b.categoria_grupo) ||
         a.position - b.position ||
-        Number(b.rating || 0) - Number(a.rating || 0) ||
-        b.discount - a.discount ||
         Number(Boolean(b.promotion_id)) - Number(Boolean(a.promotion_id)) ||
+        b.discount - a.discount ||
+        Number(b.rating || 0) - Number(a.rating || 0) ||
         Number(Boolean(b.free_shipping)) - Number(Boolean(a.free_shipping)) ||
         a.current - b.current ||
         b.score - a.score
