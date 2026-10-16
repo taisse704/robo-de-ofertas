@@ -1043,6 +1043,34 @@ Deno.serve(async (req) => {
       }
     }
 
+    const catalogSearchDiagnostics: any[] = [];
+    const catalogKeywords = ["fone bluetooth", "air fryer", "organizador", "cozinha", "casa", "pet", "ventilador", "cafeteira"];
+    const seenCatalogIds = new Set<string>(resolved.map((r: any) => String(r.sourceId || "")));
+    let catalogResolvedCount = 0;
+    for (let k = 0; k < catalogKeywords.length && catalogResolvedCount < 30; k++) {
+      const keyword = catalogKeywords[k];
+      const query = new URLSearchParams({ status: "active", site_id: SITE_ID, q: keyword, limit: "10" });
+      const search = await getCatalogJson(ML + "/products/search?" + query.toString());
+      const products = search.ok && Array.isArray(search.data?.results) ? search.data.results as any[] : [];
+      catalogSearchDiagnostics.push({ palavra: keyword, status: search.status, resultados: products.length });
+      const fresh = products.filter((p: any) => {
+        const id = String(p?.id || "");
+        return id.startsWith("MLB") && !seenCatalogIds.has(id) && !existingProductIds.has(id);
+      }).slice(0, 4);
+      const batch = await runWithConcurrency(fresh, (p: any) => resolveHighlightEntry({ id: String(p.id), type: "PRODUCT" }), 3);
+      for (let i = 0; i < batch.length; i++) {
+        const item = batch[i];
+        if (!item || item.error || !item.itemId) continue;
+        if (existingItemIds.has(String(item.itemId))) continue;
+        const sourceId = String(item.sourceId || fresh[i]?.id || "");
+        if (seenCatalogIds.has(sourceId)) continue;
+        seenCatalogIds.add(sourceId);
+        resolved.push({ ...item, highlight: { position: 2000 + k * 10 + i, categoria_id: keyword, categoria_nome: keyword, categoria_grupo: "busca_catalogo" } });
+        catalogResolvedCount++;
+        if (catalogResolvedCount >= 30) break;
+      }
+    }
+
     if (!resolved.length) {
       return json({
         ok: false,
@@ -1951,7 +1979,9 @@ Deno.serve(async (req) => {
         busca_imagem_diagnostico: imageLookupDiagnostics.slice(0, 20),
         produtos_catalogo_processados: resolved.filter((r) => Boolean(r.product?.buy_box_winner)).length,
         candidatos_com_preco: candidates.length,
-        buscas_publicas_categorias: publicSearchDiagnostics, 
+        buscas_publicas_categorias: publicSearchDiagnostics,
+      buscas_catalogo_palavras_chave: catalogSearchDiagnostics,
+      produtos_resolvidos_pela_busca_catalogo: catalogResolvedCount, 
         buscas_publicas_resultados: publicSearchDiagnostics.reduce((sum: number, x: any) => sum + Number(x.resultados || 0), 0),
         candidatos_complementares: candidates.length - resolved.length,
         duplicados_ignorados: duplicadosIgnorados,
