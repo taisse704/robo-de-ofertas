@@ -4,9 +4,7 @@ const ML = "https://api.mercadolibre.com";
 const SITE_ID = "MLB";
 const MAX = 20;
 
-// Ordem explícita das seis categorias prioritárias do robô.
-// As raízes múltiplas de eletrônicos e as raízes de ferramentas/veículos
-// compartilham a mesma vaga de grupo.
+// Grupos de busca usados apenas para distribuir termos; não são prioridades.
 const PRIORITY_GROUP_ORDER = [
   "Eletrônicos e acessórios",
   "Eletrodomésticos",
@@ -189,7 +187,7 @@ Deno.serve(async (req) => {
     if (!userId) return json({ ok: false, error: "user_id obrigatório." }, 400);
 
     const limit = Math.min(Math.max(Number(body?.limit) || 20, 1), MAX);
-    const somenteDescontos = body?.somente_descontos === true;
+    const somenteDescontos = false; // Busca ampla: não restringir resultados apenas a promoções.
 
     const { data: platform, error: pe } = await db
       .from("platforms")
@@ -455,15 +453,51 @@ Deno.serve(async (req) => {
       for (const token of aa) {
         if (bb.has(token)) { common++; shared.add(token); }
       }
-      if (titleSimilarity(a, b) >= 0.72) return true;
+      // Só considera repetição por título quando a semelhança é muito alta.
+      // Produtos de modelos/versões diferentes podem compartilhar palavras comuns.
+      if (titleSimilarity(a, b) >= 0.90) return true;
       const overlap = common / Math.min(aa.size, bb.size);
       const families = [
         ["escova", "secadora"], ["ar", "inverter"], ["ar", "condicionado"],
         ["air", "fryer"], ["fone", "bluetooth"], ["furadeira", "impacto"],
         ["cafeteira", "espresso"], ["maquina", "lavar"], ["smart", "tv"]
       ];
-      if (common >= 3 && overlap >= 0.5) return true;
+      if (common >= 4 && overlap >= 0.82) return true;
       return overlap >= 0.4 && families.some((family) => family.every((token) => shared.has(token)));
+    }
+
+    // Agrupa nomes comerciais diferentes que representam o mesmo tipo de produto.
+    // Serve apenas para diversificar uma rodada; não bloqueia a categoria para sempre.
+    function productFamilyKey(value: unknown) {
+      const t = normalizeText(value);
+      const words = new Set(t.split(" ").filter(Boolean));
+
+      // Unifica variações de aparadores e máquinas de cortar pelos.
+      // Essa chave é usada tanto na busca atual quanto no histórico de 7 dias.
+      const groomingTerms = [
+        "aparador", "aparadores", "groomer", "multigroom",
+        "barbeador", "barbeadores", "depilador", "depiladores",
+        "raspar", "raspador", "raspadores", "shaver", "trimmer"
+      ];
+      const isGrooming =
+        groomingTerms.some((token) => words.has(token)) ||
+        (words.has("maquina") &&
+          ["corte", "cortar", "cabelo", "pelos", "barba"].some((token) => words.has(token)));
+      if (isGrooming) return "cuidados_pessoais_aparadores";
+
+      const families = [
+        ["climatizador"], ["alforge"], ["escova", "carvao"],
+        ["microfone"], ["espelho", "banheiro"],
+        ["antena"], ["ar", "condicionado"], ["air", "fryer"],
+        ["fone", "bluetooth"], ["smartwatch"], ["camisa"], ["bermuda"],
+        ["celular"], ["carregador"], ["bateria"], ["furadeira"],
+        ["parafusadeira"], ["liquidificador"], ["jogo", "panelas"],
+        ["suporte", "celular"], ["ventilador"], ["cafeteira"]
+      ];
+      for (const family of families) {
+        if (family.every((token) => words.has(token))) return family.join("_");
+      }
+      return "";
     }
 
     async function getCatalogJson(url: string) {
@@ -699,6 +733,14 @@ Deno.serve(async (req) => {
               const matchId = String(match?.id || "");
               if (!matchId.startsWith("MLB")) continue;
 
+              // Nunca usar o vencedor de outro produto do catálogo sem confirmar
+              // que o nome corresponde ao produto original procurado.
+              const matchTitle = String(match?.name || match?.family_name || "").trim();
+              if (matchId !== id && titleSimilarity(productName, matchTitle) < 0.88) {
+                resolutionTrace.push("produto_alternativo_rejeitado_por_titulo_" + matchId);
+                continue;
+              }
+
               const detail = matchId === id
                 ? { ok: true, data }
                 : await getCatalogJson(ML + "/products/" + encodeURIComponent(matchId));
@@ -723,64 +765,10 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Último fallback: busca pública de anúncios pelo nome, aceitando
-        // somente títulos realmente próximos do produto do ranking.
-        if (productName) {
-          const params = new URLSearchParams({
-            q: productName,
-            limit: "50",
-            sort: "relevance"
-          });
-
-          const publicSearch = await getCatalogJson(
-            ML + "/sites/" + SITE_ID + "/search?" + params.toString()
-          );
-          resolutionTrace.push(
-            "busca_publica_http_" + String(publicSearch.status) +
-            "_resultados_" + String(Array.isArray(publicSearch.data?.results) ? publicSearch.data.results.length : 0)
-          );
-
-          if (publicSearch.ok && Array.isArray(publicSearch.data?.results)) {
-            const results = publicSearch.data.results as any[];
-            const catalogMatches = results.filter(
-              (item: any) =>
-                item?.id &&
-                String(item.id).startsWith("MLB") &&
-                String(item?.catalog_product_id || "") === id
-            );
-
-            const titleMatches = results.filter((item: any) => {
-              if (!item?.id || !String(item.id).startsWith("MLB")) return false;
-              return titleSimilarity(productName, item.title) >= 0.88;
-            });
-
-            const candidates = [...catalogMatches, ...titleMatches.filter(
-              (item: any) => !catalogMatches.some((m: any) => m.id === item.id)
-            )];
-
-            candidates.sort((a: any, b: any) => {
-              const aPrice = Number(a?.price);
-              const bPrice = Number(b?.price);
-              const aValid = Number.isFinite(aPrice) && aPrice > 0 ? 0 : 1;
-              const bValid = Number.isFinite(bPrice) && bPrice > 0 ? 0 : 1;
-              if (aValid !== bValid) return aValid - bValid;
-              return aPrice - bPrice;
-            });
-
-            const selected = candidates[0];
-            if (selected?.id) {
-              return {
-                itemId: String(selected.id),
-                sourceId: id,
-                sourceType: type,
-                product: data,
-                publicItem: selected,
-                fromPublicSearch: true
-              };
-            }
-          }
-        }
-
+        // A busca pública /sites/MLB/search está retornando HTTP 403 nesta aplicação.
+        // Não repetimos chamadas bloqueadas nem tentamos contornar a restrição.
+        // Só aceitamos produto correspondente resolvido pelas rotas oficiais de catálogo.
+        
         const failureStatus = (!product.ok || !product.data) ? product.status : 200;
         const failureMessage = (!product.ok || !product.data)
           ? "Detalhe do catálogo indisponível (HTTP " + String(product.status || "sem status") + "); nenhuma publicação válida foi encontrada nas rotas alternativas."
@@ -976,7 +964,7 @@ Deno.serve(async (req) => {
       for (const root of rootsResult.data) {
         const id = String(root?.id || "");
         const nome = String(root?.name || "").trim();
-        if (id && nome && !CATEGORY_EXCLUDE.has(nome) && PRIORITY_ROOTS[id]) {
+        if (id && nome && !CATEGORY_EXCLUDE.has(nome)) {
           rootCategories.push({ id, nome });
         }
       }
@@ -997,19 +985,13 @@ Deno.serve(async (req) => {
           { id: "MLB5672", nome: "Acessórios para Veículos" }
         ]).map((root: any) => ({
           ...root,
-          grupoPrioritario: PRIORITY_ROOTS[String(root.id)] || null
-        })).sort((a: any, b: any) => {
-          const ag = a.grupoPrioritario;
-          const bg = b.grupoPrioritario;
-          const ai = ag ? PRIORITY_GROUP_ORDER.indexOf(ag) : PRIORITY_GROUP_ORDER.length;
-          const bi = bg ? PRIORITY_GROUP_ORDER.indexOf(bg) : PRIORITY_GROUP_ORDER.length;
-          return ai - bi || String(a.nome).localeCompare(String(b.nome), "pt-BR");
-        });
+          grupoPrioritario: null
+        })).sort((a: any, b: any) => String(a.nome).localeCompare(String(b.nome), "pt-BR"));
 
     // Descobre subcategorias de forma concorrente e apenas nos nichos definidos.
     const discoveredRoots = await runWithConcurrency(roots, async (root: any) => {
       const leaves = await discoverLeafCategories(root);
-      const group = root.grupoPrioritario || ("Substituição: " + root.nome);
+      const group = root.nome;
       return leaves.length ? leaves.map((leaf: any) => ({ ...leaf, grupo: group })) : [];
     }, 5);
     const categoriesByGroup: any[][] = discoveredRoots.filter((group: any[]) => group.length);
@@ -1025,9 +1007,18 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Não usar rankings genéricos, pois retornam subcategorias irrelevantes.
-    // A busca principal é por tipo de produto nas cinco categorias definidas.
-    const categoriesToScan: any[] = [];
+    // Usa rankings de folhas reais das seis categorias prioritárias.
+    // A lista já foi distribuída em rodízio entre os grupos, evitando que um
+    // único nicho consuma todas as consultas ou o limite de destaques.
+    // Não usar rankings genéricos de raízes amplas: eles trazem itens irrelevantes.
+    const validHighlightCategories = highlightCategories.filter(
+      (category: any) => !INVALID_HIGHLIGHT_CATEGORY_IDS.has(String(category.id || ""))
+    );
+    const categoryRotationOffset = Math.floor(Date.now() / 3600000) % Math.max(1, validHighlightCategories.length);
+    const rotatedHighlightCategories = validHighlightCategories.length
+      ? [...validHighlightCategories.slice(categoryRotationOffset), ...validHighlightCategories.slice(0, categoryRotationOffset)]
+      : [];
+    const categoriesToScan: any[] = rotatedHighlightCategories.slice(0, 24);
 
     // Consulta os rankings em paralelo, mas processa os resultados na ordem prioritária.
     const highlightFetches = await runWithConcurrency(categoriesToScan, async (category: any) => ({
@@ -1123,7 +1114,7 @@ Deno.serve(async (req) => {
     for (let historyOffset = 0; ; historyOffset += historyPageSize) {
       const { data: historyPage, error: validHistoryError } = await db
         .from("offer_product_history")
-        .select("external_product_id,external_item_id,metadata")
+        .select("external_product_id,external_item_id,product_title,metadata,last_seen_at")
         .eq("user_id", userId)
         .eq("provider", "mercadolivre")
         .range(historyOffset, historyOffset + historyPageSize - 1);
@@ -1134,6 +1125,20 @@ Deno.serve(async (req) => {
     }
     const historicalProductIds = new Set(validHistory.map((x: any) => String(x.external_product_id || "")).filter(Boolean));
     const historicalItemIds = new Set(validHistory.map((x: any) => String(x.external_item_id || "")).filter(Boolean));
+    const historicalTitles = validHistory.map((x: any) => String(x.product_title || "")).filter(Boolean);
+    // Evita voltar à mesma família logo nas buscas seguintes.
+    // A janela considera apenas ofertas realmente cadastradas no histórico.
+    const FAMILY_COOLDOWN_DAYS = 7;
+    const familyCooldownCutoff = Date.now() - FAMILY_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+    const recentHistoricalFamilies = new Set(
+      validHistory
+        .filter((x: any) => {
+          const seenAt = Date.parse(String(x.last_seen_at || ""));
+          return Number.isFinite(seenAt) && seenAt >= familyCooldownCutoff;
+        })
+        .map((x: any) => productFamilyKey(x.product_title))
+        .filter(Boolean)
+    );
 
     const existingItemIds = new Set(
       (existingOffers || [])
@@ -1284,66 +1289,42 @@ Deno.serve(async (req) => {
       { keyword: "cafeteira eletrica", group: "Eletrodomésticos" },
       { keyword: "ventilador", group: "Eletrodomésticos" }
     ];
-    // Lote pequeno e rotativo: todas as seis categorias são consultadas em cada execução.
-    // A rotação anterior pegava oito termos consecutivos e podia passar uma execução
-    // inteira consultando só Beleza/Ferramentas ou outras categorias adjacentes.
+    // Termos de catálogo em rodízio equilibrado entre os grupos, sem prioridade fixa.
     const keywordBatchSize = 12;
     const keywordHour = Math.floor(Date.now() / 3600000);
-    const keywordsByPriorityGroup = new Map<string, any[]>();
-    for (const group of PRIORITY_GROUP_ORDER) keywordsByPriorityGroup.set(group, []);
     const uniqueKeywordKeys = new Set<string>();
-    for (const entry of catalogKeywords) {
+    const allUniqueCatalogKeywords = catalogKeywords.filter((entry: any) => {
       const key = String(entry.group || "") + "|" + String(entry.keyword || "");
-      if (uniqueKeywordKeys.has(key)) continue;
+      if (uniqueKeywordKeys.has(key)) return false;
       uniqueKeywordKeys.add(key);
-      if (!keywordsByPriorityGroup.has(entry.group)) keywordsByPriorityGroup.set(entry.group, []);
-      keywordsByPriorityGroup.get(entry.group)!.push(entry);
-    }
-    const activeCatalogKeywords: any[] = [];
-    const groupOffsets = new Map<string, number>();
-    // Primeiro escolhe um termo de cada uma das seis categorias, toda vez.
-    for (let i = 0; i < PRIORITY_GROUP_ORDER.length; i++) {
-      const group = PRIORITY_GROUP_ORDER[i];
-      const terms = keywordsByPriorityGroup.get(group) || [];
-      if (!terms.length) continue;
-      const offset = keywordHour % terms.length;
-      groupOffsets.set(group, offset);
-      activeCatalogKeywords.push(terms[offset]);
-    }
-    // Completa as duas vagas restantes alternando categorias a cada hora.
-    let extraRound = 1;
-    while (activeCatalogKeywords.length < keywordBatchSize) {
-      let added = false;
-      for (let step = 0; step < PRIORITY_GROUP_ORDER.length && activeCatalogKeywords.length < keywordBatchSize; step++) {
-        const groupIndex = (keywordHour + step) % PRIORITY_GROUP_ORDER.length;
-        const group = PRIORITY_GROUP_ORDER[groupIndex];
-        const terms = keywordsByPriorityGroup.get(group) || [];
-        if (terms.length <= extraRound) continue;
-        activeCatalogKeywords.push(terms[(keywordHour + extraRound) % terms.length]);
-        added = true;
-      }
-      extraRound++;
-      if (!added || extraRound > 20) break;
-    }
-    const activeKeywordKeys = new Set<string>();
-    const dedupedActiveCatalogKeywords = activeCatalogKeywords.filter((entry: any) => {
-      const key = String(entry.group || "") + "|" + String(entry.keyword || "");
-      if (activeKeywordKeys.has(key)) return false;
-      activeKeywordKeys.add(key);
       return true;
     });
-    // Se algum termo repetido reduziu o lote, completa com termos únicos ainda não usados.
-    for (const group of PRIORITY_GROUP_ORDER) {
-      for (const entry of keywordsByPriorityGroup.get(group) || []) {
-        if (dedupedActiveCatalogKeywords.length >= keywordBatchSize) break;
-        const key = String(entry.group || "") + "|" + String(entry.keyword || "");
-        if (activeKeywordKeys.has(key)) continue;
-        activeKeywordKeys.add(key);
-        dedupedActiveCatalogKeywords.push(entry);
-      }
-      if (dedupedActiveCatalogKeywords.length >= keywordBatchSize) break;
+    const keywordBuckets = new Map<string, any[]>();
+    for (const entry of allUniqueCatalogKeywords) {
+      const group = String(entry.group || "Outros");
+      if (!keywordBuckets.has(group)) keywordBuckets.set(group, []);
+      keywordBuckets.get(group)!.push(entry);
     }
-    activeCatalogKeywords.splice(0, activeCatalogKeywords.length, ...dedupedActiveCatalogKeywords.slice(0, keywordBatchSize));
+    const keywordGroups = [...keywordBuckets.keys()].sort((a, b) => a.localeCompare(b, "pt-BR"));
+    if (keywordGroups.length) {
+      const groupOffset = keywordHour % keywordGroups.length;
+      keywordGroups.push(...keywordGroups.splice(0, groupOffset));
+    }
+    const dedupedActiveCatalogKeywords: any[] = [];
+    let keywordRound = 0;
+    while (dedupedActiveCatalogKeywords.length < keywordBatchSize) {
+      let added = false;
+      for (const group of keywordGroups) {
+        const entry = (keywordBuckets.get(group) || [])[keywordRound];
+        if (!entry) continue;
+        dedupedActiveCatalogKeywords.push(entry);
+        added = true;
+        if (dedupedActiveCatalogKeywords.length >= keywordBatchSize) break;
+      }
+      keywordRound++;
+      if (!added) break;
+    }
+    const activeCatalogKeywords = dedupedActiveCatalogKeywords.slice(0, keywordBatchSize);
     const seenCatalogIds = new Set<string>(resolved.map((r: any) => String(r.sourceId || "")));
     let catalogResolvedCount = 0;
     const catalogSearchResults = await runWithConcurrency(activeCatalogKeywords, async (entry: any) => {
@@ -1352,39 +1333,15 @@ Deno.serve(async (req) => {
       const products = search.ok && Array.isArray(search.data?.results) ? search.data.results as any[] : [];
       return { keyword: entry.keyword, group: entry.group, search, products };
     }, 4);
-    // Busca anúncios (ofertas) por palavra-chave em paralelo com o catálogo.
-    // Os anúncios são mantidos apenas quando a API retorna item, preço e título.
-    const publicOfferSearchResults = await runWithConcurrency(activeCatalogKeywords, async (entry: any) => {
-      const query = new URLSearchParams({ q: entry.keyword, limit: "5", sort: "relevance" });
-      const search = await getCatalogJson(ML + "/sites/" + SITE_ID + "/search?" + query.toString());
-      const items = search.ok && Array.isArray(search.data?.results) ? search.data.results as any[] : [];
-      return { keyword: entry.keyword, group: entry.group, search, items };
-    }, 5);
-    const publicOfferDiagnostics = publicOfferSearchResults.map((result: any) => ({
-      palavra: result.keyword, grupo: result.group, status: result.search.status,
-      resultados: result.items.length
-    }));
-    for (const result of publicOfferSearchResults) {
-      for (const item of result.items) {
-        const itemId = String(item?.id || "");
-        const price = Number(item?.price);
-        if (!itemId.startsWith("MLB") || !item?.title || !Number.isFinite(price) || price <= 0) continue;
-        if (existingItemIds.has(itemId) || resolved.some((r: any) => String(r.itemId) === itemId)) continue;
-        resolved.push({
-          itemId,
-          sourceId: itemId,
-          sourceType: "ITEM",
-          item,
-          publicItem: item,
-          highlight: {
-            position: 3000 + resolved.length,
-            categoria_id: result.keyword,
-            categoria_nome: result.keyword,
-            categoria_grupo: result.group
-          }
-        });
-      }
-    }
+    // A busca pública de anúncios retornou HTTP 403 repetidamente.
+    // Não fazemos 12 chamadas bloqueadas por execução; a descoberta continua
+    // pela busca oficial de catálogo (/products/search) e pelos vencedores do catálogo.
+    const publicOfferDiagnostics = [{
+      palavra: "endpoint /sites/MLB/search",
+      grupo: "todas",
+      status: "ignorado_http_403_conhecido",
+      resultados: 0
+    }];
 
     // Não limitar a resolução aos dois primeiros produtos de cada termo:
     // produtos de catálogo ativos podem não ter anúncio vencedor. Reunimos mais
@@ -1413,44 +1370,22 @@ Deno.serve(async (req) => {
       });
       return { k, keyword: result.keyword, group: result.group, fresh: fresh.slice(0, 10) };
     });
-    // Distribui as resoluções pelas seis categorias prioritárias em rodízio.
-    // Sem esta distribuição, o limite de 16 tentativas podia consumir todas as
-    // vagas nas primeiras palavras-chave e deixar categorias inteiras sem teste.
+    // Junta candidatos de todas as palavras-chave; não há vagas reservadas por nicho.
     const catalogCandidatesToResolve: any[] = [];
-    const candidatesByPriorityGroup = new Map<string, any[]>();
     const queuedCatalogIds = new Set<string>();
     for (const group of catalogCandidatesByKeyword) {
-      const priorityGroup = String(group.group || "");
-      if (!candidatesByPriorityGroup.has(priorityGroup)) {
-        candidatesByPriorityGroup.set(priorityGroup, []);
-      }
       for (let rank = 0; rank < Math.min(6, group.fresh.length); rank++) {
         const product = group.fresh[rank];
         const productId = String(product?.id || "");
         if (!productId || queuedCatalogIds.has(productId)) continue;
         queuedCatalogIds.add(productId);
-        candidatesByPriorityGroup.get(priorityGroup)!.push({
-          ...group,
-          product,
-          candidateRank: rank
-        });
+        catalogCandidatesToResolve.push({ ...group, product, candidateRank: rank });
       }
     }
-    let candidateRound = 0;
-    while (catalogCandidatesToResolve.length < 36) {
-      let addedThisRound = false;
-      for (const priorityGroup of PRIORITY_GROUP_ORDER) {
-        if (catalogCandidatesToResolve.length >= 36) break;
-        const queue = candidatesByPriorityGroup.get(priorityGroup) || [];
-        const candidate = queue.shift();
-        if (candidate) {
-          catalogCandidatesToResolve.push(candidate);
-          addedThisRound = true;
-        }
-      }
-      candidateRound++;
-      if (!addedThisRound || candidateRound > 100) break;
-    }
+    catalogCandidatesToResolve.sort((a: any, b: any) =>
+      Number(a.candidateRank || 0) - Number(b.candidateRank || 0)
+    );
+    catalogCandidatesToResolve.splice(36);
     for (const candidate of catalogCandidatesToResolve) {
       const diagnostic = catalogSearchDiagnostics.find((x: any) => x.palavra === candidate.keyword);
       if (diagnostic) diagnostic.candidatos_tentados++;
@@ -1508,7 +1443,7 @@ Deno.serve(async (req) => {
         limite: limit,
         ofertas: [],
         diagnostico: {
-          versao_busca: "432-catalogo-varios-candidatos",
+          versao_busca: "456-agrupa-aparadores-e-evita-repeticoes-por-7-dias",
           categorias_consultadas: diagnostics,
           destaques_recebidos: highlightEntries.length,
           destaques_resolvidos: resolved.length,
@@ -1633,7 +1568,6 @@ Deno.serve(async (req) => {
       // /items/{id} em publicação de terceiro.
       if (r.publicItem && !r.product?.buy_box_winner) {
         const item = r.publicItem;
-        if (!isRelevantPriorityProduct(r.highlight?.categoria_grupo, item?.title, r.highlight?.categoria_nome)) continue;
         const current = Number(item.price);
         if (!Number.isFinite(current) || current <= 0) continue;
 
@@ -1649,12 +1583,12 @@ Deno.serve(async (req) => {
             ? String(item.deal_ids[0])
             : null;
 
-        if (somenteDescontos && discount <= 0 && !promotionId) continue;
 
         const freeShipping = item?.shipping?.free_shipping === true ||
           item?.shipping?.tags?.includes("mandatory_free_shipping");
         const position = Number(r.highlight?.position) || 999;
         const productId = String(r.sourceId);
+        const officialStoreId = item?.official_store_id || r.product?.official_store_id || null;
 
         candidates.push({
           external_id: String(item.id || item.item_id || item.itemId || ""),
@@ -1672,6 +1606,7 @@ Deno.serve(async (req) => {
           promotion_type: item.listing_type_id || null,
           free_shipping: freeShipping,
           position,
+          official_store_id: officialStoreId,
           categoria_id: r.highlight?.categoria_id || item.category_id || r.product?.category_id || null,
           categoria_nome: r.highlight?.categoria_nome || null,
           categoria_grupo: r.highlight?.categoria_grupo || null,
@@ -1691,7 +1626,6 @@ Deno.serve(async (req) => {
         const product = r.product;
         const winner = product.buy_box_winner;
         const priorityTitle = String(itemMap.get(String(winner.item_id || winner.id || r.itemId || product.id))?.title || product.name || product.family_name || "");
-        if (!isRelevantPriorityProduct(r.highlight?.categoria_grupo, priorityTitle, r.highlight?.categoria_nome)) continue;
         const externalItemId = String(winner.item_id || winner.id || r.itemId || product.id);
         const itemDetails = itemMap.get(externalItemId) || {};
         const salePrice = salePriceMap.get(externalItemId) || {};
@@ -1745,8 +1679,7 @@ Deno.serve(async (req) => {
         ).trim();
         const position = Number(r.highlight?.position) || 999;
 
-        if (somenteDescontos && discount <= 0 && !promotionId) continue;
-
+  
         candidates.push({
           external_id: externalItemId,
           product_external_id: String(product.id),
@@ -1771,6 +1704,7 @@ Deno.serve(async (req) => {
           promotion_type: salePrice?.metadata?.promotion_type || (promotionId ? "deal" : (winner.listing_type_id || null)),
           free_shipping: freeShipping,
           position,
+          official_store_id: itemDetails?.official_store_id || winner?.official_store_id || product?.official_store_id || null,
           categoria_id: r.highlight?.categoria_id || winner.category_id || null,
           categoria_nome: r.highlight?.categoria_nome || null,
           categoria_grupo: r.highlight?.categoria_grupo || null,
@@ -1787,7 +1721,6 @@ Deno.serve(async (req) => {
       // Fallback para ITEM não pertencente ao catálogo.
       const item = itemMap.get(String(r.itemId));
       if (!item) continue;
-      if (!isRelevantPriorityProduct(r.highlight?.categoria_grupo, item?.title, r.highlight?.categoria_nome)) continue;
 
       const salePrice = salePriceMap.get(String(item.id));
       const itemPrices = itemPricesMap.get(String(item.id)) || {};
@@ -1824,7 +1757,6 @@ Deno.serve(async (req) => {
         item.listing_type_id ||
         null;
 
-      if (somenteDescontos && discount <= 0 && !promotionId) continue;
 
       const freeShipping =
         item?.shipping?.free_shipping === true ||
@@ -1847,6 +1779,7 @@ Deno.serve(async (req) => {
         promotion_type: promotionType,
         free_shipping: freeShipping,
         position,
+        official_store_id: item?.official_store_id || r.product?.official_store_id || null,
         categoria_id: r.highlight?.categoria_id || item.category_id || null,
         categoria_nome: r.highlight?.categoria_nome || null,
         categoria_grupo: r.highlight?.categoria_grupo || null,
@@ -1983,19 +1916,14 @@ Deno.serve(async (req) => {
       imagensEnriquecidas++;
     }
 
-    // Seleciona as melhores ofertas globalmente, sem priorizar uma categoria.
-    // Promoção e desconto real vêm antes; categoria serve apenas como desempate.
-    const groupPriority = (value: unknown) => {
-      const idx = PRIORITY_GROUP_ORDER.indexOf(String(value || ""));
-      return idx >= 0 ? idx : PRIORITY_GROUP_ORDER.length;
-    };
+    // Mais vendidos primeiro pelo ranking oficial; Loja Oficial é um sinal positivo
+    // secundário, seguido de promoção, desconto e avaliação. Nenhum nicho prevalece.
     candidates.sort(
       (a, b) =>
-        groupPriority(a.categoria_grupo) - groupPriority(b.categoria_grupo) ||
-        a.position - b.position ||
+        Number(a.position || 9999) - Number(b.position || 9999) ||
+        Number(Boolean(b.official_store_id)) - Number(Boolean(a.official_store_id)) ||
         Number(Boolean(b.promotion_id)) - Number(Boolean(a.promotion_id)) ||
-        b.discount - a.discount ||
-        Number(b.score || 0) - Number(a.score || 0) ||
+        Number(b.discount || 0) - Number(a.discount || 0) ||
         Number(b.rating || 0) - Number(a.rating || 0) ||
         Number(Boolean(b.free_shipping)) - Number(Boolean(a.free_shipping)) ||
         a.current - b.current
@@ -2007,13 +1935,13 @@ Deno.serve(async (req) => {
     const seenProducts = new Set<string>();
     const seenItems = new Set<string>();
     const categoryCounts = new Map<string, number>();
+    const categoryGroupCounts = new Map<string, number>();
     const groupCounts = new Map<string, number>();
-    // Até dois produtos por categoria/grupo em cada busca.
-    // Eletrônicos e Ferramentas/Automotivo compartilham uma única vaga.
-    const MAX_PER_CATEGORY = 1;
-    const MAX_PER_CATEGORY_GROUP = 1;
-    // Distribui as até 20 vagas entre os seis grupos prioritários.
-    const MAX_PER_GROUP = 1;
+    // Diversidade sem limitar cada grupo a apenas um produto.
+    // Até 3 por categoria e 4 por grupo prioritário, respeitando o limite global de 20.
+    const MAX_PER_CATEGORY = 3;
+    const MAX_PER_CATEGORY_GROUP = 3;
+    const MAX_PER_GROUP = 4;
     const normalizeTitleKey = (value: unknown) => String(value || "").trim().toLowerCase();
     const existingTitleKeys = new Set(
       (existingOffers || [])
@@ -2023,6 +1951,7 @@ Deno.serve(async (req) => {
     const existingTitles = (existingOffers || []).map((item: any) => String(item?.titulo || "")).filter(Boolean);
     const seenTitleKeys = new Set<string>();
     const seenTitles: string[] = [];
+    const seenProductFamilies = new Set<string>();
     let duplicadosIgnorados = 0;
     let titulosDuplicadosIgnorados = 0;
     let existentesIgnorados = 0;
@@ -2036,6 +1965,12 @@ Deno.serve(async (req) => {
       const itemId = String(item.external_id || "");
 
       if (!productId && !itemId) { rejeitar("sem_id"); continue; }
+      // Para ofertas novas, exigir desconto real, promoção identificada ou cupom.
+      // Não cadastra preço cheio como se fosse uma oferta; atualizações existentes seguem preservadas.
+      if (Number(item.discount || 0) <= 0 && !item.promotion_id && !item.coupon_code) {
+        rejeitar("sem_promocao_real");
+        continue;
+      }
       if (productId && seenProducts.has(productId)) {
         duplicadosIgnorados++; rejeitar("produto_duplicado_na_busca");
         continue;
@@ -2050,9 +1985,9 @@ Deno.serve(async (req) => {
       // toda a busca com erro PostgreSQL 23505.
       const titleKey = normalizeTitleKey(item.title);
       const fuzzyDuplicate = String(item.title || "").trim() && (
-        // Não bloqueia um anúncio novo só porque o título é parecido com oferta antiga.
-        // IDs exatos continuam protegendo contra repetição; títulos parecidos só valem na rodada.
-        seenTitles.some((title: string) => isNearDuplicateTitle(title, item.title))
+        seenTitles.some((title: string) => isNearDuplicateTitle(title, item.title)) ||
+        existingTitles.some((title: string) => isNearDuplicateTitle(title, item.title)) ||
+        historicalTitles.some((title: string) => isNearDuplicateTitle(title, item.title))
       );
       if (titleKey && (existingTitleKeys.has(titleKey) || seenTitleKeys.has(titleKey) || fuzzyDuplicate)) {
         titulosDuplicadosIgnorados++;
@@ -2070,21 +2005,28 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Uma vaga por categoria e por grupo principal. As subcategorias de
-      // eletrônicos e as raízes de ferramentas/veículos compartilham a vaga
-      // do grupo prioritário. Categorias substitutas têm uma vaga própria.
+      // Diversifica a rodada para não preencher as novidades com vários modelos
+      // da mesma família (ex.: três climatizadores em uma única busca).
+      const familyKey = productFamilyKey(item.title);
+      if (familyKey && recentHistoricalFamilies.has(familyKey)) {
+        rejeitar("familia_de_produto_repetida_nos_ultimos_7_dias");
+        continue;
+      }
+      if (familyKey && seenProductFamilies.has(familyKey)) {
+        rejeitar("familia_de_produto_repetida_na_busca");
+        continue;
+      }
       const categoryKey = String(item.categoria_id || item.categoria_nome || "sem_categoria");
       const groupKey = String(item.categoria_grupo || "sem_grupo");
-      const categoryLimit = MAX_PER_CATEGORY;
-      const groupLimit = MAX_PER_GROUP;
-      if ((categoryCounts.get(categoryKey) || 0) >= categoryLimit) { rejeitar("vaga_categoria_ocupada"); continue; }
-      if ((groupCounts.get(groupKey) || 0) >= groupLimit) { rejeitar("vaga_grupo_prioritario_ocupada"); continue; }
+      const categoryGroupKey = groupKey + "::" + categoryKey;
 
       if (productId) seenProducts.add(productId);
       if (itemId) seenItems.add(itemId);
       if (titleKey) seenTitleKeys.add(titleKey);
       if (String(item.title || "").trim()) seenTitles.push(String(item.title));
+      if (familyKey) seenProductFamilies.add(familyKey);
       categoryCounts.set(categoryKey, (categoryCounts.get(categoryKey) || 0) + 1);
+      categoryGroupCounts.set(categoryGroupKey, (categoryGroupCounts.get(categoryGroupKey) || 0) + 1);
       groupCounts.set(groupKey, (groupCounts.get(groupKey) || 0) + 1);
       unique.push(item);
 
@@ -2301,7 +2243,7 @@ Deno.serve(async (req) => {
       modo_busca: "ofertas_por_tipo_de_produto",
       ofertas,
       diagnostico: {
-        versao_busca: "440-corrige-limite-interno-de-resolucao",
+        versao_busca: "456-agrupa-aparadores-e-evita-repeticoes-por-7-dias",
         categorias_consultadas: diagnostics,
         destaques_recebidos: highlightEntries.length,
         destaques_resolvidos: resolved.length,
@@ -2324,7 +2266,7 @@ Deno.serve(async (req) => {
       buscas_catalogo_palavras_chave: catalogSearchDiagnostics,
       produtos_resolvidos_pela_busca_catalogo: catalogResolvedCount, 
         buscas_publicas_resultados: publicOfferDiagnostics.reduce((sum: number, x: any) => sum + Number(x.resultados || 0), 0),
-        candidatos_complementares: candidates.length - resolved.length,
+        candidatos_complementares: Math.max(0, candidates.length - resolved.length),
         duplicados_ignorados: duplicadosIgnorados,
         titulos_duplicados_ignorados: titulosDuplicadosIgnorados,
         existentes_ignorados: existentesIgnorados,
@@ -2335,7 +2277,7 @@ Deno.serve(async (req) => {
         incidente_autenticacao: authenticationIncident,
         reautenticacao_necessaria: Boolean(reauthenticationUrl),
         url_reautenticacao: reauthenticationUrl,
-        regra_fontes: "auditoria de conversão; tenta até 16 produtos do catálogo por execução, distribuídos entre palavras-chave e priorizando buy_box_winner; tenta /products/{id}/items mesmo quando detalhe falha; diagnóstico inclui status HTTP, candidatos tentados e IDs já cadastrados; catálogo oficial em lote rotativo de 8 termos"
+        regra_fontes: "consulta categorias do Mercado Livre em conjunto e em rodízio sem prioridade fixa de nicho; ordena pelo ranking disponível, favorece Loja Oficial verificada, promoções, descontos e avaliação; bloqueia IDs e títulos semelhantes já cadastrados ou no histórico, evita famílias já cadastradas nos últimos 7 dias e limita uma oferta por família de produto em cada rodada (incluindo antenas); não repete endpoint público HTTP 403; mantém publicação bloqueada até validação de afiliado"
       }
     });
   } catch (e) {
