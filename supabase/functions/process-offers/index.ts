@@ -485,8 +485,17 @@ Deno.serve(async (req) => {
           ["corte", "cortar", "cabelo", "pelos", "barba"].some((token) => words.has(token)));
       if (isGrooming) return "cuidados_pessoais_aparadores";
 
+      // Agrupa variações ortográficas e modelos da mesma linha para evitar
+      // que várias ofertas equivalentes ocupem a fila em dias consecutivos.
+      if (["alforge", "alforje", "alforges", "alforjes"].some((token) => words.has(token))) {
+        return "acessorios_moto_alforges";
+      }
+      if (["secador", "secadores", "chapinha", "modelador", "modeladores", "cacheador", "cacheadores", "babyliss"].some((token) => words.has(token)) ||
+          (words.has("escova") && words.has("secadora"))) {
+        return "beleza_aparelhos_cabelo";
+      }
       const families = [
-        ["climatizador"], ["alforge"], ["escova", "carvao"],
+        ["climatizador"], ["escova", "carvao"],
         ["microfone"], ["espelho", "banheiro"],
         ["antena"], ["ar", "condicionado"], ["air", "fryer"],
         ["fone", "bluetooth"], ["smartwatch"], ["camisa"], ["bermuda"],
@@ -736,7 +745,10 @@ Deno.serve(async (req) => {
               // Nunca usar o vencedor de outro produto do catálogo sem confirmar
               // que o nome corresponde ao produto original procurado.
               const matchTitle = String(match?.name || match?.family_name || "").trim();
-              if (matchId !== id && titleSimilarity(productName, matchTitle) < 0.88) {
+              // O catálogo pode devolver variantes com nomes comerciais diferentes.
+              // Aceita uma correspondência mais flexível, mantendo a verificação de
+              // semelhança do título para não usar um anúncio de outra categoria.
+              if (matchId !== id && titleSimilarity(productName, matchTitle) < 0.72) {
                 resolutionTrace.push("produto_alternativo_rejeitado_por_titulo_" + matchId);
                 continue;
               }
@@ -1128,17 +1140,24 @@ Deno.serve(async (req) => {
     const historicalTitles = validHistory.map((x: any) => String(x.product_title || "")).filter(Boolean);
     // Evita voltar à mesma família logo nas buscas seguintes.
     // A janela considera apenas ofertas realmente cadastradas no histórico.
-    const FAMILY_COOLDOWN_DAYS = 7;
+    const FAMILY_COOLDOWN_DAYS = 2;
     const familyCooldownCutoff = Date.now() - FAMILY_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
-    const recentHistoricalFamilies = new Set(
-      validHistory
+    const recentHistoricalFamilies = new Set([
+      ...validHistory
         .filter((x: any) => {
           const seenAt = Date.parse(String(x.last_seen_at || ""));
           return Number.isFinite(seenAt) && seenAt >= familyCooldownCutoff;
         })
-        .map((x: any) => productFamilyKey(x.product_title))
-        .filter(Boolean)
-    );
+        .map((x: any) => productFamilyKey(x.product_title)),
+      // O histórico pode estar incompleto em ofertas antigas. Use também
+      // ofertas já cadastradas recentemente como fonte de bloqueio de família.
+      ...(existingOffers || [])
+        .filter((x: any) => {
+          const createdAt = Date.parse(String(x.created_at || ""));
+          return Number.isFinite(createdAt) && createdAt >= familyCooldownCutoff;
+        })
+        .map((x: any) => productFamilyKey(x.titulo))
+    ].filter(Boolean));
 
     const existingItemIds = new Set(
       (existingOffers || [])
@@ -1147,21 +1166,17 @@ Deno.serve(async (req) => {
     );
 
 
-    // Alterna entre itens inéditos e conhecidos, mas prioriza PRODUCT:
-    // /items está retornando 403 para anúncios de terceiros e interrompia
-    // a resolução antes de chegar aos produtos do catálogo.
+    // Prioriza PRODUCTs não cadastrados na tabela offers. O histórico não pode
+    // bloquear para sempre um produto cuja oferta foi removida ou nunca chegou a
+    // ser cadastrada; a proteção contra repetição continua usando IDs já presentes
+    // em offers e o período curto de diversidade por família.
     const unseenHighlights = highlightEntries.filter((entry: any) => {
       const id = String(entry?.id || "");
-      return id && !existingProductIds.has(id) &&
-        !historicalProductIds.has(id) && !historicalItemIds.has(id);
+      return id && !existingProductIds.has(id);
     });
     const knownHighlights = highlightEntries.filter((entry: any) => {
       const id = String(entry?.id || "");
-      return id && (
-        existingProductIds.has(id) ||
-        historicalProductIds.has(id) ||
-        historicalItemIds.has(id)
-      );
+      return id && existingProductIds.has(id);
     });
     const orderedHighlightEntries: any[] = [];
     let unseenIndex = 0;
@@ -1277,6 +1292,23 @@ Deno.serve(async (req) => {
       { keyword: "acessorios automotivos", group: "Ferramentas e acessórios automotivos" },
       { keyword: "aspirador automotivo", group: "Ferramentas e acessórios automotivos" },
       { keyword: "chave impacto", group: "Ferramentas e acessórios automotivos" },
+      { keyword: "monitor gamer", group: "Eletrônicos e acessórios" },
+      { keyword: "camera wifi", group: "Eletrônicos e acessórios" },
+      { keyword: "tablet", group: "Eletrônicos e acessórios" },
+      { keyword: "jogo de cama", group: "Casa, cozinha e organização" },
+      { keyword: "luminaria", group: "Casa, cozinha e organização" },
+      { keyword: "tapete sala", group: "Casa, cozinha e organização" },
+      { keyword: "bolsa feminina", group: "Moda, calçados e acessórios" },
+      { keyword: "relogio masculino", group: "Moda, calçados e acessórios" },
+      { keyword: "vestido feminino", group: "Moda, calçados e acessórios" },
+      { keyword: "maquiagem kit", group: "Beleza e cuidados pessoais" },
+      { keyword: "secador escova modeladora", group: "Beleza e cuidados pessoais" },
+      { keyword: "kit brocas", group: "Ferramentas e acessórios automotivos" },
+      { keyword: "macaco hidraulico", group: "Ferramentas e acessórios automotivos" },
+      { keyword: "jogo de chaves", group: "Ferramentas e acessórios automotivos" },
+      { keyword: "forno eletrico", group: "Eletrodomésticos" },
+      { keyword: "panela eletrica", group: "Eletrodomésticos" },
+      { keyword: "mop limpeza", group: "Casa, cozinha e organização" },
       { keyword: "fone bluetooth", group: "Eletrônicos e acessórios" },
       { keyword: "smartwatch", group: "Eletrônicos e acessórios" },
       { keyword: "caixa de som bluetooth", group: "Eletrônicos e acessórios" },
@@ -1289,9 +1321,10 @@ Deno.serve(async (req) => {
       { keyword: "cafeteira eletrica", group: "Eletrodomésticos" },
       { keyword: "ventilador", group: "Eletrodomésticos" }
     ];
-    // Termos de catálogo em rodízio equilibrado entre os grupos, sem prioridade fixa.
-    const keywordBatchSize = 12;
-    const keywordHour = Math.floor(Date.now() / 3600000);
+    // Termos de catálogo em rodízio equilibrado: cada execução percorre uma
+    // fatia diferente de cada grupo, em vez de repetir sempre os primeiros 4 termos.
+    const keywordBatchSize = 24;
+    const keywordSeed = Math.floor(Date.now() / 1000);
     const uniqueKeywordKeys = new Set<string>();
     const allUniqueCatalogKeywords = catalogKeywords.filter((entry: any) => {
       const key = String(entry.group || "") + "|" + String(entry.keyword || "");
@@ -1306,23 +1339,26 @@ Deno.serve(async (req) => {
       keywordBuckets.get(group)!.push(entry);
     }
     const keywordGroups = [...keywordBuckets.keys()].sort((a, b) => a.localeCompare(b, "pt-BR"));
-    if (keywordGroups.length) {
-      const groupOffset = keywordHour % keywordGroups.length;
-      keywordGroups.push(...keywordGroups.splice(0, groupOffset));
-    }
     const dedupedActiveCatalogKeywords: any[] = [];
-    let keywordRound = 0;
-    while (dedupedActiveCatalogKeywords.length < keywordBatchSize) {
-      let added = false;
-      for (const group of keywordGroups) {
-        const entry = (keywordBuckets.get(group) || [])[keywordRound];
-        if (!entry) continue;
+    const perGroup = Math.max(1, Math.floor(keywordBatchSize / Math.max(1, keywordGroups.length)));
+    keywordGroups.forEach((group, groupIndex) => {
+      const bucket = keywordBuckets.get(group) || [];
+      if (!bucket.length) return;
+      const offset = (keywordSeed + groupIndex * 7) % bucket.length;
+      for (let i = 0; i < Math.min(perGroup, bucket.length); i++) {
+        dedupedActiveCatalogKeywords.push(bucket[(offset + i) % bucket.length]);
+      }
+    });
+    // Preenche eventual sobra sem ultrapassar o limite da rodada.
+    if (dedupedActiveCatalogKeywords.length < keywordBatchSize) {
+      const selected = new Set(dedupedActiveCatalogKeywords.map((x: any) => String(x.group) + "|" + String(x.keyword)));
+      for (const entry of allUniqueCatalogKeywords) {
+        const key = String(entry.group || "") + "|" + String(entry.keyword || "");
+        if (selected.has(key)) continue;
         dedupedActiveCatalogKeywords.push(entry);
-        added = true;
+        selected.add(key);
         if (dedupedActiveCatalogKeywords.length >= keywordBatchSize) break;
       }
-      keywordRound++;
-      if (!added) break;
     }
     const activeCatalogKeywords = dedupedActiveCatalogKeywords.slice(0, keywordBatchSize);
     const seenCatalogIds = new Set<string>(resolved.map((r: any) => String(r.sourceId || "")));
@@ -1385,7 +1421,7 @@ Deno.serve(async (req) => {
     catalogCandidatesToResolve.sort((a: any, b: any) =>
       Number(a.candidateRank || 0) - Number(b.candidateRank || 0)
     );
-    catalogCandidatesToResolve.splice(36);
+    catalogCandidatesToResolve.splice(42);
     for (const candidate of catalogCandidatesToResolve) {
       const diagnostic = catalogSearchDiagnostics.find((x: any) => x.palavra === candidate.keyword);
       if (diagnostic) diagnostic.candidatos_tentados++;
@@ -1443,7 +1479,7 @@ Deno.serve(async (req) => {
         limite: limit,
         ofertas: [],
         diagnostico: {
-          versao_busca: "456-agrupa-aparadores-e-evita-repeticoes-por-7-dias",
+          versao_busca: "463-historico-recuperavel-e-titulos-flexiveis",
           categorias_consultadas: diagnostics,
           destaques_recebidos: highlightEntries.length,
           destaques_resolvidos: resolved.length,
@@ -1960,16 +1996,35 @@ Deno.serve(async (req) => {
       rejeitadosPorMotivo[motivo] = (rejeitadosPorMotivo[motivo] || 0) + 1;
     };
 
-    for (const item of candidates) {
+    // Primeiro tentamos todas as ofertas com promoção/cupom. Só depois usamos
+    // uma reserva pequena de produtos de alta qualidade, para evitar buscas vazias
+    // quando o Mercado Livre não informa desconto em todos os destaques.
+    const hasPromotion = (item: any) =>
+      Number(item.discount || 0) > 0 || Boolean(item.promotion_id) || Boolean(item.coupon_code);
+    const isQualifiedFallback = (item: any) =>
+      !hasPromotion(item) &&
+      Number(item.position || 999) <= 10 &&
+      item.free_shipping === true &&
+      (Boolean(item.official_store_id) || Number(item.rating || 0) >= 4.5);
+    const primaryCandidates = candidates.filter((item: any) => hasPromotion(item));
+    const fallbackCandidates = candidates.filter((item: any) => isQualifiedFallback(item));
+    const selectionCandidates = [...primaryCandidates, ...fallbackCandidates];
+    const MAX_FALLBACK_PER_SEARCH = Math.min(5, limit);
+    let fallbackSelected = 0;
+
+    for (const item of selectionCandidates) {
       const productId = String(item.product_external_id || "");
       const itemId = String(item.external_id || "");
 
       if (!productId && !itemId) { rejeitar("sem_id"); continue; }
-      // Para ofertas novas, exigir desconto real, promoção identificada ou cupom.
-      // Não cadastra preço cheio como se fosse uma oferta; atualizações existentes seguem preservadas.
-      if (Number(item.discount || 0) <= 0 && !item.promotion_id && !item.coupon_code) {
-        rejeitar("sem_promocao_real");
-        continue;
+      // Produtos sem promoção só entram como reserva limitada, depois de todos os
+      // candidatos promocionais: ranking entre os 10 primeiros, frete grátis e
+      // Loja Oficial verificada ou avaliação mínima de 4,5 quando informada.
+      if (!hasPromotion(item)) {
+        if (!isQualifiedFallback(item) || fallbackSelected >= MAX_FALLBACK_PER_SEARCH) {
+          rejeitar("sem_promocao_real");
+          continue;
+        }
       }
       if (productId && seenProducts.has(productId)) {
         duplicadosIgnorados++; rejeitar("produto_duplicado_na_busca");
@@ -1984,24 +2039,24 @@ Deno.serve(async (req) => {
       // Ignoramos previamente o título repetido para uma oferta não abortar
       // toda a busca com erro PostgreSQL 23505.
       const titleKey = normalizeTitleKey(item.title);
-      const fuzzyDuplicate = String(item.title || "").trim() && (
-        seenTitles.some((title: string) => isNearDuplicateTitle(title, item.title)) ||
-        existingTitles.some((title: string) => isNearDuplicateTitle(title, item.title)) ||
-        historicalTitles.some((title: string) => isNearDuplicateTitle(title, item.title))
-      );
+      // Só compara similaridade entre candidatos desta rodada.
+      // Títulos antigos continuam protegidos por igualdade exata e pelos IDs;
+      // não devem bloquear para sempre modelos diferentes por palavras comuns.
+      const fuzzyDuplicate = String(item.title || "").trim() &&
+        seenTitles.some((title: string) => isNearDuplicateTitle(title, item.title));
       if (titleKey && (existingTitleKeys.has(titleKey) || seenTitleKeys.has(titleKey) || fuzzyDuplicate)) {
         titulosDuplicadosIgnorados++;
         existentesIgnorados++; rejeitar("titulo_igual_ou_muito_parecido");
         continue;
       }
 
-      // Não deixa uma oferta já cadastrada ocupar uma das vagas de novidades.
-      // Assim a função continua percorrendo o ranking para encontrar produtos novos.
+      // Bloqueia apenas IDs que já existem como ofertas. O histórico pode conter
+      // ofertas excluídas; não deve impedir que o Mercado Livre volte a cadastrá-las.
       if (
-        (productId && (existingProductIds.has(productId) || historicalProductIds.has(productId))) ||
-        (itemId && (existingItemIds.has(itemId) || historicalItemIds.has(itemId)))
+        (productId && existingProductIds.has(productId)) ||
+        (itemId && existingItemIds.has(itemId))
       ) {
-        existentesIgnorados++; rejeitar("ja_cadastrado_ou_historico");
+        existentesIgnorados++; rejeitar("ja_cadastrado");
         continue;
       }
 
@@ -2009,7 +2064,7 @@ Deno.serve(async (req) => {
       // da mesma família (ex.: três climatizadores em uma única busca).
       const familyKey = productFamilyKey(item.title);
       if (familyKey && recentHistoricalFamilies.has(familyKey)) {
-        rejeitar("familia_de_produto_repetida_nos_ultimos_7_dias");
+        rejeitar("familia_de_produto_repetida_nos_ultimos_2_dias");
         continue;
       }
       if (familyKey && seenProductFamilies.has(familyKey)) {
@@ -2029,6 +2084,7 @@ Deno.serve(async (req) => {
       categoryGroupCounts.set(categoryGroupKey, (categoryGroupCounts.get(categoryGroupKey) || 0) + 1);
       groupCounts.set(groupKey, (groupCounts.get(groupKey) || 0) + 1);
       unique.push(item);
+      if (!hasPromotion(item)) fallbackSelected++;
 
       if (unique.length >= limit) break;
     }
@@ -2243,7 +2299,7 @@ Deno.serve(async (req) => {
       modo_busca: "ofertas_por_tipo_de_produto",
       ofertas,
       diagnostico: {
-        versao_busca: "456-agrupa-aparadores-e-evita-repeticoes-por-7-dias",
+        versao_busca: "463-historico-recuperavel-e-titulos-flexiveis",
         categorias_consultadas: diagnostics,
         destaques_recebidos: highlightEntries.length,
         destaques_resolvidos: resolved.length,
@@ -2277,7 +2333,7 @@ Deno.serve(async (req) => {
         incidente_autenticacao: authenticationIncident,
         reautenticacao_necessaria: Boolean(reauthenticationUrl),
         url_reautenticacao: reauthenticationUrl,
-        regra_fontes: "consulta categorias do Mercado Livre em conjunto e em rodízio sem prioridade fixa de nicho; ordena pelo ranking disponível, favorece Loja Oficial verificada, promoções, descontos e avaliação; bloqueia IDs e títulos semelhantes já cadastrados ou no histórico, evita famílias já cadastradas nos últimos 7 dias e limita uma oferta por família de produto em cada rodada (incluindo antenas); não repete endpoint público HTTP 403; mantém publicação bloqueada até validação de afiliado"
+        regra_fontes: "consulta categorias e palavras-chave variadas do Mercado Livre em rodízio; prioriza promoções e cupons, aceita uma reserva pequena de produtos bem avaliados; bloqueia IDs já cadastrados, usa histórico para cooldown curto de família e permite redescobrir itens cujas ofertas foram removidas; valida correspondência de catálogo com tolerância a variantes de título; não repete endpoint público HTTP 403; mantém publicação bloqueada até validação de afiliado oficial"
       }
     });
   } catch (e) {
