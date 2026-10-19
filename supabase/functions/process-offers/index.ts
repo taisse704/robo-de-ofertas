@@ -1567,7 +1567,7 @@ Deno.serve(async (req) => {
         limite: limit,
         ofertas: [],
         diagnostico: {
-          versao_busca: sourceOffers.length ? "471-ofertas-pagina-aberta" : "471-amplia-captura-selecao-diversificada",
+          versao_busca: sourceOffers.length ? "471-ofertas-pagina-aberta" : "472-limites-ampliados-selecao-diversificada",
           categorias_consultadas: diagnostics,
           destaques_recebidos: highlightEntries.length,
           destaques_resolvidos: resolved.length,
@@ -2063,9 +2063,9 @@ Deno.serve(async (req) => {
     const groupCounts = new Map<string, number>();
     // Diversidade sem limitar cada grupo a apenas um produto.
     // Até 3 por categoria e 4 por grupo prioritário, respeitando o limite global de 20.
-    const MAX_PER_CATEGORY = 5;
-    const MAX_PER_CATEGORY_GROUP = 5;
-    const MAX_PER_GROUP = 6;
+    const MAX_PER_CATEGORY = 8;
+    const MAX_PER_CATEGORY_GROUP = 8;
+    const MAX_PER_GROUP = 8;
     const normalizeTitleKey = (value: unknown) => String(value || "").trim().toLowerCase();
     const existingTitleKeys = new Set(
       (existingOffers || [])
@@ -2414,7 +2414,7 @@ Deno.serve(async (req) => {
       modo_busca: "ofertas_por_tipo_de_produto",
       ofertas,
       diagnostico: {
-        versao_busca: "471-amplia-captura-selecao-diversificada",
+        versao_busca: "472-limites-ampliados-selecao-diversificada",
         categorias_consultadas: diagnostics,
         destaques_recebidos: highlightEntries.length,
         destaques_resolvidos: resolved.length,
