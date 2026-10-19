@@ -1552,7 +1552,7 @@ Deno.serve(async (req) => {
         let safeUrl = "";
         try { const parsed = new URL(String(offer?.permalink||"")); if(parsed.protocol==="https:" && /(^|\.)mercadolivre\.com\.br$/i.test(parsed.hostname) && /MLB\d+/i.test(parsed.href)) safeUrl=parsed.href; } catch {}
         if (!safeUrl) return null;
-        return {sourceId:productId,itemId,publicItem:{id:itemId,item_id:itemId,title,price:current,original_price:original,permalink:safeUrl,thumbnail:String(offer?.image||""),category_id:null,shipping:{},deal_ids:discount>0?["pagina-ofertas"]:[]},highlight:{position:Number(offer?.position)||index+1,categoria_id:"mercadolivre-ofertas-page",categoria_nome:"Ofertas do Mercado Livre",categoria_grupo:group}};
+        return {sourceId:productId,itemId,publicItem:{id:itemId,item_id:itemId,title,price:current,original_price:original,permalink:safeUrl,thumbnail:String(offer?.image||""),category_id:null,shipping:{},deal_ids:discount>0?["pagina-ofertas"]:[]},highlight:{position:Number(offer?.position)||index+1,categoria_id:group,categoria_nome:"Ofertas do Mercado Livre",categoria_grupo:group}};
       }).filter(Boolean);
       resolved.splice(0,resolved.length,...pageResolved);
       highlightEntries.splice(0,highlightEntries.length,...pageResolved.map((r:any)=>({id:r.sourceId,type:"ITEM",categoria_id:r.highlight.categoria_id,categoria_nome:r.highlight.categoria_nome,categoria_grupo:r.highlight.categoria_grupo})));
