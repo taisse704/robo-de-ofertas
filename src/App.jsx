@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-19-ml-ofertas-page-capture-1";
+const FRONTEND_BUILD_VERSION = "2026-10-19-ml-auto-affiliate-links-1";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -66,6 +66,8 @@ export default function App() {
   const [carregandoCupons, setCarregandoCupons] = useState(false);
   const [mensagemCupons, setMensagemCupons] = useState("");
   const [salvandoCupom, setSalvandoCupom] = useState(false);
+  const tentativasAfiliadoMLAutomatico = useRef(new Map());
+
   const [novoCupom, setNovoCupom] = useState({
     codigo: "", descricao: "", percentual: "", valor: "", compra_minima: "",
     validade_inicio: "", validade_fim: "", url_afiliado: "", fonte_oficial: "",
@@ -131,6 +133,52 @@ export default function App() {
     }, 5 * 60 * 1000);
     return () => clearInterval(timer);
   }, [usuario]);
+
+  // Geração automática de links oficiais do Mercado Livre para ofertas recém-encontradas.
+  // Reutiliza a extensão já instalada e a fila existente; não cria uma fila nova.
+  // A extensão exige uma aba do Mercado Livre aberta e autenticada no navegador.
+  useEffect(() => {
+    if (!usuario || !Array.isArray(listaOfertas) || !listaOfertas.length) return;
+
+    const agora = Date.now();
+    const intervaloRetry = 15 * 60 * 1000;
+    const pendentes = listaOfertas.filter((oferta) => {
+      const provider = String(oferta.store_provider || "").toLowerCase();
+      const affiliateUrl = String(oferta.affiliate_url || "").trim();
+      const productUrl = String(oferta.store_product_url || oferta.url_produto || "").trim();
+      const isNova = oferta.nova === true || String(oferta.nova).toLowerCase() === "true";
+      if (provider !== "mercadolivre" || affiliateUrl || !productUrl || !isNova) return false;
+
+      const offerId = String(oferta.id || "").trim();
+      if (!offerId) return false;
+      const ultimaTentativa = Number(tentativasAfiliadoMLAutomatico.current.get(offerId) || 0);
+      return agora - ultimaTentativa >= intervaloRetry;
+    }).slice(0, 3);
+
+    if (!pendentes.length) return;
+
+    for (const oferta of pendentes) {
+      const offerId = String(oferta.id);
+      const productUrl = String(oferta.store_product_url || oferta.url_produto || "").trim();
+      tentativasAfiliadoMLAutomatico.current.set(offerId, agora);
+      window.postMessage({
+        source: "robo-de-ofertas",
+        type: "ML_AFFILIATE_GENERATE",
+        offer: {
+          offer_id: offerId,
+          title: oferta.titulo || "Produto Mercado Livre",
+          product_url: productUrl,
+          product_external_id: oferta.product_external_id || null
+        }
+      }, "*");
+    }
+
+    setMensagemOferta(
+      pendentes.length === 1
+        ? "Gerando automaticamente o link oficial de afiliado de uma nova oferta do Mercado Livre..."
+        : "Gerando automaticamente links oficiais de afiliado para " + pendentes.length + " novas ofertas do Mercado Livre..."
+    );
+  }, [usuario, listaOfertas]);
 
   useEffect(() => {
     if (!usuario) return;
