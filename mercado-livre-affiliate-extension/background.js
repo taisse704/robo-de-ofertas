@@ -159,6 +159,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
         const tabs = await chrome.tabs.query({url:["https://www.mercadolivre.com.br/ofertas*","https://mercadolivre.com.br/ofertas*"]});
         const tab = tabs.find(item => item?.id && /^\/ofertas\/?$/i.test(new URL(item.url || "").pathname) && /mercadolivre\.com\.br$/i.test(new URL(item.url || "").hostname));
         if (!tab?.id) { enviarResultadoParaApp({type:"ML_OFFERS_PAGE_CAPTURE_RESULT",ok:false,offers:[],error:"Primeiro abra https://www.mercadolivre.com.br/ofertas em outra aba. O Robô vai ler somente essa página."}); return; }
+        await chrome.scripting.executeScript({target:{tabId:tab.id},files:["mercado-livre.js"]});
         await chrome.tabs.sendMessage(tab.id,{type:"ML_OFFERS_PAGE_CAPTURE_ON_TAB"});
       } catch(error) { enviarResultadoParaApp({type:"ML_OFFERS_PAGE_CAPTURE_RESULT",ok:false,offers:[],error:String(error?.message || error)}); }
     })();
