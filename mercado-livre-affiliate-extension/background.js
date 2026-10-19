@@ -160,7 +160,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
         const tab = tabs.find((item) => {
           try {
             const u = new URL(item.url || "");
-            return item?.id && /^\\/ofertas\\/?$/i.test(u.pathname) && /(^|\\.)mercadolivre\\.com\\.br$/i.test(u.hostname);
+            return item?.id && /^\/ofertas\/?$/i.test(u.pathname) && /(^|\.)mercadolivre\.com\.br$/i.test(u.hostname);
           } catch { return false; }
         });
         if (!tab?.id) {
@@ -173,13 +173,13 @@ chrome.runtime.onMessage.addListener((message, sender) => {
           target: { tabId: tab.id },
           func: () => {
             const u = new URL(location.href);
-            if (!/(^|\\.)mercadolivre\\.com\\.br$/i.test(u.hostname) || !/^\\/ofertas\\/?$/i.test(u.pathname)) {
+            if (!/(^|\.)mercadolivre\.com\.br$/i.test(u.hostname) || !/^\/ofertas\/?$/i.test(u.pathname)) {
               return { ok: false, offers: [], source_url: location.href, error: "Abra exatamente https://www.mercadolivre.com.br/ofertas e tente novamente." };
             }
             const money = (text) => {
               const raw = String(text || "").replace(/[^0-9.,]/g, "").trim();
               if (!raw) return null;
-              const normalized = raw.includes(",") ? raw.replace(/\\./g, "").replace(",", ".") : raw.replace(/\\./g, "");
+              const normalized = raw.includes(",") ? raw.replace(/\./g, "").replace(",", ".") : raw.replace(/\./g, "");
               const value = Number(normalized);
               return Number.isFinite(value) && value > 0 ? value : null;
             };
@@ -190,11 +190,11 @@ chrome.runtime.onMessage.addListener((message, sender) => {
               const href = String(link?.href || "").trim();
               if (!href) continue;
               let url; try { url = new URL(href, location.href); } catch { continue; }
-              if (!/(^|\\.)mercadolivre\\.com\\.br$/i.test(url.hostname)) continue;
-              const productId = (url.href.match(/\\bMLB\\d{6,}\\b/i) || [])[0];
+              if (!/(^|\.)mercadolivre\.com\.br$/i.test(url.hostname)) continue;
+              const productId = (url.href.match(/\bMLB\d{6,}\b/i) || [])[0];
               if (!productId || seen.has(productId)) continue;
               const titleNode = node.querySelector(".poly-component__title, .ui-search-item__title, h2, h3, a[aria-label]");
-              const title = String(titleNode?.textContent || titleNode?.getAttribute("aria-label") || link?.textContent || "").replace(/\\s+/g, " ").trim();
+              const title = String(titleNode?.textContent || titleNode?.getAttribute("aria-label") || link?.textContent || "").replace(/\s+/g, " ").trim();
               if (!title || title.length < 5) continue;
               const currentNode = node.querySelector(".andes-money-amount:not(.andes-money-amount--previous) .andes-money-amount__fraction, .poly-price__current .andes-money-amount__fraction, .ui-search-price__second-line .andes-money-amount__fraction");
               const current = money(currentNode?.textContent);
@@ -206,7 +206,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
               const image = String(img?.currentSrc || img?.src || img?.getAttribute("data-src") || img?.getAttribute("data-lazy") || "").trim();
               const canonical = new URL(url.href); canonical.hash = ""; canonical.search = "";
               seen.add(productId);
-              found.push({ external_id: productId, product_external_id: productId, title, current, original: original && original > current ? original : null, discount, image: /^https?:\\/\\//i.test(image) ? image.replace(/^http:\\/\\//i, "https://") : null, permalink: canonical.href, position: found.length + 1, source: "mercadolivre-ofertas-page" });
+              found.push({ external_id: productId, product_external_id: productId, title, current, original: original && original > current ? original : null, discount, image: /^https?:\/\//i.test(image) ? image.replace(/^http:\/\//i, "https://") : null, permalink: canonical.href, position: found.length + 1, source: "mercadolivre-ofertas-page" });
               if (found.length >= 100) break;
             }
             return { ok: found.length > 0, offers: found, source_url: location.href, error: found.length ? null : "Não consegui ler produtos nesta página. Confira se os cards carregaram e role a página um pouco para baixo." };
