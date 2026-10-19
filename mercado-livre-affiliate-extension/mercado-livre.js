@@ -136,6 +136,54 @@ async function obterTagAtiva() {
   return tag;
 }
 
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (!message || message.type !== "ML_OFFERS_PAGE_CAPTURE_ON_TAB") return;
+  try {
+    const currentUrl = new URL(location.href);
+    if (!/mercadolivre\\.com\\.br$/i.test(currentUrl.hostname) || !/^\\/ofertas\\/?$/i.test(currentUrl.pathname)) {
+      chrome.runtime.sendMessage({ type: "ML_OFFERS_PAGE_CAPTURE_RESULT", ok: false, offers: [], source_url: location.href, error: "Abra exatamente https://www.mercadolivre.com.br/ofertas e tente novamente." });
+      return;
+    }
+    const money = (text) => {
+      const raw = String(text || "").replace(/[^0-9.,]/g, "").trim();
+      if (!raw) return null;
+      const normalized = raw.includes(",") ? raw.replace(/\\./g, "").replace(",", ".") : raw.replace(/\\./g, "");
+      const value = Number(normalized);
+      return Number.isFinite(value) && value > 0 ? value : null;
+    };
+    const nodes = Array.from(document.querySelectorAll("li.ui-search-layout__item, .poly-card, .ui-search-result, .andes-card"));
+    const found = [], seen = new Set();
+    for (const node of nodes) {
+      const link = node.querySelector('a[href*="/MLB"], a[href*="/p/MLB"], a.poly-component__title, a.ui-search-link, a[href*="mercadolivre.com.br/"]');
+      const href = String(link?.href || "").trim();
+      if (!href) continue;
+      let url; try { url = new URL(href, location.href); } catch { continue; }
+      if (!/(^|\\.)mercadolivre\\.com\\.br$/i.test(url.hostname)) continue;
+      const productId = (url.href.match(/\\bMLB\\d{6,}\\b/i) || [])[0];
+      if (!productId || seen.has(productId)) continue;
+      const titleNode = node.querySelector(".poly-component__title, .ui-search-item__title, h2, h3, a[aria-label]");
+      const title = String(titleNode?.textContent || titleNode?.getAttribute("aria-label") || link?.textContent || "").replace(/\\s+/g, " ").trim();
+      if (!title || title.length < 5) continue;
+      const currentNode = node.querySelector(".andes-money-amount:not(.andes-money-amount--previous) .andes-money-amount__fraction, .poly-price__current .andes-money-amount__fraction, .ui-search-price__second-line .andes-money-amount__fraction");
+      const current = money(currentNode?.textContent);
+      if (!current) continue;
+      const previousNode = node.querySelector(".andes-money-amount--previous .andes-money-amount__fraction, s .andes-money-amount__fraction, .andes-money-amount--previous");
+      const original = money(previousNode?.textContent);
+      const discount = original && original > current ? Math.round((original - current) / original * 100) : 0;
+      const img = node.querySelector("img");
+      const image = String(img?.currentSrc || img?.src || img?.getAttribute("data-src") || img?.getAttribute("data-lazy") || "").trim();
+      const canonical = new URL(url.href); canonical.hash = ""; canonical.search = "";
+      seen.add(productId);
+      found.push({ external_id: productId, product_external_id: productId, title, current, original: original && original > current ? original : null, discount, image: /^https?:\\/\\//i.test(image) ? image.replace(/^http:\\/\\//i, "https://") : null, permalink: canonical.href, position: found.length + 1, source: "mercadolivre-ofertas-page" });
+      if (found.length >= 100) break;
+    }
+    chrome.runtime.sendMessage({ type: "ML_OFFERS_PAGE_CAPTURE_RESULT", ok: found.length > 0, offers: found, source_url: location.href, error: found.length ? null : "Não consegui ler produtos nesta página. Confira se os cards carregaram e role a página um pouco para baixo." });
+  } catch (error) {
+    chrome.runtime.sendMessage({ type: "ML_OFFERS_PAGE_CAPTURE_RESULT", ok: false, offers: [], source_url: location.href, error: String(error?.message || error) });
+  }
+});
+
 chrome.runtime.sendMessage({
   type: "ML_AFFILIATE_READY"
 });

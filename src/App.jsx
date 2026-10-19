@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-16-ml-search-diagnostics-438";
+const FRONTEND_BUILD_VERSION = "2026-10-19-ml-ofertas-page-capture-1";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -1145,10 +1145,24 @@ export default function App() {
   }
 
   async function buscarOfertasMercadoLivre() {
-    setMensagemOferta("Buscando ofertas no Mercado Livre...");
+    setMensagemOferta("Lendo a aba Ofertas do Mercado Livre...");
     setCarregandoOfertas(true);
 
     try {
+      const sourceOffers = await new Promise((resolve, reject) => {
+        let timer;
+        const receive = (event) => {
+          const data = event?.data;
+          if (event.source !== window || data?.source !== "robo-de-ofertas" || data?.type !== "ML_OFFERS_PAGE_CAPTURE_RESULT") return;
+          window.removeEventListener("message", receive); window.clearTimeout(timer);
+          if (data.ok && Array.isArray(data.offers) && data.offers.length) resolve(data.offers);
+          else reject(new Error(data.error || "Nenhuma oferta foi lida da página do Mercado Livre."));
+        };
+        window.addEventListener("message", receive);
+        timer = window.setTimeout(() => { window.removeEventListener("message", receive); reject(new Error("A extensão não respondeu. Confirme que está instalada e que a aba /ofertas está aberta.")); }, 20000);
+        window.postMessage({source:"robo-de-ofertas",type:"ML_OFFERS_PAGE_CAPTURE_REQUEST"},"*");
+      });
+      setMensagemOferta(`Foram lidos ${sourceOffers.length} produtos da página de Ofertas. Validando e salvando...`);
       const {
         data: { session },
         error: sessionError
@@ -1170,7 +1184,9 @@ export default function App() {
           body: JSON.stringify({
             user_id: usuario.id,
             limit: 20,
-            somente_descontos: false
+            somente_descontos: true,
+            source: "mercadolivre-ofertas-page",
+            source_offers: sourceOffers
           })
         }
       );

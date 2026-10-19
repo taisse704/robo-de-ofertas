@@ -27,7 +27,7 @@ window.addEventListener("message", (event) => {
   if (
     !data ||
     data.source !== SOURCE ||
-    !["ML_AFFILIATE_GENERATE", "ROBO_VIDEO_CAPTURE_REQUEST", "ROBO_VIDEO_CAPTURE_CANCEL"].includes(data.type) ||
+    !["ML_AFFILIATE_GENERATE", "ROBO_VIDEO_CAPTURE_REQUEST", "ROBO_VIDEO_CAPTURE_CANCEL", "ML_OFFERS_PAGE_CAPTURE_REQUEST"].includes(data.type) ||
     (data.type === "ML_AFFILIATE_GENERATE" && !data.offer) ||
     (data.type === "ROBO_VIDEO_CAPTURE_REQUEST" && !Array.isArray(data.offers))
   ) {
@@ -44,7 +44,7 @@ window.addEventListener("message", (event) => {
 if (contextoValido()) {
   try {
     chrome.runtime.onMessage.addListener((message) => {
-      if (!message || !["ML_AFFILIATE_RESULT", "ROBO_VIDEO_CAPTURE_RESULT", "ROBO_VIDEO_CAPTURE_STARTED"].includes(message.type)) return;
+      if (!message || !["ML_AFFILIATE_RESULT", "ROBO_VIDEO_CAPTURE_RESULT", "ROBO_VIDEO_CAPTURE_STARTED", "ML_OFFERS_PAGE_CAPTURE_RESULT"].includes(message.type)) return;
 
       window.postMessage(
         {
@@ -54,7 +54,9 @@ if (contextoValido()) {
           affiliate_url: message.affiliate_url || null,
           error: message.error || null,
           ok: message.ok !== false,
-          results: message.results || []
+          results: message.results || [],
+          offers: message.offers || [],
+          source_url: message.source_url || null
         },
         "*"
       );

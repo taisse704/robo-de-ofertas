@@ -153,6 +153,21 @@ async function enviarItemAtual() {
 
 chrome.runtime.onMessage.addListener((message, sender) => {
   if (!message) return;
+  if (sender.tab?.url?.startsWith(APP_MATCH) && message.type === "ML_OFFERS_PAGE_CAPTURE_REQUEST") {
+    (async () => {
+      try {
+        const tabs = await chrome.tabs.query({url:["https://www.mercadolivre.com.br/ofertas*","https://mercadolivre.com.br/ofertas*"]});
+        const tab = tabs.find(item => item?.id && /^\\/ofertas\\/?$/i.test(new URL(item.url || "").pathname) && /mercadolivre\\.com\\.br$/i.test(new URL(item.url || "").hostname));
+        if (!tab?.id) { enviarResultadoParaApp({type:"ML_OFFERS_PAGE_CAPTURE_RESULT",ok:false,offers:[],error:"Primeiro abra https://www.mercadolivre.com.br/ofertas em outra aba. O Robô vai ler somente essa página."}); return; }
+        await chrome.tabs.sendMessage(tab.id,{type:"ML_OFFERS_PAGE_CAPTURE_ON_TAB"});
+      } catch(error) { enviarResultadoParaApp({type:"ML_OFFERS_PAGE_CAPTURE_RESULT",ok:false,offers:[],error:String(error?.message || error)}); }
+    })();
+    return;
+  }
+  if (message.type === "ML_OFFERS_PAGE_CAPTURE_RESULT" && sender.tab?.url?.includes("mercadolivre.com.br/ofertas")) {
+    enviarResultadoParaApp({type:"ML_OFFERS_PAGE_CAPTURE_RESULT",ok:message.ok!==false,offers:Array.isArray(message.offers)?message.offers:[],source_url:message.source_url||sender.tab.url,error:message.error||null});
+    return;
+  }
 
   if (sender.tab?.url?.startsWith(APP_MATCH) && message.type === "ML_AFFILIATE_GENERATE") {
     const offerId = String(message.offer?.offer_id || "").trim();
