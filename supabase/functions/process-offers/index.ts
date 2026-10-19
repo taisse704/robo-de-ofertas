@@ -116,6 +116,58 @@ const isRelevantPriorityProduct = (groupValue: unknown, titleValue: unknown, cat
   return true;
 };
 
+
+const normalizeSearchText = (value: unknown): string =>
+  String(value || "").toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+
+const isRelevantCatalogKeyword = (keywordValue: unknown, titleValue: unknown, groupValue: unknown): boolean => {
+  const keyword = normalizeSearchText(keywordValue);
+  const title = normalizeSearchText(titleValue);
+  const group = String(groupValue || "");
+  if (!keyword || !title) return false;
+
+  // Bloqueia itens de matéria-prima quando a intenção é comprar produto pronto.
+  const readyProductTerms = ["vestido", "tenis", "jaqueta", "sandalia", "mochila", "roupa", "camiseta", "calca", "blusa"];
+  if (readyProductTerms.some((term) => keyword.includes(term)) &&
+      /\\b(tecido|metro|metros|malha|tricoline|suedine|retalho|rolo de tecido|tnt)\\b/.test(title)) return false;
+
+  // Exige o tipo central do produto em consultas específicas, evitando correspondências
+  // de acessórios ou peças relacionadas que compartilham apenas palavras secundárias.
+  const intentRules: Array<[RegExp, RegExp]> = [
+    [/\\b(fone bluetooth)\\b/, /\\b(fone|fone de ouvido|headphone|headset|earbud)\\b/],
+    [/\\b(smartwatch)\\b/, /\\b(smartwatch|relogio inteligente|relogio smartwatch)\\b/],
+    [/\\b(caixa de som bluetooth)\\b/, /\\b(caixa de som|speaker bluetooth)\\b/],
+    [/\\b(carregador celular)\\b/, /\\b(carregador|fonte de carregamento)\\b/],
+    [/\\b(power bank)\\b/, /\\b(power bank|carregador portatil|bateria externa)\\b/],
+    [/\\b(air fryer)\\b/, /\\b(air fryer|fritadeira sem oleo)\\b/],
+    [/\\b(liquidificador)\\b/, /\\bliquidificador\\b/],
+    [/\\b(aspirador de po)\\b/, /\\baspirador\\b/],
+    [/\\b(cafeteira eletrica)\\b/, /\\bcafeteira\\b/],
+    [/\\b(ventilador)\\b/, /\\bventilador\\b/],
+    [/\\b(tenis feminino|tenis masculino)\\b/, /\\b(tenis|sapatênis|sapatenis)\\b/],
+    [/\\b(jaqueta feminina)\\b/, /\\b(jaqueta|casaco)\\b/],
+    [/\\b(sandalia feminina)\\b/, /\\bsandalia\\b/],
+    [/\\b(perfume feminino|perfume masculino)\\b/, /\\b(perfume|eau de parfum|eau de toilette)\\b/],
+    [/\\b(secador de cabelo)\\b/, /\\b(secador de cabelo|secador)\\b/],
+    [/\\b(escova secadora)\\b/, /\\b(escova secadora|escova rotativa)\\b/],
+    [/\\b(protetor solar)\\b/, /\\b(protetor solar|bloqueador solar)\\b/],
+    [/\\b(furadeira)\\b/, /\\b(furadeira|parafusadeira e furadeira)\\b/],
+    [/\\b(parafusadeira)\\b/, /\\b(parafusadeira|furadeira e parafusadeira)\\b/],
+    [/\\b(chave impacto)\\b/, /\\b(chave de impacto|chave impacto|parafusadeira de impacto)\\b/],
+    [/\\b(jogo de panelas)\\b/, /\\b(jogo de panelas|panelas)\\b/],
+    [/\\b(potes hermeticos)\\b/, /\\b(pote|potes|hermetico|hermeticos)\\b/],
+    [/\\b(jogo de cama)\\b/, /\\b(jogo de cama|cama|lençol|lencol|fronha|edredom)\\b/]
+  ];
+  for (const [queryPattern, titlePattern] of intentRules) {
+    if (queryPattern.test(keyword) && !titlePattern.test(title)) return false;
+  }
+
+  // Termos genéricos só são aceitos se o resultado pertencer à família de consumo esperada.
+  if (keyword === "roupa feminina" && !/\\b(roupa|vestido|blusa|camiseta|calca|saia|conjunto|macacao|short|legging|body)\\b/.test(title)) return false;
+  if (keyword === "acessorios automotivos" && !/\\b(auto|automotivo|carro|moto|veiculo|veicular|veicular|automovel)\\b/.test(title)) return false;
+  return isRelevantPriorityProduct(group, titleValue, "");
+};
+
 const REQUEST_TIMEOUT_MS = 8000;
 
 // Categorias usadas somente como fonte de ranking "Mais vendidos".
@@ -1332,7 +1384,7 @@ Deno.serve(async (req) => {
     ];
     // Termos de catálogo em rodízio equilibrado: cada execução percorre uma
     // fatia diferente de cada grupo, em vez de repetir sempre os primeiros 4 termos.
-    const keywordBatchSize = 30;
+    const keywordBatchSize = 24;
     const keywordSeed = Math.floor(Date.now() / 1000);
     const uniqueKeywordKeys = new Set<string>();
     const allUniqueCatalogKeywords = catalogKeywords.filter((entry: any) => {
@@ -1375,11 +1427,11 @@ Deno.serve(async (req) => {
     const seenCatalogIds = new Set<string>(resolved.map((r: any) => String(r.sourceId || "")));
     let catalogResolvedCount = 0;
     const catalogSearchResults = await runWithConcurrency(activeCatalogKeywords, async (entry: any) => {
-      const query = new URLSearchParams({ status: "active", site_id: SITE_ID, q: entry.keyword, limit: "10" });
+      const query = new URLSearchParams({ status: "active", site_id: SITE_ID, q: entry.keyword, limit: "8" });
       const search = await getCatalogJson(ML + "/products/search?" + query.toString());
       const products = search.ok && Array.isArray(search.data?.results) ? search.data.results as any[] : [];
       return { keyword: entry.keyword, group: entry.group, search, products };
-    }, 4);
+    }, 2);
     // A busca pública de anúncios retornou HTTP 403 repetidamente.
     // Não fazemos 12 chamadas bloqueadas por execução; a descoberta continua
     // pela busca oficial de catálogo (/products/search) e pelos vencedores do catálogo.
@@ -1421,7 +1473,7 @@ Deno.serve(async (req) => {
     const catalogCandidatesToResolve: any[] = [];
     const queuedCatalogIds = new Set<string>();
     for (const group of catalogCandidatesByKeyword) {
-      for (let rank = 0; rank < Math.min(6, group.fresh.length); rank++) {
+      for (let rank = 0; rank < Math.min(4, group.fresh.length); rank++) {
         const product = group.fresh[rank];
         const productId = String(product?.id || "");
         if (!productId || queuedCatalogIds.has(productId)) continue;
@@ -1432,7 +1484,7 @@ Deno.serve(async (req) => {
     catalogCandidatesToResolve.sort((a: any, b: any) =>
       Number(a.candidateRank || 0) - Number(b.candidateRank || 0)
     );
-    catalogCandidatesToResolve.splice(42);
+    catalogCandidatesToResolve.splice(18);
     for (const candidate of catalogCandidatesToResolve) {
       const diagnostic = catalogSearchDiagnostics.find((x: any) => x.palavra === candidate.keyword);
       if (diagnostic) diagnostic.candidatos_tentados++;
@@ -1444,7 +1496,7 @@ Deno.serve(async (req) => {
         type: "PRODUCT",
         productData: candidate.product
       }),
-      6
+      3
     );
     for (let i = 0; i < catalogResolvedAttempts.length; i++) {
       const item = catalogResolvedAttempts[i];
@@ -1481,6 +1533,31 @@ Deno.serve(async (req) => {
       if (catalogResolvedCount >= 20) break;
     }
 
+    const sourceOffers = Array.isArray(body?.source_offers) ? body.source_offers.slice(0, 100) : [];
+    if (sourceOffers.length) {
+      const pageResolved = sourceOffers.map((offer: any, index: number) => {
+        const title = String(offer?.title || "").trim();
+        const itemId = String(offer?.external_id || offer?.product_external_id || "").trim();
+        const productId = String(offer?.product_external_id || itemId).trim();
+        const current = Number(offer?.current), originalRaw = Number(offer?.original);
+        if (!title || !/^MLB\d+$/i.test(itemId) || !Number.isFinite(current) || current <= 0) return null;
+        const group = /(vestido|cal[cç]a|camiseta|blusa|t[eê]nis|sand[aá]lia|bolsa|jaqueta|roupa|moda)/i.test(title) ? "Moda, calçados e acessórios"
+          : /(perfume|creme|shampoo|maquiagem|protetor solar|beleza|serum|s[eé]rum)/i.test(title) ? "Beleza e cuidados pessoais"
+          : /(furadeira|parafusadeira|ferramenta|automot|carro|moto|pneu|bateria automotiva)/i.test(title) ? "Ferramentas e acessórios automotivos"
+          : /(celular|fone|smartwatch|notebook|tablet|monitor|teclado|mouse|eletr[oô]nic|carregador|caixa de som)/i.test(title) ? "Eletrônicos e acessórios"
+          : /(geladeira|micro-ondas|microondas|air fryer|liquidificador|cafeteira|ventilador|aspirador|lavadora)/i.test(title) ? "Eletrodomésticos"
+          : "Casa, cozinha e organização";
+        const original = Number.isFinite(originalRaw) && originalRaw > current ? originalRaw : null;
+        const discount = original ? Math.round((original-current)/original*100) : 0;
+        let safeUrl = "";
+        try { const parsed = new URL(String(offer?.permalink||"")); if(parsed.protocol==="https:" && /(^|\.)mercadolivre\.com\.br$/i.test(parsed.hostname) && /MLB\d+/i.test(parsed.href)) safeUrl=parsed.href; } catch {}
+        if (!safeUrl) return null;
+        return {sourceId:productId,itemId,publicItem:{id:itemId,item_id:itemId,title,price:current,original_price:original,permalink:safeUrl,thumbnail:String(offer?.image||""),category_id:null,shipping:{},deal_ids:discount>0?["pagina-ofertas"]:[]},highlight:{position:Number(offer?.position)||index+1,categoria_id:"mercadolivre-ofertas-page",categoria_nome:"Ofertas do Mercado Livre",categoria_grupo:group}};
+      }).filter(Boolean);
+      resolved.splice(0,resolved.length,...pageResolved);
+      highlightEntries.splice(0,highlightEntries.length,...pageResolved.map((r:any)=>({id:r.sourceId,type:"ITEM",categoria_id:r.highlight.categoria_id,categoria_nome:r.highlight.categoria_nome,categoria_grupo:r.highlight.categoria_grupo})));
+    }
+
     if (!resolved.length) {
       return json({
         ok: false,
@@ -1490,7 +1567,7 @@ Deno.serve(async (req) => {
         limite: limit,
         ofertas: [],
         diagnostico: {
-          versao_busca: "467-prioridade-categorias-ranking-catalogo-historico",
+          versao_busca: sourceOffers.length ? "471-ofertas-pagina-aberta" : "471-amplia-captura-selecao-diversificada",
           categorias_consultadas: diagnostics,
           destaques_recebidos: highlightEntries.length,
           destaques_resolvidos: resolved.length,
@@ -1986,9 +2063,9 @@ Deno.serve(async (req) => {
     const groupCounts = new Map<string, number>();
     // Diversidade sem limitar cada grupo a apenas um produto.
     // Até 3 por categoria e 4 por grupo prioritário, respeitando o limite global de 20.
-    const MAX_PER_CATEGORY = 3;
-    const MAX_PER_CATEGORY_GROUP = 3;
-    const MAX_PER_GROUP = 4;
+    const MAX_PER_CATEGORY = 5;
+    const MAX_PER_CATEGORY_GROUP = 5;
+    const MAX_PER_GROUP = 6;
     const normalizeTitleKey = (value: unknown) => String(value || "").trim().toLowerCase();
     const existingTitleKeys = new Set(
       (existingOffers || [])
@@ -2007,36 +2084,39 @@ Deno.serve(async (req) => {
       rejeitadosPorMotivo[motivo] = (rejeitadosPorMotivo[motivo] || 0) + 1;
     };
 
-    // Primeiro tentamos todas as ofertas com promoção/cupom. Só depois usamos
-    // uma reserva pequena de produtos de alta qualidade, para evitar buscas vazias
-    // quando o Mercado Livre não informa desconto em todos os destaques.
+    // Promoção é um sinal de classificação, não um requisito obrigatório.
+    // A lista já está ordenada por ranking, loja oficial, promoção, desconto e avaliação.
+    // Só entram candidatos com identidade, preço e anúncio público resolvido; filtros de
+    // duplicidade/histórico continuam ativos mais abaixo.
     const hasPromotion = (item: any) =>
       Number(item.discount || 0) > 0 || Boolean(item.promotion_id) || Boolean(item.coupon_code);
-    const isQualifiedFallback = (item: any) => {
-      if (hasPromotion(item) || item.free_shipping !== true) return false;
-      if (!Boolean(item.official_store_id) && Number(item.rating || 0) < 4.5) return false;
-      const position = Number(item.position || 999);
-      // Posições >= 2000 são resultados da busca de catálogo, não ranking de vendas.
-      // Aceitá-los apenas como reserva de qualidade, nunca como mais vendidos.
-      return position <= 10 || position >= 2000;
+    const isQualifiedNoPromotion = (item: any) => {
+      // Sem promoção: só vale um destaque realmente alto, com frete grátis e
+      // loja oficial verificada ou avaliação mínima 4,5 quando disponível.
+      const position = Number(item.position || 9999);
+      if (position > 10 || item.free_shipping !== true) return false;
+      return Boolean(item.official_store_id) || Number(item.rating || 0) >= 4.5;
     };
-    // candidates já está ordenado por ranking, depois loja oficial, promoção,
-    // desconto e avaliação. Não pôr todas as promoções à frente dos mais vendidos.
     const selectionCandidates = candidates;
-    const MAX_FALLBACK_PER_SEARCH = Math.min(5, limit);
-    let fallbackSelected = 0;
+    let qualifiedNoPromotionSelected = 0;
+    const MAX_NO_PROMOTION_PER_SEARCH = Math.min(3, limit);
 
     for (const item of selectionCandidates) {
       const productId = String(item.product_external_id || "");
       const itemId = String(item.external_id || "");
 
       if (!productId && !itemId) { rejeitar("sem_id"); continue; }
-      // Produtos sem promoção só entram como reserva limitada, depois de todos os
-      // candidatos promocionais: ranking entre os 10 primeiros, frete grátis e
-      // Loja Oficial verificada ou avaliação mínima de 4,5 quando informada.
+
+      // Resultados de catálogo (posição >= 2000) precisam combinar com a intenção
+      // da palavra-chave; nome vagamente parecido não é correspondência suficiente.
+      if (Number(item.position || 0) >= 2000 &&
+          !isRelevantCatalogKeyword(item.categoria_id, item.title, item.categoria_grupo)) {
+        rejeitar("produto_nao_corresponde_a_busca");
+        continue;
+      }
       if (!hasPromotion(item)) {
-        if (!isQualifiedFallback(item) || fallbackSelected >= MAX_FALLBACK_PER_SEARCH) {
-          rejeitar("sem_promocao_real");
+        if (!isQualifiedNoPromotion(item) || qualifiedNoPromotionSelected >= MAX_NO_PROMOTION_PER_SEARCH) {
+          rejeitar("sem_promocao_real_ou_ranking_qualificado");
           continue;
         }
       }
@@ -2119,7 +2199,7 @@ Deno.serve(async (req) => {
       categoryGroupCounts.set(categoryGroupKey, (categoryGroupCounts.get(categoryGroupKey) || 0) + 1);
       groupCounts.set(groupKey, (groupCounts.get(groupKey) || 0) + 1);
       unique.push(item);
-      if (!hasPromotion(item)) fallbackSelected++;
+      if (!hasPromotion(item)) qualifiedNoPromotionSelected++;
 
       if (unique.length >= limit) break;
     }
@@ -2334,7 +2414,7 @@ Deno.serve(async (req) => {
       modo_busca: "ofertas_por_tipo_de_produto",
       ofertas,
       diagnostico: {
-        versao_busca: "467-prioridade-categorias-ranking-catalogo-historico",
+        versao_busca: "471-amplia-captura-selecao-diversificada",
         categorias_consultadas: diagnostics,
         destaques_recebidos: highlightEntries.length,
         destaques_resolvidos: resolved.length,
@@ -2368,7 +2448,7 @@ Deno.serve(async (req) => {
         incidente_autenticacao: authenticationIncident,
         reautenticacao_necessaria: Boolean(reauthenticationUrl),
         url_reautenticacao: reauthenticationUrl,
-        regra_fontes: "consulta categorias e palavras-chave variadas do Mercado Livre em rodízio; prioriza promoções e cupons, aceita uma reserva pequena de produtos bem avaliados; bloqueia IDs já cadastrados, usa histórico para cooldown curto de família e permite redescobrir itens cujas ofertas foram removidas; valida correspondência de catálogo com tolerância a variantes de título; não repete endpoint público HTTP 403; mantém publicação bloqueada até validação de afiliado oficial"
+        regra_fontes: "consulta categorias e palavras-chave variadas do Mercado Livre em rodízio; prioriza promoções/cupom real; sem promoção aceita apenas destaque entre os 10 primeiros com frete grátis e loja oficial ou avaliação >=4,5; valida correspondência da palavra-chave; bloqueia IDs já cadastrados, usa histórico para cooldown curto de família e permite redescobrir itens cujas ofertas foram removidas; valida correspondência de catálogo com tolerância a variantes de título; não repete endpoint público HTTP 403; mantém publicação bloqueada até validação de afiliado oficial"
       }
     });
   } catch (e) {
