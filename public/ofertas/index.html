@@ -10,21 +10,23 @@
     :root{color-scheme:light;--ink:#302342;--muted:#78688b;--green:#9b70d6;--green2:#7950b5;--paper:#fbf8ff;--line:#e8dcf5;--orange:#f2c879}
     *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
     .hero{background:radial-gradient(circle at 90% 10%,#d9c2f5 0,transparent 38%),linear-gradient(135deg,#563879,#8060a8);color:#fff;padding:30px 18px 34px}
-    .wrap{max-width:1100px;margin:0 auto}.brand{display:flex;align-items:center;gap:16px;font-weight:850;letter-spacing:.3px}.logo{display:block;width:92px;height:92px;object-fit:contain;border-radius:22px;background:#f4eaff;padding:5px;border:2px solid #d8c0f1;box-shadow:0 7px 22px #2c174022;flex:0 0 auto}
-    h1{font-size:clamp(29px,5vw,44px);line-height:1.06;margin:24px 0 10px;max-width:700px}.hero p{color:#f0e5ff;max-width:620px;line-height:1.55;margin:0}.pill{display:inline-flex;margin-top:17px;border:1px solid #c4a2ed;border-radius:999px;padding:7px 11px;font-size:12px;color:#f6edff}
+    .wrap{max-width:1100px;margin:0 auto}.hero-layout{display:grid;grid-template-columns:140px minmax(0,1fr);align-items:center;gap:28px;min-height:245px}.brand{display:flex;align-items:center;justify-content:center}.logo{display:block;width:128px;height:128px;object-fit:contain;border-radius:28px;background:#f4eaff;padding:6px;border:2px solid #d8c0f1;box-shadow:0 7px 22px #2c174022;flex:0 0 auto}.hero-copy{text-align:center;display:flex;flex-direction:column;align-items:center}
+    h1{font-size:clamp(29px,5vw,44px);line-height:1.06;margin:0 0 12px;max-width:760px}.hero p{color:#f0e5ff;max-width:680px;line-height:1.55;margin:0}.pill{display:inline-flex;margin-top:17px;border:1px solid #c4a2ed;border-radius:999px;padding:7px 11px;font-size:12px;color:#f6edff}
     main{padding:22px 16px 50px}.tools{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 20px}.search{flex:1;min-width:190px;border:1px solid var(--line);background:#fff;border-radius:12px;padding:13px 14px;font-size:15px;outline-color:var(--green)}
     .filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:20px}.filter{border:1px solid #dfd0f0;background:#fff;color:#59466d;border-radius:999px;padding:9px 13px;cursor:pointer;font-weight:650}.filter.active{background:var(--green);border-color:var(--green);color:#fff}
     .summary{display:flex;justify-content:space-between;gap:12px;align-items:center;margin:0 0 14px;color:var(--muted);font-size:13px}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px}
     .card{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden;display:flex;flex-direction:column;min-width:0;box-shadow:0 4px 16px #55357510}.photo{aspect-ratio:1/1;background:#f4edfc;position:relative;display:grid;place-items:center;overflow:hidden}.photo img{width:100%;height:100%;object-fit:contain;mix-blend-mode:multiply}.off{position:absolute;top:10px;left:10px;background:#fff0d6;color:#8d4c00;border-radius:8px;padding:6px 8px;font-size:12px;font-weight:850}.body{padding:13px;display:flex;flex-direction:column;gap:9px;flex:1}.store{font-size:11px;color:var(--green);font-weight:800;text-transform:uppercase;letter-spacing:.5px}.title{font-size:14px;font-weight:700;line-height:1.4;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;min-height:59px}.prices{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}.now{font-size:22px;font-weight:900;letter-spacing:-.6px}.was{font-size:12px;color:#849087;text-decoration:line-through}.cta{display:block;text-decoration:none;text-align:center;background:var(--green);color:#fff;font-weight:800;border-radius:10px;padding:12px 10px;margin-top:auto}.cta:hover{background:var(--green2)}.disclosure{margin:22px 0 0;color:var(--muted);font-size:12px;line-height:1.6}.state{grid-column:1/-1;text-align:center;padding:45px 18px;background:#fff;border:1px dashed #d8c8e9;border-radius:16px;color:var(--muted)}footer{padding:22px 16px;border-top:1px solid var(--line);text-align:center;color:var(--muted);font-size:12px}
-    @media(max-width:900px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:620px){.hero{padding:23px 16px 28px}.logo{width:76px;height:76px;border-radius:19px}.brand{gap:12px;font-size:14px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.body{padding:10px;gap:8px}.title{font-size:13px;min-height:54px}.now{font-size:19px}.cta{font-size:13px;padding:11px 7px}.summary{align-items:flex-start;flex-direction:column}}@media(max-width:360px){.grid{grid-template-columns:1fr}}
+    @media(max-width:900px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:620px){.hero{padding:23px 16px 28px}.hero-layout{grid-template-columns:1fr;gap:18px;min-height:0}.logo{width:92px;height:92px;border-radius:22px}.hero-copy{text-align:center}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.body{padding:10px;gap:8px}.title{font-size:13px;min-height:54px}.now{font-size:19px}.cta{font-size:13px;padding:11px 7px}.summary{align-items:flex-start;flex-direction:column}}@media(max-width:360px){.grid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
-  <header class="hero"><div class="wrap">
-    <div class="brand"><img class="logo" src="./rob.jpeg" alt="Logo Achadinhos Baratos"><span>ACHADINHOS BARATOS</span></div>
-    <h1>Ofertas boas para economizar de verdade.</h1>
-    <p>Produtos selecionados da Shopee e do Mercado Livre. Confira os detalhes e o preço atualizado na loja antes de comprar.</p>
-    <span class="pill">✦ Ofertas atualizadas automaticamente</span>
+  <header class="hero"><div class="wrap hero-layout">
+    <div class="brand"><img class="logo" src="./rob.jpeg" alt="Logo Achadinhos Baratos"></div>
+    <div class="hero-copy">
+      <h1>Ofertas boas para economizar de verdade.</h1>
+      <p>Produtos selecionados da Shopee e do Mercado Livre. Confira os detalhes e o preço atualizado na loja antes de comprar.</p>
+      <span class="pill">✦ Ofertas atualizadas automaticamente</span>
+    </div>
   </div></header>
   <main class="wrap">
     <div class="tools"><input id="search" class="search" type="search" placeholder="Buscar produto..." aria-label="Buscar produto"></div>
