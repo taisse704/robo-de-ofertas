@@ -46,6 +46,86 @@ Deno.serve(async (req) => {
     if (pageError) throw pageError;
     if (!page) return json({ ok: false, error: "Página de cupons não encontrada." }, 404);
 
+    const { data: shopeePlatform, error: platformError } = await db
+      .from("platforms")
+      .select("id")
+      .ilike("nome", "Shopee")
+      .maybeSingle();
+    if (platformError) throw platformError;
+    if (!shopeePlatform?.id) return json({ ok: false, error: "Plataforma Shopee não cadastrada." }, 404);
+
+    if (action === "offers") {
+      const { data: offers, error: offersError } = await db
+        .from("offers")
+        .select("id,titulo,store_provider,preco_atual,preco_anterior,desconto_percentual,imagem_url,affiliate_url,score_oferta,created_at")
+        .eq("user_id", page.user_id)
+        .eq("permitido_afiliado", true)
+        .eq("permitido_divulgacao", true)
+        .eq("disponibilidade", true)
+        .eq("classificacao", "interessante")
+        .not("affiliate_url", "is", null)
+        .order("score_oferta", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .limit(60);
+      if (offersError) throw offersError;
+
+      const safeOffers = (offers || []).filter((offer: any) => isValidHttpUrl(offer.affiliate_url)).map((offer: any) => ({
+        id: offer.id,
+        titulo: offer.titulo,
+        loja: offer.store_provider === "mercadolivre" ? "Mercado Livre" : offer.store_provider === "shopee" ? "Shopee" : String(offer.store_provider || "Loja"),
+        preco_atual: offer.preco_atual,
+        preco_anterior: offer.preco_anterior,
+        desconto_percentual: offer.desconto_percentual,
+        imagem_url: isValidHttpUrl(offer.imagem_url) ? offer.imagem_url : null,
+      }));
+
+      return json({
+        ok: true,
+        page: { titulo: "Achadinhos Baratos", subtitulo: "Ofertas selecionadas para você economizar." },
+        offers: safeOffers,
+        total: safeOffers.length,
+      });
+    }
+
+    if (action === "offer_click") {
+      const offerId = String(requestUrl.searchParams.get("offer_id") || "").trim();
+      const origem = String(requestUrl.searchParams.get("origem") || "pagina_ofertas").slice(0, 80);
+      if (!offerId) return json({ ok: false, error: "Produto não informado." }, 400);
+
+      const { data: offer, error: offerError } = await db
+        .from("offers")
+        .select("id,user_id,store_provider,affiliate_url,permitido_afiliado,permitido_divulgacao,disponibilidade,classificacao")
+        .eq("id", offerId)
+        .eq("user_id", page.user_id)
+        .eq("permitido_afiliado", true)
+        .eq("permitido_divulgacao", true)
+        .eq("disponibilidade", true)
+        .eq("classificacao", "interessante")
+        .maybeSingle();
+      if (offerError) throw offerError;
+      if (!offer || !isValidHttpUrl(offer.affiliate_url)) {
+        return json({ ok: false, error: "Esta oferta não está mais disponível." }, 404);
+      }
+
+      const { error: clickError } = await db.from("clicks").insert({
+        user_id: page.user_id,
+        plataforma: "pagina_ofertas",
+        origem,
+        metadata: {
+          offer_id: offer.id,
+          loja: offer.store_provider,
+          referer: req.headers.get("referer") || null,
+          user_agent: req.headers.get("user-agent") || null,
+        },
+      });
+      if (clickError) console.error("OFFER CLICK LOG:", clickError);
+
+      return new Response(null, {
+        status: 302,
+        headers: { Location: offer.affiliate_url, "Cache-Control": "no-store" },
+      });
+    }
+
     if (action === "click") {
       const couponId = String(requestUrl.searchParams.get("coupon_id") || "").trim();
       const origem = String(requestUrl.searchParams.get("origem") || "pagina_cupons").slice(0, 80);
@@ -59,6 +139,7 @@ Deno.serve(async (req) => {
         .select("id,user_id,platform_id,codigo,ativo,verificado,validade_inicio,validade_fim,url_afiliado,offer_id,descricao")
         .eq("id", couponId)
         .eq("user_id", page.user_id)
+        .eq("platform_id", shopeePlatform.id)
         .eq("ativo", true)
         .eq("verificado", true)
         .or(`validade_inicio.is.null,validade_inicio.lte.${now}`)
@@ -123,6 +204,7 @@ Deno.serve(async (req) => {
       .from("coupons")
       .select("id,codigo,descricao,tipo_desconto,valor,percentual,compra_minima,validade_inicio,validade_fim,regras,offer_id,url_afiliado,prioridade")
       .eq("user_id", page.user_id)
+      .eq("platform_id", shopeePlatform.id)
       .eq("ativo", true)
       .eq("verificado", true)
       .or(`validade_inicio.is.null,validade_inicio.lte.${now}`)
