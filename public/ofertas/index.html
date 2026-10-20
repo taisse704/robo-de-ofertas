@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#102b24">
+  <meta name="description" content="Achadinhos Baratos: ofertas selecionadas da Shopee e do Mercado Livre.">
+  <title>Achadinhos Baratos | Ofertas</title>
+  <style>
+    :root{color-scheme:light;--ink:#17231f;--muted:#66736d;--green:#176b4d;--green2:#0e5039;--paper:#f5f7f4;--line:#e2e8e3;--orange:#f28b35}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+    .hero{background:radial-gradient(circle at 90% 10%,#2c795a 0,transparent 35%),linear-gradient(135deg,#102b24,#164b37);color:#fff;padding:30px 18px 34px}
+    .wrap{max-width:1100px;margin:0 auto}.brand{display:flex;align-items:center;gap:10px;font-weight:850;letter-spacing:.2px}.logo{display:grid;place-items:center;width:42px;height:42px;border-radius:14px;background:#fff;color:var(--green);font-size:23px}
+    h1{font-size:clamp(29px,5vw,44px);line-height:1.06;margin:24px 0 10px;max-width:700px}.hero p{color:#d9e9df;max-width:620px;line-height:1.55;margin:0}.pill{display:inline-flex;margin-top:17px;border:1px solid #6b9c84;border-radius:999px;padding:7px 11px;font-size:12px;color:#e4f5eb}
+    main{padding:22px 16px 50px}.tools{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 20px}.search{flex:1;min-width:190px;border:1px solid var(--line);background:#fff;border-radius:12px;padding:13px 14px;font-size:15px;outline-color:var(--green)}
+    .filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:20px}.filter{border:1px solid #d5dfd8;background:#fff;color:#3d4b43;border-radius:999px;padding:9px 13px;cursor:pointer;font-weight:650}.filter.active{background:var(--green);border-color:var(--green);color:#fff}
+    .summary{display:flex;justify-content:space-between;gap:12px;align-items:center;margin:0 0 14px;color:var(--muted);font-size:13px}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px}
+    .card{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden;display:flex;flex-direction:column;min-width:0;box-shadow:0 4px 16px #173b2910}.photo{aspect-ratio:1/1;background:#eef2ee;position:relative;display:grid;place-items:center;overflow:hidden}.photo img{width:100%;height:100%;object-fit:contain;mix-blend-mode:multiply}.off{position:absolute;top:10px;left:10px;background:#fff0e3;color:#a44708;border-radius:8px;padding:6px 8px;font-size:12px;font-weight:850}.body{padding:13px;display:flex;flex-direction:column;gap:9px;flex:1}.store{font-size:11px;color:var(--green);font-weight:800;text-transform:uppercase;letter-spacing:.5px}.title{font-size:14px;font-weight:700;line-height:1.4;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;min-height:59px}.prices{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}.now{font-size:22px;font-weight:900;letter-spacing:-.6px}.was{font-size:12px;color:#849087;text-decoration:line-through}.cta{display:block;text-decoration:none;text-align:center;background:var(--green);color:#fff;font-weight:800;border-radius:10px;padding:12px 10px;margin-top:auto}.cta:hover{background:var(--green2)}.disclosure{margin:22px 0 0;color:var(--muted);font-size:12px;line-height:1.6}.state{grid-column:1/-1;text-align:center;padding:45px 18px;background:#fff;border:1px dashed #cbd7ce;border-radius:16px;color:var(--muted)}footer{padding:22px 16px;border-top:1px solid var(--line);text-align:center;color:var(--muted);font-size:12px}
+    @media(max-width:900px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:620px){.hero{padding:23px 16px 28px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.body{padding:10px;gap:8px}.title{font-size:13px;min-height:54px}.now{font-size:19px}.cta{font-size:13px;padding:11px 7px}.summary{align-items:flex-start;flex-direction:column}}@media(max-width:360px){.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <header class="hero"><div class="wrap">
+    <div class="brand"><span class="logo">✦</span><span>ACHADINHOS BARATOS</span></div>
+    <h1>Ofertas boas para economizar de verdade.</h1>
+    <p>Produtos selecionados da Shopee e do Mercado Livre. Confira os detalhes e o preço atualizado na loja antes de comprar.</p>
+    <span class="pill">✦ Ofertas atualizadas automaticamente</span>
+  </div></header>
+  <main class="wrap">
+    <div class="tools"><input id="search" class="search" type="search" placeholder="Buscar produto..." aria-label="Buscar produto"></div>
+    <nav id="filters" class="filters" aria-label="Filtrar por loja">
+      <button class="filter active" data-filter="todos">Todas as ofertas</button>
+      <button class="filter" data-filter="Shopee">Shopee</button>
+      <button class="filter" data-filter="Mercado Livre">Mercado Livre</button>
+    </nav>
+    <div class="summary"><span id="count">Carregando ofertas…</span><span>Toque em “Ver oferta” para conferir na loja</span></div>
+    <section id="grid" class="grid" aria-live="polite"><div class="state">Buscando ofertas disponíveis…</div></section>
+    <p class="disclosure">Aviso: alguns links são links de afiliado. Podemos receber uma comissão se você comprar por eles, sem custo adicional para você. Os preços, descontos, frete e disponibilidade podem mudar; confirme as condições diretamente na loja.</p>
+  </main>
+  <footer>Achadinhos Baratos · Economize com atenção e compare as condições antes de comprar.</footer>
+  <script>
+    const API = "https://ytymdncyaynmypiodhfc.supabase.co/functions/v1/coupon-page";
+    const params = new URLSearchParams(location.search);
+    const slug = "cupons-shopee";
+    let offers = [];
+    let filter = "todos";
+    const grid = document.getElementById("grid");
+    const count = document.getElementById("count");
+    const search = document.getElementById("search");
+    const money = n => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(Number(n)||0);
+    const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    function render(){
+      const term=search.value.trim().toLocaleLowerCase("pt-BR");
+      const shown=offers.filter(o=>(filter==="todos"||o.loja===filter)&&String(o.titulo||"").toLocaleLowerCase("pt-BR").includes(term));
+      count.textContent=shown.length+" oferta"+(shown.length===1?"":"s")+" disponível"+(shown.length===1?"":"eis");
+      if(!shown.length){grid.innerHTML='<div class="state">Não encontrei ofertas com esse filtro agora. Tente outra busca.</div>';return}
+      grid.innerHTML=shown.map(o=>{
+        const discount=Number(o.desconto_percentual)||0;
+        const previous=Number(o.preco_anterior)||0;
+        const image=o.imagem_url?'<img loading="lazy" src="'+esc(o.imagem_url)+'" alt="'+esc(o.titulo)+'" onerror="this.style.display=\'none\'">':'';
+        const click=API+'?action=offer_click&slug='+encodeURIComponent(slug)+'&offer_id='+encodeURIComponent(o.id)+'&origem='+encodeURIComponent(params.get("origem")||"bio_social");
+        return '<article class="card"><div class="photo">'+image+(discount>0?'<span class="off">-'+Math.round(discount)+'%</span>':'')+'</div><div class="body"><span class="store">'+esc(o.loja)+'</span><div class="title">'+esc(o.titulo)+'</div><div class="prices"><span class="now">'+money(o.preco_atual)+'</span>'+(previous>Number(o.preco_atual)?'<span class="was">'+money(previous)+'</span>':'')+'</div><a class="cta" href="'+click+'" target="_blank" rel="sponsored nofollow noopener">Ver oferta ↗</a></div></article>';
+      }).join("");
+    }
+    document.getElementById("filters").addEventListener("click",e=>{const b=e.target.closest("button[data-filter]");if(!b)return;filter=b.dataset.filter;document.querySelectorAll(".filter").forEach(x=>x.classList.toggle("active",x===b));render()});
+    search.addEventListener("input",render);
+    fetch(API+"?action=offers&slug="+encodeURIComponent(slug),{cache:"no-store"})
+      .then(r=>r.json()).then(data=>{if(!data.ok)throw new Error(data.error||"Não foi possível carregar ofertas");offers=Array.isArray(data.offers)?data.offers:[];render()})
+      .catch(()=>{count.textContent="Não foi possível atualizar";grid.innerHTML='<div class="state">As ofertas não carregaram desta vez. Atualize a página em alguns instantes.</div>'});
+  </script>
+</body>
+</html>
