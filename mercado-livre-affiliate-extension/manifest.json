@@ -17,7 +17,8 @@
     "https://mercadolibre.com/*",
     "https://*.shopee.com.br/*",
     "https://shopee.com.br/*",
-    "https://taisse704.github.io/*"
+    "https://taisse704.github.io/*",
+        "https://achadinhosrob.pages.dev/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -25,7 +26,8 @@
   "content_scripts": [
     {
       "matches": [
-        "https://taisse704.github.io/*"
+        "https://taisse704.github.io/*",
+        "https://achadinhosrob.pages.dev/*"
       ],
       "js": [
         "app-bridge.js"
