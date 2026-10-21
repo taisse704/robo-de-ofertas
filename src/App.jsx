@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "./supabase";
 
-const FRONTEND_BUILD_VERSION = "2026-10-19-ml-auto-affiliate-links-1";
+const FRONTEND_BUILD_VERSION = "2026-10-21-video-limit-20-1";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const COUPON_PAGE_FUNCTION = `${SUPABASE_URL}/functions/v1/coupon-page`;
@@ -2036,7 +2036,7 @@ export default function App() {
             <h2>Gestão de Conteúdo</h2>
             {mensagemConteudo && <div className="panel"><p style={{whiteSpace:"pre-wrap"}}>{mensagemConteudo}</p></div>}
             <div className="panel" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px",flexWrap:"wrap"}}>
-              <div><strong>Vídeos dos anúncios</strong><p style={{margin:"4px 0 0"}}>Verifica até 12 anúncios por tentativa e encaminha somente vídeos originais encontrados. Se não houver vídeo original, a oferta fica fora da fila de vídeos. Não cria vídeos a partir de fotos nem publica por este botão.</p></div>
+              <div><strong>Vídeos dos anúncios</strong><p style={{margin:"4px 0 0"}}>Verifica até 20 anúncios por tentativa e encaminha somente vídeos originais encontrados. Se não houver vídeo original, a oferta fica fora da fila de vídeos. Não cria vídeos a partir de fotos nem publica por este botão.</p></div>
               <button className="primary" onClick={() => importarVideosOriginais({ forcarNovaVerificacao: true })} disabled={importandoVideosOriginais}>
                 {importandoVideosOriginais ? "VERIFICANDO E PREPARANDO..." : "🎬 BUSCAR / PREPARAR VÍDEOS"}
               </button>
