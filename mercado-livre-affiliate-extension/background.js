@@ -1,4 +1,5 @@
-const APP_MATCH = "https://taisse704.github.io/";
+const APP_MATCHES = ["https://taisse704.github.io/", "https://achadinhosrob.pages.dev/"];
+function isAppUrl(url) { return APP_MATCHES.some((prefix) => String(url || "").startsWith(prefix)); }
 let mlTabId = null;
 let fila = [];
 let processando = false;
@@ -10,7 +11,7 @@ const CAPTURE_TAB_KEY = "roboVideoCaptureTabId";
 const CAPTURE_LOCK_KEY = "roboVideoCaptureLock";
 
 function enviarResultadoParaApp(message) {
-  chrome.tabs.query({ url: ["https://taisse704.github.io/*"] })
+  chrome.tabs.query({ url: ["https://taisse704.github.io/*", "https://achadinhosrob.pages.dev/*"] })
     .then((tabs) => {
       for (const tab of tabs) {
         if (tab.id) chrome.tabs.sendMessage(tab.id, message).catch(() => {});
@@ -153,7 +154,7 @@ async function enviarItemAtual() {
 
 chrome.runtime.onMessage.addListener((message, sender) => {
   if (!message) return;
-  if (sender.tab?.url?.startsWith(APP_MATCH) && message.type === "ML_OFFERS_PAGE_CAPTURE_REQUEST") {
+  if (isAppUrl(sender.tab?.url) && message.type === "ML_OFFERS_PAGE_CAPTURE_REQUEST") {
     (async () => {
       try {
         const tabs = await chrome.tabs.query({ url: ["https://www.mercadolivre.com.br/ofertas*", "https://mercadolivre.com.br/ofertas*"] });
@@ -231,7 +232,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     return;
   }
 
-  if (sender.tab?.url?.startsWith(APP_MATCH) && message.type === "ML_AFFILIATE_GENERATE") {
+  if (isAppUrl(sender.tab?.url) && message.type === "ML_AFFILIATE_GENERATE") {
     const offerId = String(message.offer?.offer_id || "").trim();
     if (offerId && !fila.some((item) => String(item.offer?.offer_id || "") === offerId)) {
       fila.push(message);
@@ -447,7 +448,7 @@ async function capturarVideosOriginais(offers, estado) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender) => {
-  if (!sender.tab?.url?.startsWith(APP_MATCH) || !message) return;
+  if (!isAppUrl(sender.tab?.url) || !message) return;
   if (message.type === "ROBO_VIDEO_CAPTURE_CANCEL") {
     if (capturaVideoAtual) {
       // Cancelar interrompe a fila, mas nunca fecha a aba que já era da usuária.
