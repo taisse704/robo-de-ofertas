@@ -101,16 +101,67 @@ Deno.serve(async (req) => {
       // de afiliado foi realmente gerado e salvo.
       if (isMercadoLivre && !affiliateUrl) continue;
 
-      const { data: exists } = await db
+      const { data: exists, error: existsError } = await db
         .from("contents")
-        .select("id")
+        .select("id,status,tipo,video_url,video_source,video_status,dados_geracao")
         .eq("user_id", userId)
         .eq("offer_id", offer.id)
         .in("status", ["rascunho", "aguardando_revisao", "pronto", "publicando", "publicado"])
         .limit(1)
         .maybeSingle();
+      if (existsError) throw existsError;
 
-      if (exists) continue;
+      // Quando a captura encontra um vídeo original depois de o post já existir,
+      // converte o conteúdo existente em vídeo sem duplicá-lo. Nunca altera uma
+      // publicação concluída nem um conteúdo que esteja em publicação.
+      if (exists) {
+        const existingVideoUrl = typeof offer.video_url === "string" && offer.video_url.trim()
+          ? offer.video_url.trim()
+          : null;
+        const existingVideoSource = String(offer.video_source || "").trim().toLowerCase();
+        const trustedVideoSources = new Set(["original", "shopee_public_listing", "mercadolivre_public_listing"]);
+        const originalVideoConfirmed = !!existingVideoUrl &&
+          String(offer.video_status || "").toLowerCase() === "original_disponivel" &&
+          trustedVideoSources.has(existingVideoSource);
+        const canConvertExisting = selectedOfferIds.includes(String(offer.id)) &&
+          originalVideoConfirmed &&
+          !["publicado", "publicando"].includes(String(exists.status || "").toLowerCase()) &&
+          !exists.video_url;
+        if (canConvertExisting) {
+          const priorGeneration = exists.dados_geracao && typeof exists.dados_geracao === "object"
+            ? exists.dados_geracao
+            : {};
+          const { data: updatedContent, error: updateError } = await db
+            .from("contents")
+            .update({
+              tipo: "video_oferta",
+              video_url: existingVideoUrl,
+              video_source: existingVideoSource,
+              video_status: "original_disponivel",
+              dados_geracao: {
+                ...priorGeneration,
+                gerar_video: true,
+                modo_conteudo: "video",
+                video_source: existingVideoSource,
+                video_fallback_para_post: false,
+                video_migrado_de_oferta_existente: true
+              },
+              updated_at: new Date().toISOString()
+            })
+            .eq("id", exists.id)
+            .eq("user_id", userId)
+            .not("status", "in", '("publicado","publicando")')
+            .is("video_url", null)
+            .select()
+            .maybeSingle();
+          if (updateError) throw updateError;
+          if (updatedContent) {
+            conteudos.push(updatedContent);
+            count++;
+          }
+        }
+        continue;
+      }
 
       const price = Number(offer.preco_atual || 0);
       const old = Number(offer.preco_anterior || 0);
