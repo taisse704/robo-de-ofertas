@@ -329,7 +329,7 @@ async function capturarVideosOriginais(offers, estado) {
     if (!id || vistos.has(id)) return false;
     vistos.add(id);
     return true;
-  }).slice(0, 100);
+  }).slice(0, 20);
   let tabId = null;
   let originalTabUrl = null;
   let erroCaptura = null;
