@@ -8,14 +8,48 @@ function contextoValido() {
   }
 }
 
+function notificarFalha(message, error) {
+  const detail = String(error?.message || error || "Falha desconhecida na comunicação com a extensão.");
+  const type = message?.type;
+  if (type === "ML_OFFERS_PAGE_CAPTURE_REQUEST") {
+    window.postMessage({
+      source: SOURCE,
+      type: "ML_OFFERS_PAGE_CAPTURE_RESULT",
+      ok: false,
+      offers: [],
+      error: "A extensão foi encontrada, mas não conseguiu comunicar com o serviço de segundo plano. Abra edge://extensions, clique em Recarregar na extensão e atualize o Robô de Ofertas. Detalhe: " + detail
+    }, "*");
+  } else if (type === "ML_AFFILIATE_GENERATE") {
+    window.postMessage({
+      source: SOURCE,
+      type: "ML_AFFILIATE_RESULT",
+      ok: false,
+      offer_id: String(message?.offer?.offer_id || "") || null,
+      error: "A extensão não conseguiu iniciar a geração do link. Recarregue a extensão e atualize o Robô de Ofertas. Detalhe: " + detail
+    }, "*");
+  } else if (type === "ROBO_VIDEO_CAPTURE_REQUEST") {
+    window.postMessage({
+      source: SOURCE,
+      type: "ROBO_VIDEO_CAPTURE_RESULT",
+      ok: false,
+      results: [],
+      error: "A extensão não conseguiu iniciar a captura de vídeos. Recarregue a extensão e atualize o Robô de Ofertas. Detalhe: " + detail
+    }, "*");
+  }
+}
+
 function enviarParaBackground(message) {
-  if (!contextoValido()) return false;
+  if (!contextoValido()) {
+    notificarFalha(message, "O contexto da extensão está indisponível ou foi atualizado.");
+    return;
+  }
 
   try {
-    chrome.runtime.sendMessage(message).catch(() => {});
-    return true;
-  } catch {
-    return false;
+    Promise.resolve(chrome.runtime.sendMessage(message)).catch((error) => {
+      notificarFalha(message, error);
+    });
+  } catch (error) {
+    notificarFalha(message, error);
   }
 }
 
