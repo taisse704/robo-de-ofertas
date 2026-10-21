@@ -41,3 +41,10 @@ A captura aceita somente arquivos de vídeo diretos (MP4, M4V, WebM ou MOV) asso
 
 
 Pacote da extensão atualizado após ajuste para reconhecer URLs assinadas de vídeo vinculadas à galeria do produto.
+
+## Versão 1.6.2 — diagnóstico de comunicação
+
+- Atualiza o manifesto para a versão 1.6.2.
+- A ponte entre o aplicativo e o serviço de segundo plano não descarta silenciosamente falhas de comunicação: agora devolve uma mensagem de erro ao aplicativo para captura de ofertas, geração de link ou captura de vídeos.
+- Mantém os mesmos scripts de captura, geração de links, permissões de sites e integração com o Robô de Ofertas.
+- Esta alteração melhora o diagnóstico, mas precisa ser testada no Edge com a sessão real do usuário. Não declara a captura corrigida sem esse teste.
