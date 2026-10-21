@@ -526,7 +526,7 @@ export default function App() {
   async function importarVideosOriginais({ forcarNovaVerificacao = false } = {}) {
     if (importandoVideosOriginais) return;
     setImportandoVideosOriginais(true);
-    setMensagemConteudo("Conectando ao Supabase e procurando vídeos originais (lote de até 100 anúncios)...");
+    setMensagemConteudo("Conectando ao Supabase e procurando vídeos originais (lote de até 20 anúncios)...");
     try {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       if (sessionError) throw sessionError;
@@ -537,7 +537,7 @@ export default function App() {
       const response = await fetch(SUPABASE_URL + "/functions/v1/import-product-videos", {
         method: "POST",
         headers: { Authorization: "Bearer " + token, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ limit: 100, force_retry: !!forcarNovaVerificacao }),
+        body: JSON.stringify({ limit: 20, force_retry: !!forcarNovaVerificacao }),
         signal: AbortSignal.timeout(240000)
       });
       const importacao = await response.json().catch(() => ({}));
@@ -572,7 +572,7 @@ export default function App() {
             .select("id,titulo,store_provider,store_product_url,url_produto,product_external_id,video_url")
             .eq("user_id", usuario.id)
             .in("id", idsVerificados)
-            .limit(100);
+            .limit(20);
           if (erroOfertas) throw new Error("Não consegui recuperar as URLs dos anúncios para a captura no navegador: " + erroOfertas.message);
           const ofertasParaNavegador = (ofertasVerificadas || [])
             .filter((o) => !o.video_url && ["shopee", "mercadolivre"].includes(String(o.store_provider || "").toLowerCase()))
@@ -584,7 +584,7 @@ export default function App() {
               product_external_id: o.product_external_id || null
             }))
             .filter((o) => o.product_url)
-            .slice(0, 100);
+            .slice(0, 20);
 
           if (ofertasParaNavegador.length) {
             setMensagemConteudo(resumoImportacao + "\n\nTentando capturar mídia original nas páginas dos anúncios pelo navegador...");
@@ -626,7 +626,7 @@ export default function App() {
             } else {
               const videosEncontrados = (captura.results || [])
                 .filter((item) => item && item.video_url && item.offer_id)
-                .slice(0, 100)
+                .slice(0, 20)
                 .map((item) => ({ offer_id: String(item.offer_id), video_url: item.video_url, method: item.method || "page_media" }));
               if (videosEncontrados.length) {
                 const salvarResponse = await fetch(SUPABASE_URL + "/functions/v1/save-browser-product-videos", {
