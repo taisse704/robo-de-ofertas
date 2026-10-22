@@ -692,22 +692,37 @@ export default function App() {
   }
 
   async function carregarConteudos() {
-    const [
-      { data, error },
-      { data: pubs, error: pubsError },
-      { data: canais, error: canaisError }
-    ] = await Promise.all([
-      supabase.from("contents").select("*").eq("user_id", usuario.id).order("created_at", { ascending: false }).limit(500),
-      supabase.from("offer_publications").select("id,content_id,offer_id,status,published_at,created_at,external_post_id,erro,channel_id").eq("user_id", usuario.id).order("created_at", { ascending: false }).limit(1000),
-      supabase.from("publication_channels").select("id,tipo,nome,ativo").eq("user_id", usuario.id)
-    ]);
-    if (error) {
-      console.error(error);
-      setMensagemConteudo("Nao foi possivel carregar os conteudos.");
+    // Paginação explícita: o limite anterior de 500 fazia as filas e o histórico
+    // parecerem vazios quando os posts mais recentes ocupavam toda a primeira página.
+    async function carregarTodasAsPaginas(tabela, colunas, limite = 1000) {
+      const resultado = [];
+      for (let inicio = 0; inicio < 20000; inicio += limite) {
+        const { data, error } = await supabase.from(tabela).select(colunas)
+          .eq("user_id", usuario.id)
+          .order("created_at", { ascending: false })
+          .range(inicio, inicio + limite - 1);
+        if (error) throw error;
+        resultado.push(...(data || []));
+        if (!data || data.length < limite) break;
+      }
+      return resultado;
+    }
+
+    let data, pubs, canais;
+    try {
+      [data, pubs, canais] = await Promise.all([
+        carregarTodasAsPaginas("contents", "*"),
+        carregarTodasAsPaginas("offer_publications", "id,content_id,offer_id,status,published_at,created_at,external_post_id,erro,channel_id"),
+        supabase.from("publication_channels").select("id,tipo,nome,ativo").eq("user_id", usuario.id).then(({data,error}) => {
+          if (error) throw error;
+          return data || [];
+        })
+      ]);
+    } catch (error) {
+      console.error("CARREGAR CONTEÚDOS:", error);
+      setMensagemConteudo("Não foi possível carregar todos os conteúdos. Tente atualizar.");
       return;
     }
-    if (pubsError) console.error("CARREGAR PUBLICACOES:", pubsError);
-    if (canaisError) console.error("CARREGAR CANAIS:", canaisError);
 
     const canalPorId = new Map((canais || []).map((canal) => [String(canal.id), canal]));
     const publicacoesComRede = (pubs || []).map((pub) => ({
