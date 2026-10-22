@@ -2141,7 +2141,7 @@ export default function App() {
                     {c.video_url && (
                       <small style={{display:"block",marginTop:"6px"}}>
                         {c.video_status === "original_disponivel" && ["original","shopee_public_listing","mercadolivre_public_listing"].includes(String(c.video_source || "").toLowerCase())
-                          ? "Vídeo original confirmado."
+                          ? "Vídeo original encontrado; qualidade, resolução e áudio ainda não foram validados. Não publicar como vídeo até concluir a análise."
                           : "Vídeo não confirmado como original; não deve ser publicado como vídeo."}
                         {["publicado","publicada"].includes(String(c.status || "").toLowerCase())
                           ? " Já consta como publicado no histórico."
