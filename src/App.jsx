@@ -877,6 +877,87 @@ export default function App() {
     }
   }
 
+  async function publicarEmTodasAsRedes(id) {
+    setProcessandoConteudo(id);
+    setMensagemConteudo("");
+    try {
+      if (!usuario?.id) throw new Error("Usuário não identificado.");
+      const item = conteudos.find((c) => String(c.id) === String(id));
+      if (!item) throw new Error("Não encontrei este conteúdo. Atualize a lista e tente novamente.");
+
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      if (!session?.access_token) throw new Error("Sessão expirada. Faça login novamente.");
+
+      const redesCompativeis = conteudoEhVideo(item)
+        ? ["instagram", "tiktok", "youtube_shorts", "kwai", "pinterest"]
+        : ["instagram", "pinterest"];
+      const { data: canais, error: canaisError } = await supabase
+        .from("publication_channels")
+        .select("id,tipo,nome,ativo")
+        .eq("user_id", usuario.id)
+        .eq("ativo", true)
+        .in("tipo", redesCompativeis);
+      if (canaisError) throw canaisError;
+      const canaisAtivos = (canais || []).filter((canal) => redesCompativeis.includes(canal.tipo));
+      if (!canaisAtivos.length) {
+        throw new Error(
+          conteudoEhVideo(item)
+            ? "Nenhuma rede compatível está ativa. Ative e conecte Instagram, TikTok, YouTube Shorts, Kwai ou Pinterest em Configurações."
+            : "Nenhuma rede compatível está ativa. Para post com imagem, ative e conecte Instagram ou Pinterest em Configurações."
+        );
+      }
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/publish-content`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: SUPABASE_ANON_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          content_id: id,
+          channel_ids: canaisAtivos.map((canal) => canal.id),
+          modo: "manual"
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      const resultados = Array.isArray(data?.resultados) ? data.resultados : [];
+      if ((!response.ok || !data?.ok) && !resultados.length) {
+        throw new Error(data?.error || data?.message || `Erro HTTP ${response.status}`);
+      }
+
+      const resumo = resultados.map((r) => {
+        const nome = r.channel_name || ({
+          instagram: "Instagram",
+          tiktok: "TikTok",
+          youtube_shorts: "YouTube Shorts",
+          kwai: "Kwai",
+          pinterest: "Pinterest"
+        }[r.channel] || r.channel || "Rede");
+        if (!r.ok) return `❌ ${nome}: ${r.error || "falha na publicação"}`;
+        if (r.status === "publicando") return `⏳ ${nome}: enviado, aguardando processamento`;
+        if (r.skipped) return `✅ ${nome}: já estava publicado`;
+        return `✅ ${nome}: publicado`;
+      });
+      const sucessos = resultados.filter((r) => r.ok && r.status === "publicada").length;
+      const emProcessamento = resultados.filter((r) => r.ok && r.status === "publicando").length;
+      const falhas = resultados.filter((r) => !r.ok).length;
+      setMensagemConteudo(
+        `Publicação em todas as redes compatíveis finalizada: ${sucessos} publicada(s), ${emProcessamento} em processamento e ${falhas} erro(s).\\n` +
+        resumo.join("\\n") +
+        "\\nObservação: Facebook e WhatsApp ainda não possuem conector de publicação automática neste projeto."
+      );
+      await carregarConteudos();
+    } catch (error) {
+      console.error("PUBLICAR EM TODAS AS REDES:", error);
+      setMensagemConteudo(error?.message || "Não foi possível publicar em todas as redes.");
+      await carregarConteudos();
+    } finally {
+      setProcessandoConteudo(null);
+    }
+  }
+
   async function carregarPlataformas() {
     const { data, error } = await supabase
       .from("platforms")
@@ -2170,6 +2251,7 @@ export default function App() {
                             <button type="button" className="primary action-button" disabled={processandoConteudo === c.id} onClick={(e) => { e.preventDefault(); publicarAgora(c.id,"instagram"); }}>{conteudoEhVideo(c) ? "📸 PUBLICAR REEL" : "📸 PUBLICAR INSTAGRAM (POST)"}</button>
                             <button type="button" className="primary action-button" disabled={processandoConteudo === c.id || !conteudoEhVideo(c)} title={!conteudoEhVideo(c) ? "TikTok exige vídeo." : ""} onClick={(e) => { e.preventDefault(); publicarAgora(c.id,"tiktok"); }}>🎵 PUBLICAR TIKTOK</button>
                             <button type="button" className="primary action-button" disabled={processandoConteudo === c.id || !conteudoEhVideo(c)} title={!conteudoEhVideo(c) ? "YouTube Shorts exige vídeo." : ""} onClick={(e) => { e.preventDefault(); publicarAgora(c.id,"youtube"); }}>▶️ PUBLICAR YOUTUBE</button>
+                            <button type="button" className="primary action-button" style={{background:"#176b45"}} disabled={processandoConteudo === c.id} title="Envia este conteúdo para todas as redes ativas compatíveis com o formato." onClick={(e) => { e.preventDefault(); publicarEmTodasAsRedes(c.id); }}>📢 PUBLICAR EM TODAS AS REDES</button>
                           </div>
                         </div>
 
