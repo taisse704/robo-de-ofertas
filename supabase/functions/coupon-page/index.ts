@@ -10,7 +10,7 @@ const cors = {
 const json = (data: unknown, status = 200, extra: Record<string,string> = {}) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { ...cors, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=60", ...extra },
+    headers: { ...cors, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store, no-cache, must-revalidate", Pragma: "no-cache", Expires: "0", ...extra },
   });
 
 function isValidHttpUrl(value: unknown) {
@@ -55,18 +55,20 @@ Deno.serve(async (req) => {
     if (!shopeePlatform?.id) return json({ ok: false, error: "Plataforma Shopee não cadastrada." }, 404);
 
     if (action === "offers") {
+      // A oferta fica na vitrine por 30 dias desde o cadastro, mesmo se o estoque
+      // ou a classificação mudar durante esse período.
+      const retentionCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
       const { data: offers, error: offersError } = await db
         .from("offers")
         .select("id,titulo,store_provider,preco_atual,preco_anterior,desconto_percentual,imagem_url,affiliate_url,score_oferta,created_at")
         .eq("user_id", page.user_id)
         .eq("permitido_afiliado", true)
         .eq("permitido_divulgacao", true)
-        .eq("disponibilidade", true)
-        .eq("classificacao", "interessante")
+        .gte("created_at", retentionCutoff)
         .not("affiliate_url", "is", null)
-        .order("score_oferta", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false })
-        .limit(60);
+        .order("score_oferta", { ascending: false, nullsFirst: false })
+        .limit(150);
       if (offersError) throw offersError;
 
       const safeOffers = (offers || []).filter((offer: any) => isValidHttpUrl(offer.affiliate_url)).map((offer: any) => ({
@@ -92,15 +94,15 @@ Deno.serve(async (req) => {
       const origem = String(requestUrl.searchParams.get("origem") || "pagina_ofertas").slice(0, 80);
       if (!offerId) return json({ ok: false, error: "Produto não informado." }, 400);
 
+      const retentionCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
       const { data: offer, error: offerError } = await db
         .from("offers")
-        .select("id,user_id,store_provider,affiliate_url,permitido_afiliado,permitido_divulgacao,disponibilidade,classificacao")
+        .select("id,user_id,store_provider,affiliate_url,permitido_afiliado,permitido_divulgacao,created_at")
         .eq("id", offerId)
         .eq("user_id", page.user_id)
         .eq("permitido_afiliado", true)
         .eq("permitido_divulgacao", true)
-        .eq("disponibilidade", true)
-        .eq("classificacao", "interessante")
+        .gte("created_at", retentionCutoff)
         .maybeSingle();
       if (offerError) throw offerError;
       if (!offer || !isValidHttpUrl(offer.affiliate_url)) {
