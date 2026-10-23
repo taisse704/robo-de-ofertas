@@ -945,8 +945,8 @@ export default function App() {
       const falhas = resultados.filter((r) => !r.ok).length;
       setMensagemConteudo(
         `Publicação em todas as redes compatíveis finalizada: ${sucessos} publicada(s), ${emProcessamento} em processamento e ${falhas} erro(s).\n` +
-        resumo.join("\\n") +
-        "\\nObservação: Facebook e WhatsApp ainda não possuem conector de publicação automática neste projeto."
+        resumo.join("\n") +
+        "\nObservação: Facebook e WhatsApp ainda não possuem conector de publicação automática neste projeto."
       );
       await carregarConteudos();
     } catch (error) {
