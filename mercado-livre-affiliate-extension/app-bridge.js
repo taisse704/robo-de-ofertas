@@ -1,3 +1,4 @@
+(() => {
 const SOURCE = "robo-de-ofertas";
 const BRIDGE_STATE_KEY = "__ROBO_OFERTAS_APP_BRIDGE_V2__";
 
@@ -66,3 +67,5 @@ if (contextoValido()) {
 try {
   window[BRIDGE_STATE_KEY] = { onWindowMessage, onRuntimeMessage, runtimeId: chrome?.runtime?.id || null, connectedAt: Date.now() };
 } catch {}
+
+})();
