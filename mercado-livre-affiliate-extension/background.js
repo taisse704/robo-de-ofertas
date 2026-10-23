@@ -503,35 +503,3 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   limparTimeoutProcessamento();
   if (fila.length) setTimeout(() => enviarItemAtual().catch(() => {}), 500);
 });
-
-
-// Recupera a ponte do site sem exigir que a usuária atualize todas as abas.
-const ROBO_BRIDGE_RECOVERY_ALARM = "robo-bridge-recovery";
-async function recuperarPonteDoApp() {
-  try {
-    const tabs = await chrome.tabs.query({
-      url: ["https://taisse704.github.io/*", "https://achadinhosrob.pages.dev/*"]
-    });
-    for (const tab of tabs) {
-      if (!tab.id || !tab.url || !isAppUrl(tab.url)) continue;
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ["app-bridge.js"]
-        });
-      } catch (error) {
-        // Uma aba pode estar fechando ou em uma navegação; a próxima rodada tenta novamente.
-      }
-    }
-  } catch {}
-}
-
-function iniciarRecuperacaoPonte() {
-  try { chrome.alarms.create(ROBO_BRIDGE_RECOVERY_ALARM, { periodInMinutes: 1 }); } catch {}
-}
-iniciarRecuperacaoPonte();
-chrome.runtime.onInstalled.addListener(iniciarRecuperacaoPonte);
-chrome.runtime.onStartup.addListener(iniciarRecuperacaoPonte);
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm?.name === ROBO_BRIDGE_RECOVERY_ALARM) recuperarPonteDoApp();
-});
